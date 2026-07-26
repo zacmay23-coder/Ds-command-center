@@ -1,0 +1,19 @@
+{
+  "name": "ds-command-center-readable",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tesseract.js-data/eng": "^1.0.0",
+    "tesseract.js": "5.1.1"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "seed": "node scripts/seed-from-legacy.js",
+    "check": "node --check server.js && node --check src/dataStore.js && node --check src/resultScreenshotReader.js && node --check scripts/seed-from-legacy.js && node --check public/app.js && node --check public/auth.js && node --check public/login.js && node --check public/register.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

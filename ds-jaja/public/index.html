@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Desert Storm Command Center</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Shared Web Server Edition</p>
+        <h1>Desert Storm Command Center</h1>
+      </div>
+      <div class="header-actions">
+        <span id="saveStatus" class="status-pill">Connecting...</span>
+        <button id="refreshButton" class="secondary-button">Refresh</button>
+        <button id="logoutButton" class="secondary-button">Sign Out</button>
+        <button id="resetButton" class="danger-button">Reset Week</button>
+      </div>
+    </header>
+
+    <div class="app-shell">
+      <nav class="sidebar" aria-label="Command Center views">
+        <button class="active" data-view="dashboard">Dashboard</button>
+        <button data-view="directory">Directory</button>
+        <button data-view="teams">Teams</button>
+        <button data-view="assignments">Assignments</button>
+        <button data-view="results">Results</button>
+        <button data-view="history">History</button>
+      </nav>
+
+      <main>
+        <section id="dashboard" class="view active">
+          <div class="section-title">
+            <h2>Dashboard</h2>
+            <p>Roster health, weekly readiness, and officer priorities.</p>
+          </div>
+          <div id="summaryCards" class="summary-grid"></div>
+          <div id="readinessPanels" class="readiness-grid"></div>
+        </section>
+
+        <section id="directory" class="view">
+          <div class="section-title">
+            <h2>Master Directory</h2>
+            <p>Select the weekly roster and assign each player.</p>
+          </div>
+          <div class="toolbar">
+            <label>
+              Search
+              <input id="searchInput" type="search" placeholder="Player name">
+            </label>
+            <label>
+              Filter
+              <select id="filterInput">
+                <option value="all">All members</option>
+                <option value="selected">Selected this week</option>
+                <option value="reserve">Reserve only</option>
+              </select>
+            </label>
+          </div>
+          <div class="table-frame">
+            <table>
+              <thead>
+                <tr>
+                  <th>Selected</th>
+                  <th>Player</th>
+                  <th>Rank</th>
+                  <th>Team</th>
+                  <th>Role</th>
+                  <th>Unit</th>
+                  <th>Availability</th>
+                </tr>
+              </thead>
+              <tbody id="directoryRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="teams" class="view">
+          <div class="section-title">
+            <h2>Teams</h2>
+            <p>Each team supports 20 starters and 10 substitutes.</p>
+          </div>
+          <div class="strategy-bar">
+            <label>
+              Team A strategy
+              <select id="strategyA"></select>
+            </label>
+            <label>
+              Team B strategy
+              <select id="strategyB"></select>
+            </label>
+          </div>
+          <div id="teamPanels" class="team-grid"></div>
+        </section>
+
+        <section id="assignments" class="view">
+          <div class="section-title">
+            <h2>Assignments</h2>
+            <p>Selected players grouped by unit and availability.</p>
+          </div>
+          <div id="assignmentBoard" class="assignment-grid"></div>
+        </section>
+
+        <section id="results" class="view">
+          <div class="section-title">
+            <h2>Results</h2>
+            <p>Record attendance and scores, then archive the week.</p>
+          </div>
+          <div class="screenshot-import panel">
+            <div>
+              <h3>Import Results Screenshot</h3>
+              <p class="muted">Upload a Battle Results ranking screenshot. Matched scores are staged for the selected team without changing the directory roster.</p>
+            </div>
+            <label>
+              Result team
+              <select id="screenshotTeam">
+                <option value="A">Team A</option>
+                <option value="B">Team B</option>
+              </select>
+            </label>
+            <label class="file-picker">
+              Screenshot
+              <input id="screenshotInput" type="file" accept="image/*">
+            </label>
+            <button id="importScreenshotButton" class="secondary-button" type="button">Read Screenshot</button>
+            <p id="importStatus" class="muted import-status">No screenshot selected.</p>
+            <div id="importMatches" class="import-matches"></div>
+          </div>
+          <form id="battleForm" class="battle-form">
+            <label>Battle date<input name="date" type="date"></label>
+            <label>Opponent<input name="opponent" placeholder="Opponent alliance"></label>
+            <label>Outcome
+              <select name="outcome">
+                <option>Win</option>
+                <option>Loss</option>
+                <option>Undecided</option>
+              </select>
+            </label>
+            <label>Our score<input name="scoreFor" type="number" min="0" value="0"></label>
+            <label>Enemy score<input name="scoreAgainst" type="number" min="0" value="0"></label>
+            <label class="notes-field">Notes<textarea name="notes" placeholder="Debrief notes"></textarea></label>
+            <button class="primary-button" type="submit">Archive Battle</button>
+          </form>
+          <div class="table-frame">
+            <table>
+              <thead>
+                <tr>
+                  <th>Player</th>
+                  <th>Team</th>
+                  <th>Attendance</th>
+                  <th>Score</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody id="resultRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="history" class="view">
+          <div class="section-title">
+            <h2>History</h2>
+            <p>Archived battles saved on the server.</p>
+          </div>
+          <div id="historyList" class="history-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
