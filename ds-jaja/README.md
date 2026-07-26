@@ -2,6 +2,17 @@
 
 A readable server-backed remake of the original single-file Command Center.
 
+## Project knowledge
+
+Read [`DESERT_STORM_PROJECT_KNOWLEDGE.md`](DESERT_STORM_PROJECT_KNOWLEDGE.md)
+before changing event terminology, team assignments, map objectives, readiness,
+results, or battle-history behavior. It records the researched event mechanics,
+the project owner's canonical map, product goals, domain model, and
+patch-sensitive uncertainties.
+
+Implementation priorities and release milestones are maintained in
+[`ROADMAP.md`](ROADMAP.md).
+
 ## What changed
 
 - The server is now the source of truth.

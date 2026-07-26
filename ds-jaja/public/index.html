@@ -25,7 +25,8 @@
         <button class="active" data-view="dashboard">Dashboard</button>
         <button data-view="directory">Directory</button>
         <button data-view="teams">Teams</button>
-        <button data-view="assignments">Assignments</button>
+        <button data-view="assignmentsA">Team A Assignments</button>
+        <button data-view="assignmentsB">Team B Assignments</button>
         <button data-view="results">Results</button>
         <button data-view="history">History</button>
       </nav>
@@ -88,19 +89,47 @@
               <select id="strategyA"></select>
             </label>
             <label>
+              Team A server time
+              <select id="battleTimeA"></select>
+            </label>
+            <label>
               Team B strategy
               <select id="strategyB"></select>
+            </label>
+            <label>
+              Team B server time
+              <select id="battleTimeB"></select>
             </label>
           </div>
           <div id="teamPanels" class="team-grid"></div>
         </section>
 
-        <section id="assignments" class="view">
+        <section id="assignmentsA" class="view">
           <div class="section-title">
-            <h2>Assignments</h2>
-            <p>Selected players grouped by unit and availability.</p>
+            <h2>Team A Map Assignments</h2>
+            <p>Team A players grouped by their assigned Desert Storm structure · <strong id="assignmentTimeA"></strong></p>
           </div>
-          <div id="assignmentBoard" class="assignment-grid"></div>
+          <div class="map-key panel">
+            <strong>Desert Storm battle map</strong>
+            <span>West: Oil Refinery 1 and Field Hospital 1</span>
+            <span>Center: Info Center, Arsenal, Nuclear Silo, Field Hospital 3, and Mercenary Factory</span>
+            <span>East: Field Hospitals 2 and 4, Oil Refinery 2, and Science Hub</span>
+          </div>
+          <div id="assignmentBoardA" class="assignment-grid"></div>
+        </section>
+
+        <section id="assignmentsB" class="view">
+          <div class="section-title">
+            <h2>Team B Map Assignments</h2>
+            <p>Team B players grouped by their assigned Desert Storm structure · <strong id="assignmentTimeB"></strong></p>
+          </div>
+          <div class="map-key panel">
+            <strong>Desert Storm battle map</strong>
+            <span>West: Oil Refinery 1 and Field Hospital 1</span>
+            <span>Center: Info Center, Arsenal, Nuclear Silo, Field Hospital 3, and Mercenary Factory</span>
+            <span>East: Field Hospitals 2 and 4, Oil Refinery 2, and Science Hub</span>
+          </div>
+          <div id="assignmentBoardB" class="assignment-grid"></div>
         </section>
 
         <section id="results" class="view">

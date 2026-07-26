@@ -49,17 +49,37 @@ const strategies = [
   "Late-Game Strike"
 ];
 
+const serverTimes = ["09:00", "18:00", "23:00"];
+
 const units = [
   "Unassigned",
-  "A",
-  "B",
-  "C",
-  "D",
-  "Strike Team",
-  "Disrupters",
-  "Scout + Support",
-  "Reserve / Relief"
+  "Oil Refinery 1",
+  "Oil Refinery 2",
+  "Field Hospital 1",
+  "Field Hospital 2",
+  "Field Hospital 3",
+  "Field Hospital 4",
+  "Info Center",
+  "Arsenal",
+  "Nuclear Silo",
+  "Mercenary Factory",
+  "Science Hub"
 ];
+
+const unitResponsibilities = {
+  "Unassigned": "Await officer assignment before battle.",
+  "Oil Refinery 1": "Capture and defend the west refinery; report pressure early and hold until relieved.",
+  "Oil Refinery 2": "Capture and defend the east refinery; coordinate rotations with the Science Hub.",
+  "Field Hospital 1": "Secure the southwest hospital and protect the blue-side approach.",
+  "Field Hospital 2": "Secure the east hospital and watch the red-side approach.",
+  "Field Hospital 3": "Hold the south-central hospital and reinforce the Mercenary Factory lane.",
+  "Field Hospital 4": "Hold the north-east hospital and support the Arsenal lane.",
+  "Info Center": "Control the north-west information structure and relay enemy movement.",
+  "Arsenal": "Contest and hold the north-central Arsenal; call reinforcements before control is lost.",
+  "Nuclear Silo": "Prioritize the central Nuclear Silo and coordinate team-wide reinforcement.",
+  "Mercenary Factory": "Control the south-central factory and protect rotations between southern objectives.",
+  "Science Hub": "Secure the south-east Science Hub and support Oil Refinery 2."
+};
 
 let state = null;
 
@@ -70,12 +90,17 @@ const elements = {
   directoryRows: document.querySelector("#directoryRows"),
   resultRows: document.querySelector("#resultRows"),
   teamPanels: document.querySelector("#teamPanels"),
-  assignmentBoard: document.querySelector("#assignmentBoard"),
+  assignmentBoardA: document.querySelector("#assignmentBoardA"),
+  assignmentBoardB: document.querySelector("#assignmentBoardB"),
   historyList: document.querySelector("#historyList"),
   searchInput: document.querySelector("#searchInput"),
   filterInput: document.querySelector("#filterInput"),
   strategyA: document.querySelector("#strategyA"),
   strategyB: document.querySelector("#strategyB"),
+  battleTimeA: document.querySelector("#battleTimeA"),
+  battleTimeB: document.querySelector("#battleTimeB"),
+  assignmentTimeA: document.querySelector("#assignmentTimeA"),
+  assignmentTimeB: document.querySelector("#assignmentTimeB"),
   battleForm: document.querySelector("#battleForm"),
   screenshotInput: document.querySelector("#screenshotInput"),
   importScreenshotButton: document.querySelector("#importScreenshotButton"),
@@ -140,6 +165,8 @@ function bindControls() {
   elements.resultRows.addEventListener("change", handleMemberChange);
   elements.strategyA.addEventListener("change", () => saveSettings({ strategyA: elements.strategyA.value }));
   elements.strategyB.addEventListener("change", () => saveSettings({ strategyB: elements.strategyB.value }));
+  elements.battleTimeA.addEventListener("change", () => saveSettings({ battleTimeA: elements.battleTimeA.value }));
+  elements.battleTimeB.addEventListener("change", () => saveSettings({ battleTimeB: elements.battleTimeB.value }));
   elements.battleForm.addEventListener("submit", archiveBattle);
   elements.importScreenshotButton.addEventListener("click", importResultsScreenshot);
   elements.importMatches.addEventListener("click", handleMatchFixClick);
@@ -153,6 +180,8 @@ function logout() {
 function fillStrategySelects() {
   elements.strategyA.innerHTML = optionHtml(strategies);
   elements.strategyB.innerHTML = optionHtml(strategies);
+  elements.battleTimeA.innerHTML = optionHtml(serverTimes);
+  elements.battleTimeB.innerHTML = optionHtml(serverTimes);
 }
 
 function render() {
@@ -164,6 +193,10 @@ function render() {
   renderHistory();
   elements.strategyA.value = state.settings.strategyA;
   elements.strategyB.value = state.settings.strategyB;
+  elements.battleTimeA.value = state.settings.battleTimeA;
+  elements.battleTimeB.value = state.settings.battleTimeB;
+  elements.assignmentTimeA.textContent = `${state.settings.battleTimeA} Server Time`;
+  elements.assignmentTimeB.textContent = `${state.settings.battleTimeB} Server Time`;
 }
 
 function renderDashboard() {
@@ -209,6 +242,7 @@ function renderTeams() {
     return `
       <article class="panel">
         <h3>Team ${team}</h3>
+        <p class="team-battle-time">${escapeHtml(state.settings[`battleTime${team}`])} Server Time</p>
         <p class="muted">${starters.length}/20 starters · ${subs.length}/10 substitutes</p>
         ${teamList("Starters", starters)}
         ${teamList("Substitutes", subs)}
@@ -218,26 +252,35 @@ function renderTeams() {
 }
 
 function renderAssignments() {
-  const groups = selected().reduce((byUnit, member) => {
-    const unit = member.unit || "Unassigned";
+  renderTeamAssignments("A", elements.assignmentBoardA);
+  renderTeamAssignments("B", elements.assignmentBoardB);
+}
+
+function renderTeamAssignments(team, board) {
+  const groups = selected(team).reduce((byUnit, member) => {
+    const unit = assignedUnit(member);
     if (!byUnit.has(unit)) byUnit.set(unit, []);
     byUnit.get(unit).push(member);
     return byUnit;
   }, new Map());
 
-  elements.assignmentBoard.innerHTML = units
+  board.innerHTML = units
     .filter((unit) => groups.has(unit))
     .map((unit) => `
       <article class="panel">
-        <h3>${escapeHtml(unit)}</h3>
+        <div class="assignment-heading">
+          <h3>${escapeHtml(unit)}</h3>
+          <span>${groups.get(unit).length} assigned</span>
+        </div>
+        <p class="unit-responsibility">${escapeHtml(unitResponsibilities[unit])}</p>
         ${(groups.get(unit) || []).map((member) => `
           <div class="assignment-item">
             <strong>${escapeHtml(member.name)}</strong>
-            <span>${escapeHtml(member.team)} · ${escapeHtml(member.type)} · ${escapeHtml(member.availability)}</span>
+            <span>${escapeHtml(member.type)} · ${escapeHtml(member.availability)}</span>
           </div>
         `).join("")}
       </article>
-    `).join("") || `<article class="panel"><p>No players are selected yet.</p></article>`;
+    `).join("") || `<article class="panel"><p>No Team ${team} players are selected yet.</p></article>`;
 }
 
 function renderResults() {
@@ -446,7 +489,7 @@ function directoryRow(member) {
       <td>${escapeHtml(member.rank)}</td>
       <td><select data-member-id="${member.id}" data-field="team">${optionHtml(["Reserve", "A", "B"], member.team)}</select></td>
       <td><select data-member-id="${member.id}" data-field="type">${optionHtml(["Starter", "Sub"], member.type)}</select></td>
-      <td><select data-member-id="${member.id}" data-field="unit">${optionHtml(units, member.unit)}</select></td>
+      <td><select data-member-id="${member.id}" data-field="unit">${optionHtml(units, assignedUnit(member))}</select></td>
       <td><select data-member-id="${member.id}" data-field="availability">${optionHtml(["Pending", "Confirmed", "Not available"], member.availability)}</select></td>
     </tr>
     ${expanded ? playerHistoryRow(member, history) : ""}
@@ -501,7 +544,7 @@ function selected(team) {
 function readiness(team) {
   const members = selected(team);
   const confirmed = members.filter((member) => member.availability === "Confirmed").length;
-  const assigned = members.filter((member) => member.unit && member.unit !== "Unassigned").length;
+  const assigned = members.filter((member) => assignedUnit(member) !== "Unassigned").length;
   const starters = members.filter((member) => member.type === "Starter").length;
   const subs = members.filter((member) => member.type === "Sub").length;
   const score = Math.round(
@@ -533,7 +576,7 @@ function teamList(title, members) {
   return `
     <div class="team-list">
       <h4>${title}</h4>
-      ${members.map((member) => `<p>${escapeHtml(member.name)} <span>${escapeHtml(member.unit)} · ${escapeHtml(member.availability)}</span></p>`).join("") || `<p class="muted">None assigned</p>`}
+      ${members.map((member) => `<p>${escapeHtml(member.name)} <span>${escapeHtml(assignedUnit(member))} · ${escapeHtml(member.availability)}</span></p>`).join("") || `<p class="muted">None assigned</p>`}
     </div>
   `;
 }
@@ -544,6 +587,10 @@ function summaryCard(label, value) {
 
 function optionHtml(items, current = "") {
   return items.map((item) => `<option ${item === current ? "selected" : ""}>${escapeHtml(item)}</option>`).join("");
+}
+
+function assignedUnit(member) {
+  return units.includes(member?.unit) ? member.unit : "Unassigned";
 }
 
 function normalizeFieldValue(field, value) {

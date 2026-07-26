@@ -1,6 +1,6 @@
 {
   "schema": "dscc-readable-v1",
-  "updatedAt": "2026-07-26T06:32:25.269Z",
+  "updatedAt": "2026-07-26T07:59:39.966Z",
   "settings": {
     "strategyA": "Standard Control & Rotation",
     "strategyB": "Standard Control & Rotation"
@@ -10,15 +10,16 @@
       "id": "m1",
       "name": "Dark Wizard",
       "rank": "R5",
-      "selected": false,
+      "selected": true,
       "team": "A",
       "type": "Starter",
-      "unit": "Unassigned",
-      "availability": "Pending",
+      "unit": "Strike Team",
+      "availability": "Confirmed",
       "weeks": 0,
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -27,15 +28,16 @@
       "id": "m2",
       "name": "CoDyMcG",
       "rank": "R4",
-      "selected": false,
-      "team": "Reserve",
-      "type": "Sub",
-      "unit": "Unassigned",
-      "availability": "Pending",
+      "selected": true,
+      "team": "A",
+      "type": "Starter",
+      "unit": "Strike Team",
+      "availability": "Confirmed",
       "weeks": 0,
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -53,6 +55,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -70,6 +73,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -87,6 +91,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -104,6 +109,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -121,6 +127,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -138,6 +145,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -155,6 +163,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -172,6 +181,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -189,6 +199,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -206,6 +217,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -223,6 +235,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -240,6 +253,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -257,6 +271,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -274,6 +289,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -291,6 +307,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -308,6 +325,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -325,6 +343,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -342,6 +361,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -359,6 +379,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -376,6 +397,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -393,6 +415,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -410,6 +433,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -427,6 +451,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -444,6 +469,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -461,6 +487,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -478,6 +505,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -495,6 +523,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -512,6 +541,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -529,6 +559,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -546,6 +577,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -563,6 +595,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -580,6 +613,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -597,6 +631,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -614,6 +649,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -631,6 +667,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -648,6 +685,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -665,6 +703,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -682,6 +721,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -699,6 +739,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -716,6 +757,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -733,6 +775,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -750,6 +793,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -767,6 +811,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -784,6 +829,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -801,6 +847,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -818,6 +865,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -835,6 +883,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -852,6 +901,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -869,6 +919,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -886,6 +937,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -903,6 +955,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -920,6 +973,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -937,6 +991,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -954,6 +1009,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -971,6 +1027,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -988,6 +1045,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1005,6 +1063,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1022,6 +1081,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1039,6 +1099,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1056,6 +1117,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1073,6 +1135,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1090,6 +1153,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1107,6 +1171,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1124,6 +1189,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1141,6 +1207,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1158,6 +1225,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1175,6 +1243,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1192,6 +1261,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1209,6 +1279,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1226,6 +1297,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1243,6 +1315,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1260,6 +1333,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1277,6 +1351,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1294,6 +1369,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1311,6 +1387,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1328,6 +1405,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1345,6 +1423,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1362,6 +1441,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1379,6 +1459,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1396,6 +1477,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1413,6 +1495,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1430,6 +1513,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1447,6 +1531,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1464,6 +1549,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1481,6 +1567,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1498,6 +1585,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1515,6 +1603,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1532,6 +1621,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1549,6 +1639,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1566,6 +1657,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1583,6 +1675,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1600,6 +1693,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1617,6 +1711,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1634,6 +1729,7 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
@@ -1651,10 +1747,12 @@
       "confirmed": 0,
       "attended": 0,
       "noShows": 0,
+      "aliases": [],
       "weekScore": 0,
       "weekAttendance": "",
       "weekNotes": ""
     }
   ],
+  "pendingResults": [],
   "battles": []
 }

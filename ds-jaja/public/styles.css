@@ -264,6 +264,58 @@ th {
   font-size: 12px;
 }
 
+.team-battle-time {
+  color: var(--accent-strong);
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.map-key {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 16px;
+}
+
+.map-key span,
+.unit-responsibility,
+.assignment-heading span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.assignment-heading {
+  align-items: start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.assignment-heading h3 {
+  margin: 0;
+}
+
+.assignment-heading span {
+  white-space: nowrap;
+}
+
+.unit-responsibility {
+  border-bottom: 1px solid var(--line);
+  line-height: 1.45;
+  margin: 8px 0 4px;
+  padding-bottom: 12px;
+}
+
+.assignment-item {
+  border-bottom: 1px solid var(--line);
+  padding: 10px 0;
+}
+
+.assignment-item:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
 .history-list {
   display: grid;
   gap: 12px;
