@@ -1,6 +1,6 @@
 {
   "schema": "dscc-readable-v1",
-  "updatedAt": "2026-07-26T07:59:39.966Z",
+  "updatedAt": "2026-07-27T04:31:13.364Z",
   "settings": {
     "strategyA": "Standard Control & Rotation",
     "strategyB": "Standard Control & Rotation"
@@ -10,7 +10,7 @@
       "id": "m1",
       "name": "Dark Wizard",
       "rank": "R5",
-      "selected": true,
+      "selected": false,
       "team": "A",
       "type": "Starter",
       "unit": "Strike Team",
@@ -28,7 +28,7 @@
       "id": "m2",
       "name": "CoDyMcG",
       "rank": "R4",
-      "selected": true,
+      "selected": false,
       "team": "A",
       "type": "Starter",
       "unit": "Strike Team",

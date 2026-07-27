@@ -31,6 +31,9 @@ const api = {
       body: JSON.stringify(payload)
     });
   },
+  async deleteBattle(id) {
+    return request(`/api/battles/${encodeURIComponent(id)}`, { method: "DELETE" });
+  },
   async importResultsScreenshot(file, team) {
     const formData = new FormData();
     formData.append("screenshot", file);
@@ -181,6 +184,7 @@ function bindControls() {
   elements.battleForm.addEventListener("submit", archiveBattle);
   elements.importScreenshotButton.addEventListener("click", importResultsScreenshot);
   elements.importMatches.addEventListener("click", handleMatchFixClick);
+  elements.historyList.addEventListener("click", handleHistoryClick);
 }
 
 function logout() {
@@ -327,6 +331,9 @@ function renderResults() {
 function renderHistory() {
   elements.historyList.innerHTML = state.battles.map((battle) => `
     <article class="history-card">
+      <div class="history-card-actions">
+        <button class="delete-battle-button" type="button" data-delete-battle="${escapeHtml(battle.id)}">Delete Battle</button>
+      </div>
       <h3>${escapeHtml(battle.date)} · ${escapeHtml(battle.outcome)} vs ${escapeHtml(battle.opponent)}</h3>
       <p>${Number(battle.scoreFor).toLocaleString()} - ${Number(battle.scoreAgainst).toLocaleString()}</p>
       <p class="muted">${escapeHtml(battle.players.length)} players archived · ${escapeHtml(battle.notes || "No notes")}</p>
@@ -350,6 +357,23 @@ function renderHistory() {
       </div>
     </article>
   `).join("") || `<article class="panel"><p>No battles have been archived yet.</p></article>`;
+}
+
+async function handleHistoryClick(event) {
+  const button = event.target.closest("[data-delete-battle]");
+  if (!button) return;
+
+  const battle = state.battles.find((item) => item.id === button.dataset.deleteBattle);
+  if (!battle || !confirm(`Delete the archived battle against ${battle.opponent} on ${battle.date}? This cannot be undone.`)) return;
+
+  try {
+    setStatus("Deleting battle...");
+    state = await api.deleteBattle(battle.id);
+    render();
+    setStatus("Battle deleted");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
 }
 
 async function handleMemberChange(event) {

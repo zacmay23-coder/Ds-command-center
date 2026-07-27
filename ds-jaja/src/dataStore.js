@@ -177,8 +177,10 @@ export async function archiveBattle(payload) {
     attendance: member.weekAttendance || "",
     score: Number(member.weekScore || 0),
     notes: member.weekNotes || "",
-    source: "manual"
+    source: "manual",
+    countedInStats: true
   }));
+  const selectedIds = new Set(selectedMembers.map((member) => member.id));
   const importedPlayers = state.pendingResults.map((result) => ({
     id: result.memberId,
     name: result.name,
@@ -190,7 +192,8 @@ export async function archiveBattle(payload) {
     attendance: result.attendance || "Present",
     score: Number(result.score || 0),
     notes: result.notes || "",
-    source: "screenshot"
+    source: "screenshot",
+    countedInStats: selectedIds.has(result.memberId)
   }));
   const importedIds = new Set(importedPlayers.map((player) => player.id));
   const players = [
@@ -227,6 +230,33 @@ export async function archiveBattle(payload) {
 
   state.battles.unshift(battle);
   state.pendingResults = [];
+  return saveState();
+}
+
+export async function deleteBattle(battleId) {
+  const state = await getState();
+  const index = state.battles.findIndex((battle) => battle.id === battleId);
+  if (index < 0) throw new Error(`Archived battle ${battleId} was not found`);
+
+  const [battle] = state.battles.splice(index, 1);
+  for (const player of battle.players || []) {
+    const countedInStats = player.countedInStats ?? player.source !== "screenshot";
+    if (!countedInStats) continue;
+    const member = state.members.find((item) => item.id === player.id);
+    if (!member) continue;
+
+    member.weeks = Math.max(0, Number(member.weeks || 0) - 1);
+    if (player.availability === "Confirmed") {
+      member.confirmed = Math.max(0, Number(member.confirmed || 0) - 1);
+    }
+    if (["Present", "Late"].includes(player.attendance)) {
+      member.attended = Math.max(0, Number(member.attended || 0) - 1);
+    }
+    if (player.attendance === "No-show") {
+      member.noShows = Math.max(0, Number(member.noShows || 0) - 1);
+    }
+  }
+
   return saveState();
 }
 

@@ -343,6 +343,21 @@ th {
   gap: 12px;
 }
 
+.history-card-actions {
+  display: flex;
+  float: right;
+  margin-left: 12px;
+}
+
+.delete-battle-button {
+  background: #451b24;
+  border: 1px solid #7a2a38;
+  border-radius: 7px;
+  color: #ffd6dc;
+  min-height: 34px;
+  padding: 6px 10px;
+}
+
 .history-score-table {
   border: 1px solid var(--line);
   border-radius: 7px;

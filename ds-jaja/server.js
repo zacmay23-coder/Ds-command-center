@@ -7,6 +7,7 @@ import {
   applyResultMatchFix,
   applyResultScreenshotMatches,
   archiveBattle,
+  deleteBattle,
   deleteMember,
   getState,
   replaceState,
@@ -96,6 +97,12 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/archive-battle") {
     const payload = await readJsonBody(request);
     sendJson(response, 201, await archiveBattle(payload));
+    return;
+  }
+
+  if (request.method === "DELETE" && url.pathname.startsWith("/api/battles/")) {
+    const battleId = decodeURIComponent(url.pathname.split("/").pop());
+    sendJson(response, 200, await deleteBattle(battleId));
     return;
   }
 
