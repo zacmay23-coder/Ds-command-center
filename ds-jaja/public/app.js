@@ -10,6 +10,15 @@ const api = {
       body: JSON.stringify(patch)
     });
   },
+  async addMember(member) {
+    return request("/api/members", {
+      method: "POST",
+      body: JSON.stringify(member)
+    });
+  },
+  async deleteMember(id) {
+    return request(`/api/members/${encodeURIComponent(id)}`, { method: "DELETE" });
+  },
   async updateSettings(patch) {
     return request("/api/settings", {
       method: "PATCH",
@@ -108,6 +117,7 @@ const elements = {
   importStatus: document.querySelector("#importStatus"),
   importMatches: document.querySelector("#importMatches")
 };
+elements.addMemberForm = document.querySelector("#addMemberForm");
 const expandedPlayers = new Set();
 
 document.addEventListener("DOMContentLoaded", initialize);
@@ -162,6 +172,7 @@ function bindControls() {
   elements.filterInput.addEventListener("change", renderDirectory);
   elements.directoryRows.addEventListener("change", handleMemberChange);
   elements.directoryRows.addEventListener("click", handleDirectoryClick);
+  elements.addMemberForm.addEventListener("submit", addMember);
   elements.resultRows.addEventListener("change", handleMemberChange);
   elements.strategyA.addEventListener("change", () => saveSettings({ strategyA: elements.strategyA.value }));
   elements.strategyB.addEventListener("change", () => saveSettings({ strategyB: elements.strategyB.value }));
@@ -230,7 +241,7 @@ function renderDirectory() {
     .map(directoryRow)
     .join("");
 
-  elements.directoryRows.innerHTML = rows || `<tr><td colspan="7">No members match this view.</td></tr>`;
+  elements.directoryRows.innerHTML = rows || `<tr><td colspan="8">No members match this view.</td></tr>`;
 }
 
 function renderTeams() {
@@ -360,6 +371,34 @@ async function handleMemberChange(event) {
   }
 }
 
+async function addMember(event) {
+  event.preventDefault();
+  const formData = new FormData(elements.addMemberForm);
+  try {
+    setStatus("Adding member...");
+    state = await api.addMember(Object.fromEntries(formData.entries()));
+    elements.addMemberForm.reset();
+    render();
+    setStatus("Member added");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+async function removeMember(memberId) {
+  const member = state.members.find((item) => item.id === memberId);
+  if (!member || !confirm(`Delete ${member.name} from the roster? Their archived battle history will be kept.`)) return;
+  try {
+    setStatus("Deleting member...");
+    state = await api.deleteMember(memberId);
+    expandedPlayers.delete(memberId);
+    render();
+    setStatus("Member deleted");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
 async function saveSettings(patch) {
   try {
     setStatus("Saving settings...");
@@ -483,7 +522,7 @@ function directoryRow(member) {
       <td><input data-member-id="${member.id}" data-field="selected" type="checkbox" ${member.selected ? "checked" : ""}></td>
       <td>
         <button class="row-expander" type="button" data-expand-player="${member.id}" aria-expanded="${expanded}">${expanded ? "Hide" : "Show"}</button>
-        <strong>${escapeHtml(member.name)}</strong>
+        <input class="member-name-input" aria-label="Name for ${escapeHtml(member.name)}" data-member-id="${member.id}" data-field="name" maxlength="80" value="${escapeHtml(member.name)}">
         <span class="history-count">${history.length} DS</span>
       </td>
       <td>${escapeHtml(member.rank)}</td>
@@ -491,12 +530,19 @@ function directoryRow(member) {
       <td><select data-member-id="${member.id}" data-field="type">${optionHtml(["Starter", "Sub"], member.type)}</select></td>
       <td><select data-member-id="${member.id}" data-field="unit">${optionHtml(units, assignedUnit(member))}</select></td>
       <td><select data-member-id="${member.id}" data-field="availability">${optionHtml(["Pending", "Confirmed", "Not available"], member.availability)}</select></td>
+      <td><button class="delete-member-button" type="button" data-delete-member="${member.id}" aria-label="Delete ${escapeHtml(member.name)}">Delete</button></td>
     </tr>
     ${expanded ? playerHistoryRow(member, history) : ""}
   `;
 }
 
 function handleDirectoryClick(event) {
+  const deleteButton = event.target.closest("[data-delete-member]");
+  if (deleteButton) {
+    removeMember(deleteButton.dataset.deleteMember);
+    return;
+  }
+
   const button = event.target.closest("[data-expand-player]");
   if (!button) return;
 
@@ -530,7 +576,7 @@ function playerHistoryRow(member, history) {
 
   return `
     <tr class="player-history-row">
-      <td colspan="7">
+      <td colspan="8">
         <div class="player-history-panel">${content}</div>
       </td>
     </tr>

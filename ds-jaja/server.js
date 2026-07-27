@@ -3,9 +3,11 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  addMember,
   applyResultMatchFix,
   applyResultScreenshotMatches,
   archiveBattle,
+  deleteMember,
   getState,
   replaceState,
   resetWeek,
@@ -71,6 +73,17 @@ async function handleApi(request, response, url) {
     const memberId = decodeURIComponent(url.pathname.split("/").pop());
     const patch = await readJsonBody(request);
     sendJson(response, 200, await updateMember(memberId, patch));
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/members") {
+    sendJson(response, 201, await addMember(await readJsonBody(request)));
+    return;
+  }
+
+  if (request.method === "DELETE" && url.pathname.startsWith("/api/members/")) {
+    const memberId = decodeURIComponent(url.pathname.split("/").pop());
+    sendJson(response, 200, await deleteMember(memberId));
     return;
   }
 

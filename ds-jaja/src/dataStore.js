@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -55,9 +56,36 @@ export async function updateMember(memberId, patch) {
   }
 
   const nextMember = { ...member, ...pickMemberFields(patch) };
+  nextMember.name = String(nextMember.name).trim();
+  validateMemberName(nextMember.name, state, memberId);
   validateRosterCapacity(state, member, nextMember);
   Object.assign(member, nextMember);
 
+  for (const result of state.pendingResults) {
+    if (result.memberId === memberId) result.name = member.name;
+  }
+
+  return saveState();
+}
+
+export async function addMember(input) {
+  const state = await getState();
+  const name = String(input?.name || "").trim();
+  validateMemberName(name, state);
+  state.members.push(normalizeMember({
+    id: `member-${randomUUID()}`,
+    name,
+    rank: String(input?.rank || "").trim()
+  }));
+  return saveState();
+}
+
+export async function deleteMember(memberId) {
+  const state = await getState();
+  const index = state.members.findIndex((member) => member.id === memberId);
+  if (index < 0) throw new Error(`Member ${memberId} was not found`);
+  state.members.splice(index, 1);
+  state.pendingResults = state.pendingResults.filter((result) => result.memberId !== memberId);
   return saveState();
 }
 
@@ -293,6 +321,7 @@ function normalizeTeam(team) {
 
 function pickMemberFields(patch) {
   return pick(patch, [
+    "name",
     "selected",
     "team",
     "type",
@@ -302,6 +331,16 @@ function pickMemberFields(patch) {
     "weekAttendance",
     "weekNotes"
   ]);
+}
+
+function validateMemberName(value, state, currentMemberId = "") {
+  const name = String(value || "").trim();
+  if (!name) throw new Error("Member name is required");
+  if (name.length > 80) throw new Error("Member name must be 80 characters or fewer");
+  const duplicate = state.members.some(
+    (member) => member.id !== currentMemberId && member.name.trim().toLowerCase() === name.toLowerCase()
+  );
+  if (duplicate) throw new Error("A member with that name already exists");
 }
 
 function pick(source, allowedFields) {

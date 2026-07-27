@@ -47,6 +47,17 @@
             <p>Select the weekly roster and assign each player.</p>
           </div>
           <div class="toolbar">
+            <form id="addMemberForm" class="add-member-form">
+              <label>
+                New member
+                <input name="name" maxlength="80" required placeholder="Player name">
+              </label>
+              <label>
+                Rank
+                <input name="rank" maxlength="20" placeholder="R1–R5">
+              </label>
+              <button class="primary-button" type="submit">Add Member</button>
+            </form>
             <label>
               Search
               <input id="searchInput" type="search" placeholder="Player name">
@@ -71,6 +82,7 @@
                   <th>Role</th>
                   <th>Unit</th>
                   <th>Availability</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="directoryRows"></tbody>

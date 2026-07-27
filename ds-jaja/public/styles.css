@@ -193,6 +193,28 @@ main {
   margin-bottom: 16px;
 }
 
+.add-member-form {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-right: auto;
+}
+
+.member-name-input {
+  min-width: 170px;
+  width: 100%;
+}
+
+.delete-member-button {
+  background: transparent;
+  border: 1px solid #7a2a38;
+  border-radius: 7px;
+  color: #ffcbd2;
+  min-height: 34px;
+  padding: 6px 10px;
+}
+
 label {
   color: var(--muted);
   display: grid;
