@@ -19,7 +19,7 @@ form.addEventListener("submit", async (event) => {
     await register(data.get("email"), password, data.get("displayName"));
     message.textContent = "Member account created.";
     window.setTimeout(() => {
-      window.location.href = "/";
+      window.location.href = "/profile-link.html";
     }, 900);
   } catch (error) {
     message.textContent = error.message;

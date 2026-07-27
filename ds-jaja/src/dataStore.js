@@ -92,6 +92,11 @@ export async function ensureUser(firebaseUser, displayName = "", initialRole = "
     };
     state.users.push(user);
     await saveState();
+  } else if (initialRole === "administrator" && user.role !== "administrator") {
+    user.role = "administrator";
+    user.active = true;
+    user.lastLoginAt = now;
+    await saveState();
   } else if (displayName && !user.displayName) {
     user.displayName = String(displayName).trim();
     user.lastLoginAt = now;
@@ -117,10 +122,31 @@ export async function updateUser(userId, patch, actor) {
   if (playerId && !state.members.some((member) => member.id === playerId)) {
     throw new Error("Choose a valid player record");
   }
+  if (playerId && state.users.some((item) => item.uid !== userId && item.playerId === playerId)) {
+    throw new Error("That player record is already linked to another user");
+  }
 
   Object.assign(user, pick(patch, ["displayName", "active"]), { role: nextRole, playerId });
   addAuditLog(state, actor, "user.updated", { userId, role: nextRole, playerId });
   return saveState();
+}
+
+export async function linkOwnPlayer(userId, playerId) {
+  const state = await getState();
+  const user = state.users.find((item) => item.uid === userId);
+  if (!user) throw new Error("User record was not found");
+  if (user.playerId) throw new Error("Your account is already linked. Contact an administrator to change it.");
+
+  const member = state.members.find((item) => item.id === String(playerId || ""));
+  if (!member) throw new Error("Choose a valid roster profile");
+  if (state.users.some((item) => item.uid !== userId && item.playerId === member.id)) {
+    throw new Error("That roster profile is already linked to another account");
+  }
+
+  user.playerId = member.id;
+  addAuditLog(state, user, "user.player-linked", { userId, playerId: member.id });
+  await saveState();
+  return user;
 }
 
 export async function updateOwnAvailability(user, patch, expectedVersion) {

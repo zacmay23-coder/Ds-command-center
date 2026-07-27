@@ -11,6 +11,7 @@ import {
   deleteMember,
   ensureUser,
   getState,
+  linkOwnPlayer,
   replaceState,
   resetWeek,
   saveState,
@@ -61,7 +62,9 @@ async function handleApi(request, response, url) {
 
   const firebaseUser = await requireFirebaseUser(request, response);
   if (!firebaseUser) return;
-  const bootstrapEmail = String(process.env.DSCC_BOOTSTRAP_ADMIN_EMAIL || "").trim().toLowerCase();
+  const bootstrapEmail = String(
+    process.env.DSCC_BOOTSTRAP_ADMIN_EMAIL || "zacmay23@gmail.com"
+  ).trim().toLowerCase();
   const initialRole = bootstrapEmail && firebaseUser.email?.toLowerCase() === bootstrapEmail
     ? "administrator"
     : "member";
@@ -76,10 +79,25 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/available-player-profiles") {
+    const state = await getState();
+    const linkedPlayerIds = new Set(state.users.map((item) => item.playerId).filter(Boolean));
+    sendJson(response, 200, state.members
+      .filter((member) => !linkedPlayerIds.has(member.id) || member.id === user.playerId)
+      .map((member) => ({ id: member.id, name: member.name, rank: member.rank })));
+    return;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/register-profile") {
     const body = await readJsonBody(request);
     const profile = await ensureUser(firebaseUser, body.displayName);
     sendJson(response, 201, profile);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/link-player") {
+    const body = await readJsonBody(request);
+    sendJson(response, 200, await linkOwnPlayer(user.uid, body.playerId));
     return;
   }
 

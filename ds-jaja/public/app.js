@@ -7,6 +7,15 @@ const api = {
   async getMe() {
     return request("/api/me");
   },
+  async getUsers() {
+    return request("/api/users");
+  },
+  async updateUser(id, patch) {
+    return request(`/api/users/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch)
+    });
+  },
   async updateMember(id, patch) {
     return request(`/api/members/${encodeURIComponent(id)}`, {
       method: "PATCH",
@@ -98,6 +107,7 @@ const unitResponsibilities = {
 
 let state = null;
 let currentUser = null;
+let users = [];
 
 const elements = {
   saveStatus: document.querySelector("#saveStatus"),
@@ -109,6 +119,7 @@ const elements = {
   assignmentBoardA: document.querySelector("#assignmentBoardA"),
   assignmentBoardB: document.querySelector("#assignmentBoardB"),
   historyList: document.querySelector("#historyList"),
+  adminUserRows: document.querySelector("#adminUserRows"),
   searchInput: document.querySelector("#searchInput"),
   filterInput: document.querySelector("#filterInput"),
   strategyA: document.querySelector("#strategyA"),
@@ -135,7 +146,12 @@ async function initialize() {
   bindControls();
   fillStrategySelects();
   currentUser = await api.getMe();
+  if (currentUser.role === "member" && !currentUser.playerId) {
+    window.location.href = "/profile-link.html";
+    return;
+  }
   document.body.dataset.role = currentUser.role;
+  if (currentUser.role === "administrator") users = await api.getUsers();
   await refreshState();
 }
 
@@ -191,6 +207,7 @@ function bindControls() {
   elements.importScreenshotButton.addEventListener("click", importResultsScreenshot);
   elements.importMatches.addEventListener("click", handleMatchFixClick);
   elements.historyList.addEventListener("click", handleHistoryClick);
+  elements.adminUserRows.addEventListener("change", handleAdminUserChange);
 }
 
 function logout() {
@@ -212,6 +229,7 @@ function render() {
   renderAssignments();
   renderResults();
   renderHistory();
+  renderAdmin();
   elements.strategyA.value = state.settings.strategyA;
   elements.strategyB.value = state.settings.strategyB;
   elements.battleTimeA.value = state.settings.battleTimeA;
@@ -224,6 +242,7 @@ function render() {
 function applyPermissions() {
   const isMember = currentUser?.role === "member";
   const isAdmin = currentUser?.role === "administrator";
+  document.querySelector("#adminNavButton").hidden = !isAdmin;
   elements.addMemberForm.hidden = !isAdmin;
   document.querySelector("#resetButton").hidden = isMember;
   elements.importScreenshotButton.hidden = isMember;
@@ -238,6 +257,55 @@ function applyPermissions() {
     document.querySelectorAll("[data-member-id][data-field]").forEach((control) => {
       control.disabled = true;
     });
+  }
+}
+
+function renderAdmin() {
+  if (currentUser?.role !== "administrator") {
+    elements.adminUserRows.innerHTML = "";
+    return;
+  }
+
+  elements.adminUserRows.innerHTML = users.map((user) => `
+    <tr>
+      <td>${escapeHtml(user.displayName || "Unnamed user")}</td>
+      <td>${escapeHtml(user.email)}</td>
+      <td>
+        <select data-admin-user="${escapeHtml(user.uid)}" data-user-field="role" ${user.uid === currentUser.uid ? "disabled" : ""}>
+          ${optionHtml(["member", "officer", "administrator"], user.role)}
+        </select>
+      </td>
+      <td>
+        <select data-admin-user="${escapeHtml(user.uid)}" data-user-field="playerId">
+          <option value="">Not linked</option>
+          ${state.members.map((member) => `
+            <option value="${escapeHtml(member.id)}" ${member.id === user.playerId ? "selected" : ""}>${escapeHtml(member.name)}</option>
+          `).join("")}
+        </select>
+      </td>
+      <td>
+        <input data-admin-user="${escapeHtml(user.uid)}" data-user-field="active" type="checkbox" ${user.active ? "checked" : ""} ${user.uid === currentUser.uid ? "disabled" : ""}>
+      </td>
+      <td>${user.lastLoginAt ? escapeHtml(new Date(user.lastLoginAt).toLocaleString()) : "Never"}</td>
+    </tr>
+  `).join("") || `<tr><td colspan="6">No registered users found.</td></tr>`;
+}
+
+async function handleAdminUserChange(event) {
+  const userId = event.target.dataset.adminUser;
+  const field = event.target.dataset.userField;
+  if (!userId || !field) return;
+
+  const value = event.target.type === "checkbox" ? event.target.checked : event.target.value;
+  try {
+    setStatus("Updating user access...");
+    users = await api.updateUser(userId, { [field]: value });
+    renderAdmin();
+    setStatus("User access updated");
+  } catch (error) {
+    setStatus(error.message, true);
+    users = await api.getUsers();
+    renderAdmin();
   }
 }
 

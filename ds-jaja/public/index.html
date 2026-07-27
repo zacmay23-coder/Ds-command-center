@@ -29,6 +29,7 @@
         <button data-view="assignmentsB">Team B Assignments</button>
         <button data-view="results">Results</button>
         <button data-view="history">History</button>
+        <button id="adminNavButton" data-view="admin" hidden>Administration</button>
       </nav>
 
       <main>
@@ -207,6 +208,28 @@
             <p>Archived battles saved on the server.</p>
           </div>
           <div id="historyList" class="history-list"></div>
+        </section>
+
+        <section id="admin" class="view">
+          <div class="section-title">
+            <h2>User Management</h2>
+            <p>Manage application roles and link Firebase accounts to roster players.</p>
+          </div>
+          <div class="table-frame">
+            <table>
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Linked player</th>
+                  <th>Active</th>
+                  <th>Last login</th>
+                </tr>
+              </thead>
+              <tbody id="adminUserRows"></tbody>
+            </table>
+          </div>
         </section>
       </main>
     </div>
