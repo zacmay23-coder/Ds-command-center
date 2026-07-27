@@ -1156,8 +1156,9 @@ tbody tr:hover td {
 }
 
 .movement-arrow {
-  background: linear-gradient(90deg, rgba(17, 199, 255, 0.15), #2acfff);
-  box-shadow: 0 0 7px #009be9;
+  --group-color: #2acfff;
+  background: linear-gradient(90deg, transparent, var(--group-color));
+  box-shadow: 0 0 7px var(--group-color);
   height: 3px;
   position: absolute;
   transform-origin: left center;
@@ -1165,7 +1166,7 @@ tbody tr:hover td {
 
 .movement-arrow::after {
   border-bottom: 6px solid transparent;
-  border-left: 10px solid #55dcff;
+  border-left: 10px solid var(--group-color);
   border-top: 6px solid transparent;
   content: "";
   position: absolute;
@@ -1175,7 +1176,7 @@ tbody tr:hover td {
 
 .movement-arrow b {
   background: rgba(1, 12, 21, 0.88);
-  border: 1px solid #3bbee9;
+  border: 1px solid var(--group-color);
   color: #dff7ff;
   font-size: 8px;
   font-weight: 700;
@@ -1187,6 +1188,24 @@ tbody tr:hover td {
   transform: translateX(-50%) rotate(var(--label-angle, 0deg));
   white-space: nowrap;
 }
+
+.movement-arrow b small {
+  color: #a9c7dc;
+  display: block;
+  font-size: 6px;
+  font-weight: 600;
+  letter-spacing: 0;
+  margin-top: 1px;
+  text-transform: none;
+}
+
+.group-unit-a { --group-color: #25c8ff; }
+.group-unit-b { --group-color: #a56cff; }
+.group-unit-c { --group-color: #42dc8c; }
+.group-unit-d { --group-color: #ffb84a; }
+.group-strike-team { --group-color: #ff5263; }
+.group-scout-plus-support { --group-color: #f2df54; }
+.group-reserve { --group-color: #a1adba; }
 
 .plan-orders-panel {
   background: linear-gradient(160deg, rgba(5, 25, 42, 0.98), rgba(2, 11, 19, 0.98));
@@ -1207,14 +1226,37 @@ tbody tr:hover td {
 }
 
 .plan-order {
+  --group-color: #2acfff;
   border-bottom: 1px solid #12344d;
+  border-left: 3px solid var(--group-color);
   padding: 10px 4px;
+  padding-left: 9px;
 }
 
-.plan-order > div {
+.plan-order-heading {
   align-items: center;
   display: flex;
+  gap: 7px;
   justify-content: space-between;
+}
+
+.plan-order-heading > strong {
+  flex: 1;
+}
+
+.plan-order .group-marker {
+  align-items: center;
+  background: color-mix(in srgb, var(--group-color) 18%, transparent);
+  border: 1px solid var(--group-color);
+  border-radius: 4px;
+  color: var(--group-color);
+  display: inline-flex;
+  font-size: 8px;
+  font-weight: 900;
+  height: 22px;
+  justify-content: center;
+  min-width: 22px;
+  padding: 0 3px;
 }
 
 .plan-order span {
@@ -1236,6 +1278,49 @@ tbody tr:hover td {
   color: #d8edff;
   font-size: 12px;
   margin: 5px 0;
+}
+
+.plan-order-action {
+  color: var(--group-color) !important;
+  font-size: 10px !important;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.plan-order-focus {
+  background: rgba(5, 31, 48, 0.72);
+  border-radius: 3px;
+  display: grid;
+  gap: 7px;
+  grid-template-columns: 58px 1fr;
+  line-height: 1.35;
+  padding: 5px 6px;
+}
+
+.plan-order-focus strong {
+  color: #79a2c4;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.plan-order-objective {
+  align-items: center;
+  display: grid;
+  gap: 7px;
+  grid-template-columns: 58px 1fr;
+}
+
+.plan-order-objective strong {
+  color: #79a2c4;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.plan-order-objective.secondary {
+  color: #9ec7df;
 }
 
 .plan-order small {
@@ -1261,7 +1346,7 @@ tbody tr:hover td {
 .plan-order-editor {
   display: grid;
   gap: 6px;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 9px;
 }
 

@@ -276,28 +276,60 @@ function mirroredRoutes(routes) {
   ]));
 }
 
-function createPhases(routes, strategyKey) {
-  const actions = strategyKey === "lateGameStrike"
-    ? ["Secure", "Hold", "Observe", "Stage", "Prepare strike", "Final strike"]
-    : strategyKey === "defensiveStructureHold"
-      ? ["Capture", "Establish hold", "Defend", "Absorb pressure", "Counterattack", "Final hold"]
-      : strategyKey === "earlyRefineryPressure"
-        ? ["Immediate pressure", "Contest", "Secure", "Convert advantage", "Hold", "Final pressure"]
-        : ["Deploy", "Establish control", "Rotate", "Hold", "Pressure", "Final rotation"];
+const secondaryObjectives = {
+  "Oil Refinery 1": ["Field Hospital 1", "Info Center"],
+  "Oil Refinery 2": ["Field Hospital 2", "Science Hub"],
+  "Field Hospital 1": ["Oil Refinery 1", "Field Hospital 3"],
+  "Field Hospital 2": ["Oil Refinery 2", "Field Hospital 4"],
+  "Field Hospital 3": ["Mercenary Factory", "Field Hospital 1"],
+  "Field Hospital 4": ["Arsenal", "Field Hospital 2"],
+  "Info Center": ["Arsenal", "Oil Refinery 1"],
+  "Science Hub": ["Mercenary Factory", "Oil Refinery 2"],
+  "Arsenal": ["Nuclear Silo", "Info Center"],
+  "Nuclear Silo": ["Arsenal", "Mercenary Factory"],
+  "Mercenary Factory": ["Nuclear Silo", "Science Hub"]
+};
+
+function secondaryObjectiveFor(routes, group, phaseIndex, objective, team) {
+  const nextObjective = routes[group]?.[phaseIndex + 1];
+  if (nextObjective && nextObjective !== objective) return nextObjective;
+
+  const candidates = secondaryObjectives[objective] || [];
+  const teamOrderedCandidates = team === "B" ? candidates.slice().reverse() : candidates;
+  return teamOrderedCandidates.find((candidate) => candidate !== objective)
+    || (team === "B" ? "Oil Refinery 2" : "Oil Refinery 1");
+}
+
+function simpleActionFor(routes, group, phaseIndex, objective) {
+  if (group === "Reserve") return "Reinforce";
+  if (group === "Scout + Support") return "Scout";
+  if (group === "Strike Team") return phaseIndex < 2 ? "Pressure" : "Attack";
+  if (phaseIndex === 0) return "Secure";
+  return routes[group]?.[phaseIndex - 1] === objective ? "Hold" : "Rotate";
+}
+
+function simplePriorityFor(group, phaseIndex) {
+  if (group === "Strike Team") return "Critical";
+  if (group === "Reserve") return "Standby";
+  if (group === "Scout + Support") return "Medium";
+  return phaseIndex >= 2 ? "High" : "Medium";
+}
+
+function createPhases(routes, team) {
 
   return Object.fromEntries(PHASES.map((phase, phaseIndex) => [
     phase,
     Object.fromEntries(GROUPS.map((group) => {
-      const objective = routes[group]?.[phaseIndex] || "";
-      const isReserve = group === "Reserve";
+      const objective = routes[group]?.[phaseIndex]
+        || (team === "B" ? "Field Hospital 2" : "Field Hospital 1");
+      const secondaryObjective = secondaryObjectiveFor(routes, group, phaseIndex, objective, team);
+      const action = simpleActionFor(routes, group, phaseIndex, objective);
       return [group, {
         objective,
-        secondaryObjective: "",
-        action: isReserve && !objective ? "Standby" : actions[phaseIndex],
-        priority: group === "Strike Team" ? "Critical" : isReserve ? "Standby" : phaseIndex === 5 ? "High" : "Medium",
-        instruction: isReserve
-          ? "Replace missing players or reinforce the officer-designated priority."
-          : `${actions[phaseIndex]} at ${objective}; maintain group discipline and follow officer rotation calls.`
+        secondaryObjective,
+        action,
+        priority: simplePriorityFor(group, phaseIndex),
+        instruction: `${action}: ${objective}. Shift to ${secondaryObjective} on officer call.`
       }];
     }))
   ]));
@@ -329,11 +361,52 @@ export function createStarterStrategies(now = new Date().toISOString()) {
       createdAt: now,
       updatedAt: now,
       teamPlans: {
-        A: { phases: createPhases(teamARoutes, definition.key) },
-        B: { phases: createPhases(teamBRoutes, definition.key) }
+        A: { phases: createPhases(teamARoutes, "A") },
+        B: { phases: createPhases(teamBRoutes, "B") }
       }
     };
   });
+}
+
+export function reapplyStarterStrategies(library = [], now = new Date().toISOString()) {
+  const nextLibrary = Array.isArray(library) ? structuredClone(library) : [];
+  const starters = createStarterStrategies(now);
+
+  for (const starter of starters) {
+    const existingIndex = nextLibrary.findIndex((strategy) =>
+      strategy.id === starter.id
+      || strategy.systemTemplateKey === starter.systemTemplateKey
+      || (
+        strategy.isStarterTemplate
+        && String(strategy.name).trim().toLowerCase() === starter.name.toLowerCase()
+      )
+    );
+
+    if (existingIndex === -1) {
+      nextLibrary.push(starter);
+      continue;
+    }
+
+    const existing = nextLibrary[existingIndex];
+    const canonicalFields = Object.keys(starter).filter((key) =>
+      !["createdAt", "updatedAt", "version"].includes(key)
+    );
+    const needsRefresh = canonicalFields.some((key) =>
+      JSON.stringify(existing[key]) !== JSON.stringify(starter[key])
+    );
+
+    if (!needsRefresh) continue;
+
+    nextLibrary[existingIndex] = {
+      ...existing,
+      ...starter,
+      createdAt: existing.createdAt || starter.createdAt,
+      updatedAt: now,
+      version: Math.max(1, Number(existing.version || 0) + 1)
+    };
+  }
+
+  return nextLibrary;
 }
 
 export function strategyIdForLegacyName(value) {

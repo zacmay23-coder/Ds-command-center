@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createStarterStrategies, strategyIdForLegacyName } from "./strategyLibrary.js";
+import { reapplyStarterStrategies, strategyIdForLegacyName } from "./strategyLibrary.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.join(__dirname, "..");
@@ -482,13 +482,8 @@ function normalizeState(input) {
 }
 
 function seedStrategyLibrary(state) {
-  const starters = createStarterStrategies();
-  for (const starter of starters) {
-    const existing = state.strategyLibrary.find((strategy) =>
-      strategy.id === starter.id || strategy.name.trim().toLowerCase() === starter.name.toLowerCase()
-    );
-    if (!existing) state.strategyLibrary.push(starter);
-  }
+  state.strategyLibrary = reapplyStarterStrategies(state.strategyLibrary);
+  backfillWeeklyPlanSecondaryObjectives(state);
 
   for (const team of ["A", "B"]) {
     if (state.weeklyPlans[team]) continue;
@@ -535,6 +530,38 @@ function seedStrategyLibrary(state) {
   if (!state.migrations.strategyLibraryV1CompletedAt) {
     state.migrations.strategyLibraryV1CompletedAt = new Date().toISOString();
   }
+}
+
+function backfillWeeklyPlanSecondaryObjectives(state) {
+  if (state.migrations.weeklyPlanSecondaryObjectivesV1CompletedAt) return;
+
+  for (const team of ["A", "B"]) {
+    const plan = state.weeklyPlans[team];
+    if (!plan) continue;
+    const source = state.strategyLibrary.find((strategy) => strategy.id === plan.sourceStrategyId);
+    const sourcePhases = source?.teamPlans?.[team]?.phases;
+    if (!sourcePhases) continue;
+
+    for (const [phase, orders] of Object.entries(plan.phases || {})) {
+      for (const [group, order] of Object.entries(orders || {})) {
+        const sourceOrder = sourcePhases[phase]?.[group];
+        if (!sourceOrder) continue;
+        const secondaryObjective = [
+          order.secondaryObjective,
+          sourceOrder.secondaryObjective,
+          sourceOrder.objective
+        ].find((objective) => objective && objective !== order.objective) || "";
+        Object.assign(order, {
+          secondaryObjective,
+          action: sourceOrder.action,
+          priority: sourceOrder.priority,
+          instruction: `${sourceOrder.action}: ${order.objective}. Shift to ${secondaryObjective} on officer call.`
+        });
+      }
+    }
+  }
+
+  state.migrations.weeklyPlanSecondaryObjectivesV1CompletedAt = new Date().toISOString();
 }
 
 async function loadState() {

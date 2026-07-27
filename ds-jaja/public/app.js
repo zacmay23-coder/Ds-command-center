@@ -145,6 +145,7 @@ const elements = {
   historyList: document.querySelector("#historyList"),
   adminUserRows: document.querySelector("#adminUserRows"),
   planGroupFilter: document.querySelector("#planGroupFilter"),
+  planSort: document.querySelector("#planSort"),
   planPlayButton: document.querySelector("#planPlayButton"),
   planStrategyName: document.querySelector("#planStrategyName"),
   planServerTime: document.querySelector("#planServerTime"),
@@ -253,6 +254,7 @@ function bindControls() {
   document.querySelector(".battle-team-switch").addEventListener("click", handlePlanTeamClick);
   elements.planPhaseButtons.addEventListener("click", handlePlanPhaseClick);
   elements.planGroupFilter.addEventListener("change", renderBattlePlan);
+  elements.planSort.addEventListener("change", renderBattlePlan);
   elements.planOrders.addEventListener("change", handlePlanOrderChange);
   elements.planPlayButton.addEventListener("click", togglePlanPlayback);
   elements.planScrubber.addEventListener("input", () => {
@@ -333,7 +335,9 @@ function renderBattlePlan() {
     </button>
   `).join("");
 
-  const visibleGroups = tacticalGroups.filter((group) => selectedGroup === "All Groups" || group === selectedGroup);
+  const visibleGroups = tacticalGroups
+    .filter((group) => selectedGroup === "All Groups" || group === selectedGroup)
+    .sort(planGroupComparator(assignments, elements.planSort.value));
   const byObjective = visibleGroups.reduce((groups, group) => {
     const order = assignments[group];
     if (!order?.objective) return groups;
@@ -362,18 +366,26 @@ function renderBattlePlan() {
       member.selected && member.team === planTeam && member.group === group
     );
     return `
-      <article class="plan-order ${priorityClass(order.priority)}">
-        <div><strong>${escapeHtml(group)}</strong><span>${escapeHtml(order.priority)}</span></div>
-        <p>${order.objective ? `${escapeHtml(order.action)} · ${escapeHtml(order.objective)}` : escapeHtml(order.action)}</p>
+      <article class="plan-order ${priorityClass(order.priority)} ${tacticalGroupClass(group)}">
+        <div class="plan-order-heading">
+          <span class="group-marker">${escapeHtml(tacticalGroupInitial(group))}</span>
+          <strong>${escapeHtml(group)}</strong>
+          <span>${escapeHtml(order.priority)}</span>
+        </div>
+        <p class="plan-order-action">${escapeHtml(order.action)}</p>
+        <p class="plan-order-focus"><strong>Focus</strong>${escapeHtml(planFocus(order))}</p>
+        <p class="plan-order-objective"><strong>Primary</strong>${escapeHtml(order.objective || "Officer call")}</p>
+        <p class="plan-order-objective secondary"><strong>Secondary</strong>${escapeHtml(order.secondaryObjective || "Officer call")}</p>
         <small>${escapeHtml(order.instruction)}</small>
         <p class="plan-order-members">${assignedPlayers.length
           ? assignedPlayers.map((member) => escapeHtml(member.name)).join(" · ")
           : "No selected members assigned to this group"}</p>
         ${canEditWeeklyPlan ? `
           <div class="plan-order-editor">
-            <label>Objective<select data-plan-order-group="${escapeHtml(group)}" data-plan-order-field="objective">${optionHtml(["", ...units.filter((unit) => unit !== "Unassigned")], order.objective)}</select></label>
-            <label>Action<select data-plan-order-group="${escapeHtml(group)}" data-plan-order-field="action">${optionHtml([...new Set([order.action, "Capture", "Hold", "Defend", "Attack", "Contest", "Reinforce", "Scout", "Rotate", "Standby", "Final strike"])], order.action)}</select></label>
-            <label>Priority<select data-plan-order-group="${escapeHtml(group)}" data-plan-order-field="priority">${optionHtml(["Critical", "Primary", "High", "Medium", "Secondary", "Support", "Standby"], order.priority)}</select></label>
+            <label>Primary<select data-plan-order-group="${escapeHtml(group)}" data-plan-order-field="objective">${optionHtml(["", ...units.filter((unit) => unit !== "Unassigned")], order.objective)}</select></label>
+            <label>Secondary<select data-plan-order-group="${escapeHtml(group)}" data-plan-order-field="secondaryObjective">${optionHtml(["", ...units.filter((unit) => unit !== "Unassigned")], order.secondaryObjective)}</select></label>
+            <label>Action<select data-plan-order-group="${escapeHtml(group)}" data-plan-order-field="action">${optionHtml([...new Set([order.action, "Secure", "Hold", "Rotate", "Attack", "Pressure", "Scout", "Reinforce"])], order.action)}</select></label>
+            <label>Priority<select data-plan-order-group="${escapeHtml(group)}" data-plan-order-field="priority">${optionHtml([...new Set([order.priority, "Critical", "High", "Medium", "Standby"])], order.priority)}</select></label>
           </div>
         ` : ""}
       </article>
@@ -410,19 +422,82 @@ function renderPlanMovements(plan, visibleGroups) {
   const current = plan.phases[battlePhases[planPhaseIndex]];
   const previous = plan.phases[battlePhases[planPhaseIndex - 1]];
   elements.planMovementLayer.innerHTML = visibleGroups.map((group) => {
-    const from = objectivePositions[previous[group]?.objective];
-    const to = objectivePositions[current[group]?.objective];
+    const fromObjective = previous[group]?.objective;
+    const toObjective = current[group]?.objective;
+    const from = objectivePositions[fromObjective];
+    const to = objectivePositions[toObjective];
     if (!from || !to || (from[0] === to[0] && from[1] === to[1])) return "";
     const dx = to[0] - from[0];
     const dy = to[1] - from[1];
     const length = Math.hypot(dx, dy);
     const angle = Math.atan2(dy, dx) * 180 / Math.PI;
     return `
-      <span class="movement-arrow" style="left:${from[0]}%;top:${from[1]}%;width:${length}%;transform:rotate(${angle}deg);--label-angle:${-angle}deg" aria-hidden="true">
-        <b>${escapeHtml(group)}</b>
+      <span class="movement-arrow ${tacticalGroupClass(group)}" style="left:${from[0]}%;top:${from[1]}%;width:${length}%;transform:rotate(${angle}deg);--label-angle:${-angle}deg" aria-hidden="true">
+        <b>${escapeHtml(group)}<small>${escapeHtml(shortObjective(fromObjective))} → ${escapeHtml(shortObjective(toObjective))}</small></b>
       </span>
     `;
   }).join("");
+}
+
+function planGroupComparator(assignments, sortMode) {
+  const priorityRank = { Critical: 0, High: 1, Medium: 2, Standby: 3 };
+  return (left, right) => {
+    const leftOrder = assignments[left] || {};
+    const rightOrder = assignments[right] || {};
+    if (sortMode === "priority") {
+      return (priorityRank[leftOrder.priority] ?? 9) - (priorityRank[rightOrder.priority] ?? 9)
+        || tacticalGroups.indexOf(left) - tacticalGroups.indexOf(right);
+    }
+    if (sortMode === "objective") {
+      return String(leftOrder.objective || "ZZZ").localeCompare(String(rightOrder.objective || "ZZZ"));
+    }
+    if (sortMode === "action") {
+      return String(leftOrder.action || "ZZZ").localeCompare(String(rightOrder.action || "ZZZ"));
+    }
+    return tacticalGroups.indexOf(left) - tacticalGroups.indexOf(right);
+  };
+}
+
+function tacticalGroupClass(group) {
+  return `group-${String(group).toLowerCase().replaceAll("+", "plus").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+}
+
+function tacticalGroupInitial(group) {
+  return {
+    "Unit A": "A",
+    "Unit B": "B",
+    "Unit C": "C",
+    "Unit D": "D",
+    "Strike Team": "ST",
+    "Scout + Support": "SS",
+    "Reserve": "R"
+  }[group] || group.slice(0, 2);
+}
+
+function planFocus(order) {
+  const primary = order.objective || "officer-selected objective";
+  const secondary = order.secondaryObjective || "fallback objective";
+  return {
+    Secure: `Establish control at ${primary}`,
+    Hold: `Protect ${primary}`,
+    Rotate: `Move to ${primary}; be ready for ${secondary}`,
+    Attack: `Break enemy control at ${primary}`,
+    Pressure: `Force a response at ${primary}`,
+    Scout: `Watch ${primary} and the route to ${secondary}`,
+    Reinforce: `Support ${primary}; backfill ${secondary}`
+  }[order.action] || `${order.action} at ${primary}`;
+}
+
+function shortObjective(objective) {
+  return {
+    "Oil Refinery 1": "Refinery 1",
+    "Oil Refinery 2": "Refinery 2",
+    "Field Hospital 1": "Hospital 1",
+    "Field Hospital 2": "Hospital 2",
+    "Field Hospital 3": "Hospital 3",
+    "Field Hospital 4": "Hospital 4",
+    "Mercenary Factory": "Merc Factory"
+  }[objective] || objective || "Standby";
 }
 
 function handlePlanTeamClick(event) {
