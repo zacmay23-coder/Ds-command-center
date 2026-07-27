@@ -87,3 +87,27 @@ This build uses the configured Firebase project for Email/Password access:
 
 Registration creates a Firebase Auth account. The server checks each API request
 against Firebase before returning shared data.
+
+### Role bootstrap
+
+New accounts always start with the `member` role. Before the first administrator
+signs in, set `DSCC_BOOTSTRAP_ADMIN_EMAIL` to that administrator's exact email:
+
+```powershell
+$env:DSCC_BOOTSTRAP_ADMIN_EMAIL="admin@example.com"
+npm run dev
+```
+
+Only an account whose email matches that server-controlled value is initially
+created as an administrator. Do not expose this value in browser code. After
+bootstrap, administrators can manage roles and player links through the
+authenticated `/api/users` endpoints.
+
+Application user records contain `uid`, `email`, `displayName`, `role`,
+`playerId`, `active`, `createdAt`, and `lastLoginAt`. All protected writes check
+the authenticated user's active record and role on the server.
+
+Realtime Database subscriptions are not enabled yet. They require deploying
+matching Firebase Database Security Rules (and preferably configuring the
+Firebase Admin SDK/service account on the server) before local JSON state can be
+migrated safely.

@@ -27,11 +27,13 @@ export function requireSession() {
 }
 
 export function saveSession(session) {
+  const expiresIn = Number(session.expiresIn || session.expires_in || 3600);
   localStorage.setItem(sessionKey, JSON.stringify({
-    email: session.email,
-    idToken: session.idToken,
-    refreshToken: session.refreshToken,
-    uid: session.localId,
+    email: session.email || getSession()?.email || "",
+    idToken: session.idToken || session.id_token,
+    refreshToken: session.refreshToken || session.refresh_token,
+    uid: session.localId || session.user_id,
+    expiresAt: Date.now() + expiresIn * 1000,
     savedAt: new Date().toISOString()
   }));
 }
@@ -41,22 +43,17 @@ export function clearSession() {
 }
 
 export async function authFetch(url, options = {}) {
-  const session = requireSession();
+  let session = requireSession();
   if (!session) throw new Error("Not signed in");
-
-  const headers = {
-    Authorization: `Bearer ${session.idToken}`,
-    ...(options.headers || {})
-  };
-
-  if (!(options.body instanceof FormData)) {
-    headers["Content-Type"] = headers["Content-Type"] || "application/json";
+  if (!session.expiresAt || session.expiresAt - Date.now() < 60_000) {
+    session = await refreshSession();
   }
 
-  const response = await fetch(url, {
-    ...options,
-    headers
-  });
+  let response = await authorizedRequest(url, options, session.idToken);
+  if (response.status === 401 && session.refreshToken) {
+    session = await refreshSession();
+    response = await authorizedRequest(url, options, session.idToken);
+  }
 
   if (response.status === 401) {
     clearSession();
@@ -67,6 +64,51 @@ export async function authFetch(url, options = {}) {
   return response;
 }
 
+async function authorizedRequest(url, options, idToken) {
+  const headers = {
+    Authorization: `Bearer ${idToken}`,
+    ...(options.headers || {})
+  };
+  if (!(options.body instanceof FormData)) {
+    headers["Content-Type"] = headers["Content-Type"] || "application/json";
+  }
+  return fetch(url, { ...options, headers });
+}
+
+let refreshPromise;
+
+export async function refreshSession() {
+  if (refreshPromise) return refreshPromise;
+  const session = getSession();
+  if (!session?.refreshToken) throw new Error("Your session expired. Please sign in again.");
+
+  refreshPromise = (async () => {
+    const body = new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: session.refreshToken
+    });
+    const response = await fetch(
+      `https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(firebaseConfig.apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body
+      }
+    );
+    const payload = await response.json();
+    if (!response.ok) {
+      clearSession();
+      throw new Error("Your session expired. Please sign in again.");
+    }
+    saveSession(payload);
+    return getSession();
+  })().finally(() => {
+    refreshPromise = null;
+  });
+
+  return refreshPromise;
+}
+
 export async function signIn(email, password) {
   return firebaseAuthRequest("accounts:signInWithPassword", {
     email,
@@ -75,12 +117,18 @@ export async function signIn(email, password) {
   });
 }
 
-export async function register(email, password) {
-  return firebaseAuthRequest("accounts:signUp", {
+export async function register(email, password, displayName = "") {
+  const user = await firebaseAuthRequest("accounts:signUp", {
     email,
     password,
     returnSecureToken: true
   });
+  const response = await authFetch("/api/register-profile", {
+    method: "POST",
+    body: JSON.stringify({ displayName })
+  });
+  user.profile = await response.json();
+  return user;
 }
 
 async function firebaseAuthRequest(action, body) {

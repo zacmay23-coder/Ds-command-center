@@ -4,6 +4,9 @@ const api = {
   async getState() {
     return request("/api/state");
   },
+  async getMe() {
+    return request("/api/me");
+  },
   async updateMember(id, patch) {
     return request(`/api/members/${encodeURIComponent(id)}`, {
       method: "PATCH",
@@ -94,6 +97,7 @@ const unitResponsibilities = {
 };
 
 let state = null;
+let currentUser = null;
 
 const elements = {
   saveStatus: document.querySelector("#saveStatus"),
@@ -130,6 +134,8 @@ async function initialize() {
   bindNavigation();
   bindControls();
   fillStrategySelects();
+  currentUser = await api.getMe();
+  document.body.dataset.role = currentUser.role;
   await refreshState();
 }
 
@@ -212,6 +218,27 @@ function render() {
   elements.battleTimeB.value = state.settings.battleTimeB;
   elements.assignmentTimeA.textContent = `${state.settings.battleTimeA} Server Time`;
   elements.assignmentTimeB.textContent = `${state.settings.battleTimeB} Server Time`;
+  applyPermissions();
+}
+
+function applyPermissions() {
+  const isMember = currentUser?.role === "member";
+  const isAdmin = currentUser?.role === "administrator";
+  elements.addMemberForm.hidden = !isAdmin;
+  document.querySelector("#resetButton").hidden = isMember;
+  elements.importScreenshotButton.hidden = isMember;
+  elements.battleForm.querySelector("button[type='submit']").hidden = isMember;
+  document.querySelectorAll("[data-delete-member], [data-delete-battle]").forEach((button) => {
+    button.hidden = !isAdmin;
+  });
+  [elements.strategyA, elements.strategyB, elements.battleTimeA, elements.battleTimeB]
+    .forEach((control) => { control.disabled = isMember; });
+
+  if (isMember) {
+    document.querySelectorAll("[data-member-id][data-field]").forEach((control) => {
+      control.disabled = true;
+    });
+  }
 }
 
 function renderDashboard() {
@@ -245,7 +272,7 @@ function renderDirectory() {
     .map(directoryRow)
     .join("");
 
-  elements.directoryRows.innerHTML = rows || `<tr><td colspan="8">No members match this view.</td></tr>`;
+  elements.directoryRows.innerHTML = rows || `<tr><td colspan="9">No members match this view.</td></tr>`;
 }
 
 function renderTeams() {
@@ -316,12 +343,12 @@ function renderResults() {
       <td><strong>${escapeHtml(member.name)}</strong></td>
       <td>${escapeHtml(member.team)}</td>
       <td>
-        <select data-member-id="${member.id}" data-field="weekAttendance">
+        <select data-member-id="${member.id}" data-field="weekAttendance" data-version="${member.version || 0}">
           ${optionHtml(["", "Present", "Late", "No-show", "Excused"], member.weekAttendance)}
         </select>
       </td>
-      <td><input data-member-id="${member.id}" data-field="weekScore" type="number" min="0" value="${Number(member.weekScore || 0)}"></td>
-      <td><input data-member-id="${member.id}" data-field="weekNotes" value="${escapeHtml(member.weekNotes || "")}"></td>
+      <td><input data-member-id="${member.id}" data-field="weekScore" data-version="${member.version || 0}" type="number" min="0" value="${Number(member.weekScore || 0)}"></td>
+      <td><input data-member-id="${member.id}" data-field="weekNotes" data-version="${member.version || 0}" value="${escapeHtml(member.weekNotes || "")}"></td>
     </tr>
   `);
   const rows = [...importedRows, ...manualRows].join("");
@@ -386,7 +413,10 @@ async function handleMemberChange(event) {
 
   try {
     setStatus("Saving...");
-    state = await api.updateMember(memberId, { [field]: normalizeFieldValue(field, value) });
+    state = await api.updateMember(memberId, {
+      [field]: normalizeFieldValue(field, value),
+      expectedVersion: Number(event.target.dataset.version || 0)
+    });
     render();
     setStatus(`Saved ${formatTime(state.updatedAt)}`);
   } catch (error) {
@@ -543,17 +573,18 @@ function directoryRow(member) {
   const expanded = expandedPlayers.has(member.id);
   return `
     <tr>
-      <td><input data-member-id="${member.id}" data-field="selected" type="checkbox" ${member.selected ? "checked" : ""}></td>
+      <td><input data-member-id="${member.id}" data-field="selected" data-version="${member.version || 0}" type="checkbox" ${member.selected ? "checked" : ""}></td>
       <td>
         <button class="row-expander" type="button" data-expand-player="${member.id}" aria-expanded="${expanded}">${expanded ? "Hide" : "Show"}</button>
-        <input class="member-name-input" aria-label="Name for ${escapeHtml(member.name)}" data-member-id="${member.id}" data-field="name" maxlength="80" value="${escapeHtml(member.name)}">
+        <input class="member-name-input" aria-label="Name for ${escapeHtml(member.name)}" data-member-id="${member.id}" data-field="name" data-version="${member.version || 0}" maxlength="80" value="${escapeHtml(member.name)}">
         <span class="history-count">${history.length} DS</span>
       </td>
       <td>${escapeHtml(member.rank)}</td>
-      <td><select data-member-id="${member.id}" data-field="team">${optionHtml(["Reserve", "A", "B"], member.team)}</select></td>
-      <td><select data-member-id="${member.id}" data-field="type">${optionHtml(["Starter", "Sub"], member.type)}</select></td>
-      <td><select data-member-id="${member.id}" data-field="unit">${optionHtml(units, assignedUnit(member))}</select></td>
-      <td><select data-member-id="${member.id}" data-field="availability">${optionHtml(["Pending", "Confirmed", "Not available"], member.availability)}</select></td>
+      <td><select data-member-id="${member.id}" data-field="team" data-version="${member.version || 0}">${optionHtml(["Reserve", "A", "B"], member.team)}</select></td>
+      <td><select data-member-id="${member.id}" data-field="type" data-version="${member.version || 0}">${optionHtml(["Starter", "Sub"], member.type)}</select></td>
+      <td><select data-member-id="${member.id}" data-field="unit" data-version="${member.version || 0}">${optionHtml(units, assignedUnit(member))}</select></td>
+      <td><select data-member-id="${member.id}" data-field="availability" data-version="${member.version || 0}">${optionHtml(["Pending", "Confirmed", "Not available"], member.availability)}</select></td>
+      <td><input data-member-id="${member.id}" data-field="availabilityNote" data-version="${member.version || 0}" maxlength="240" value="${escapeHtml(member.availabilityNote || "")}" placeholder="Availability note"></td>
       <td><button class="delete-member-button" type="button" data-delete-member="${member.id}" aria-label="Delete ${escapeHtml(member.name)}">Delete</button></td>
     </tr>
     ${expanded ? playerHistoryRow(member, history) : ""}
@@ -600,7 +631,7 @@ function playerHistoryRow(member, history) {
 
   return `
     <tr class="player-history-row">
-      <td colspan="8">
+      <td colspan="9">
         <div class="player-history-panel">${content}</div>
       </td>
     </tr>

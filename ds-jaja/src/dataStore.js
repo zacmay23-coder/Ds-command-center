@@ -20,6 +20,8 @@ const defaultState = {
     strategyB: "Standard Control & Rotation"
   },
   members: [],
+  users: [],
+  auditLogs: [],
   pendingResults: [],
   battles: []
 };
@@ -55,16 +57,82 @@ export async function updateMember(memberId, patch) {
     throw new Error(`Member ${memberId} was not found`);
   }
 
+  assertVersion(member, patch?.expectedVersion);
   const nextMember = { ...member, ...pickMemberFields(patch) };
   nextMember.name = String(nextMember.name).trim();
   validateMemberName(nextMember.name, state, memberId);
   validateRosterCapacity(state, member, nextMember);
   Object.assign(member, nextMember);
+  member.version = Number(member.version || 0) + 1;
+  member.updatedAt = new Date().toISOString();
 
   for (const result of state.pendingResults) {
     if (result.memberId === memberId) result.name = member.name;
   }
 
+  return saveState();
+}
+
+export async function ensureUser(firebaseUser, displayName = "", initialRole = "member") {
+  const state = await getState();
+  const uid = String(firebaseUser.localId || firebaseUser.uid || "");
+  let user = state.users.find((item) => item.uid === uid);
+  const now = new Date().toISOString();
+
+  if (!user) {
+    user = {
+      uid,
+      email: String(firebaseUser.email || ""),
+      displayName: String(displayName || firebaseUser.displayName || firebaseUser.email || "").trim(),
+      role: ["member", "officer", "administrator"].includes(initialRole) ? initialRole : "member",
+      playerId: "",
+      active: true,
+      createdAt: now,
+      lastLoginAt: now
+    };
+    state.users.push(user);
+    await saveState();
+  } else if (displayName && !user.displayName) {
+    user.displayName = String(displayName).trim();
+    user.lastLoginAt = now;
+    await saveState();
+  } else if (!user.lastLoginAt || Date.now() - Date.parse(user.lastLoginAt) > 60 * 60 * 1000) {
+    user.lastLoginAt = now;
+    await saveState();
+  }
+
+  return user;
+}
+
+export async function updateUser(userId, patch, actor) {
+  const state = await getState();
+  const user = state.users.find((item) => item.uid === userId);
+  if (!user) throw new Error("User record was not found");
+
+  const nextRole = Object.hasOwn(patch || {}, "role") ? String(patch.role) : user.role;
+  if (!["member", "officer", "administrator"].includes(nextRole)) {
+    throw new Error("Choose a valid application role");
+  }
+  const playerId = Object.hasOwn(patch || {}, "playerId") ? String(patch.playerId || "") : user.playerId;
+  if (playerId && !state.members.some((member) => member.id === playerId)) {
+    throw new Error("Choose a valid player record");
+  }
+
+  Object.assign(user, pick(patch, ["displayName", "active"]), { role: nextRole, playerId });
+  addAuditLog(state, actor, "user.updated", { userId, role: nextRole, playerId });
+  return saveState();
+}
+
+export async function updateOwnAvailability(user, patch, expectedVersion) {
+  const state = await getState();
+  if (!user.playerId) throw new Error("Your account is not linked to a player record");
+  const member = state.members.find((item) => item.id === user.playerId);
+  if (!member) throw new Error("Your linked player record was not found");
+  assertVersion(member, expectedVersion);
+
+  Object.assign(member, pick(patch, ["availability", "availabilityNote"]));
+  member.version = Number(member.version || 0) + 1;
+  member.updatedAt = new Date().toISOString();
   return saveState();
 }
 
@@ -269,6 +337,8 @@ function normalizeState(input) {
       ...(input?.settings || {})
     },
     members: Array.isArray(input?.members) ? input.members.map(normalizeMember) : [],
+    users: Array.isArray(input?.users) ? input.users.map(normalizeUser) : [],
+    auditLogs: Array.isArray(input?.auditLogs) ? input.auditLogs : [],
     pendingResults: Array.isArray(input?.pendingResults) ? input.pendingResults.map(normalizePendingResult) : [],
     battles: Array.isArray(input?.battles) ? input.battles : []
   };
@@ -297,6 +367,9 @@ function normalizeMember(member) {
     type: member.type || "Sub",
     unit: member.unit || "Unassigned",
     availability: member.availability || "Pending",
+    availabilityNote: String(member.availabilityNote || ""),
+    version: Number(member.version || 0),
+    updatedAt: member.updatedAt || "",
     weeks: Number(member.weeks || 0),
     confirmed: Number(member.confirmed || 0),
     attended: Number(member.attended || 0),
@@ -357,10 +430,44 @@ function pickMemberFields(patch) {
     "type",
     "unit",
     "availability",
+    "availabilityNote",
     "weekScore",
     "weekAttendance",
     "weekNotes"
   ]);
+}
+
+function normalizeUser(user) {
+  return {
+    uid: String(user.uid || ""),
+    email: String(user.email || ""),
+    displayName: String(user.displayName || ""),
+    role: ["member", "officer", "administrator"].includes(user.role) ? user.role : "member",
+    playerId: String(user.playerId || ""),
+    active: user.active !== false,
+    createdAt: user.createdAt || new Date().toISOString(),
+    lastLoginAt: user.lastLoginAt || ""
+  };
+}
+
+function assertVersion(record, expectedVersion) {
+  if (expectedVersion === undefined || expectedVersion === null) return;
+  if (Number(expectedVersion) !== Number(record.version || 0)) {
+    const error = new Error("This record changed after you loaded it. Review the latest value and retry.");
+    error.code = "EDIT_CONFLICT";
+    throw error;
+  }
+}
+
+function addAuditLog(state, actor, action, details) {
+  state.auditLogs.unshift({
+    id: `audit-${randomUUID()}`,
+    actorUid: actor?.uid || actor?.localId || "",
+    action,
+    details,
+    createdAt: new Date().toISOString()
+  });
+  state.auditLogs = state.auditLogs.slice(0, 1000);
 }
 
 function validateMemberName(value, state, currentMemberId = "") {

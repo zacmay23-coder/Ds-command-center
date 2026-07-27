@@ -8,11 +8,12 @@
   </head>
   <body class="auth-page">
     <main class="auth-card">
-      <p class="eyebrow">Officer Access</p>
+      <p class="eyebrow">Member Access</p>
       <h1>Register</h1>
-      <p class="muted">Create a Firebase Email/Password account for this Command Center.</p>
+      <p class="muted">New accounts are created as members. An administrator must grant officer access.</p>
 
       <form id="registerForm" class="auth-form">
+        <label>Display name<input name="displayName" maxlength="80" autocomplete="name" required></label>
         <label>Email<input name="email" type="email" autocomplete="email" required></label>
         <label>Password<input name="password" type="password" autocomplete="new-password" minlength="6" required></label>
         <label>Confirm password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="6" required></label>
