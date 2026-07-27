@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createStarterStrategies, strategyIdForLegacyName } from "./strategyLibrary.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.join(__dirname, "..");
@@ -11,17 +12,23 @@ const statePath = path.join(dataDir, "state.json");
 const TEAM_LIMIT = 30;
 const STARTER_LIMIT = 20;
 const SUB_LIMIT = 10;
+const TACTICAL_GROUPS = ["Unit A", "Unit B", "Unit C", "Unit D", "Strike Team", "Scout + Support", "Reserve"];
 
 const defaultState = {
   schema: "dscc-readable-v1",
   updatedAt: new Date().toISOString(),
   settings: {
     strategyA: "Standard Control & Rotation",
-    strategyB: "Standard Control & Rotation"
+    strategyB: "Standard Control & Rotation",
+    battleTimeA: "18:00",
+    battleTimeB: "23:00"
   },
   members: [],
   users: [],
   auditLogs: [],
+  strategyLibrary: [],
+  weeklyPlans: { A: null, B: null },
+  migrations: {},
   pendingResults: [],
   battles: []
 };
@@ -61,6 +68,9 @@ export async function updateMember(memberId, patch) {
   const nextMember = { ...member, ...pickMemberFields(patch) };
   nextMember.name = String(nextMember.name).trim();
   validateMemberName(nextMember.name, state, memberId);
+  if (!TACTICAL_GROUPS.includes(nextMember.group)) {
+    throw new Error("Choose a valid tactical group");
+  }
   validateRosterCapacity(state, member, nextMember);
   Object.assign(member, nextMember);
   member.version = Number(member.version || 0) + 1;
@@ -187,7 +197,7 @@ export async function updateSettings(patch) {
   const state = await getState();
   state.settings = {
     ...state.settings,
-    ...pick(patch, ["strategyA", "strategyB"])
+    ...pick(patch, ["strategyA", "strategyB", "battleTimeA", "battleTimeB"])
   };
 
   return saveState();
@@ -246,6 +256,7 @@ export async function resetWeek() {
     member.selected = false;
     member.team = "Reserve";
     member.type = "Sub";
+    member.group = "Reserve";
     member.unit = "Unassigned";
     member.availability = "Pending";
     member.weekScore = 0;
@@ -266,6 +277,7 @@ export async function archiveBattle(payload) {
     rank: member.rank,
     team: member.team,
     type: member.type,
+    group: member.group,
     unit: member.unit,
     availability: member.availability,
     attendance: member.weekAttendance || "",
@@ -309,6 +321,7 @@ export async function archiveBattle(payload) {
     notes: payload.notes || "",
     strategyA: state.settings.strategyA,
     strategyB: state.settings.strategyB,
+    weeklyPlans: structuredClone(state.weeklyPlans),
     players
   };
 
@@ -324,6 +337,95 @@ export async function archiveBattle(payload) {
 
   state.battles.unshift(battle);
   state.pendingResults = [];
+  return saveState();
+}
+
+export async function createStrategy(input, actor) {
+  const state = await getState();
+  const name = String(input?.name || "").trim();
+  if (!name) throw new Error("Strategy name is required");
+  if (state.strategyLibrary.some((strategy) => strategy.name.toLowerCase() === name.toLowerCase())) {
+    throw new Error("A strategy with that name already exists");
+  }
+
+  const source = state.strategyLibrary.find((strategy) => strategy.id === input.baseStrategyId)
+    || state.strategyLibrary.find((strategy) => strategy.id === "strategy-standard-control-rotation");
+  const now = new Date().toISOString();
+  const strategy = {
+    ...structuredClone(source),
+    id: `strategy-${randomUUID()}`,
+    name,
+    shortName: String(input.shortName || name).trim(),
+    category: String(input.category || "Custom").trim(),
+    goal: String(input.goal || "").trim(),
+    tags: [],
+    isStarterTemplate: false,
+    systemTemplateKey: "",
+    version: 1,
+    archived: false,
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actor.uid
+  };
+  state.strategyLibrary.push(strategy);
+  addAuditLog(state, actor, "strategy.created", { strategyId: strategy.id, name });
+  await saveState();
+  return strategy;
+}
+
+export async function updateStrategy(strategyId, patch, actor) {
+  const state = await getState();
+  const strategy = state.strategyLibrary.find((item) => item.id === strategyId);
+  if (!strategy) throw new Error("Strategy was not found");
+  if (patch.name !== undefined && !String(patch.name).trim()) throw new Error("Strategy name is required");
+
+  Object.assign(strategy, pick(patch, ["name", "shortName", "category", "difficulty", "goal", "tags", "archived"]));
+  if (patch.teamPlans && typeof patch.teamPlans === "object") strategy.teamPlans = structuredClone(patch.teamPlans);
+  strategy.version = Number(strategy.version || 0) + 1;
+  strategy.updatedAt = new Date().toISOString();
+  addAuditLog(state, actor, "strategy.updated", { strategyId });
+  await saveState();
+  return strategy;
+}
+
+export async function applyStrategyToTeam(strategyId, team, actor) {
+  const state = await getState();
+  const normalizedTeam = team === "B" ? "B" : "A";
+  const strategy = state.strategyLibrary.find((item) => item.id === strategyId && !item.archived);
+  if (!strategy) throw new Error("Choose an active strategy");
+
+  const now = new Date().toISOString();
+  state.weeklyPlans[normalizedTeam] = {
+    id: `weekly-plan-${randomUUID()}`,
+    sourceStrategyId: strategy.id,
+    sourceStrategyVersion: strategy.version,
+    name: strategy.name,
+    team: normalizedTeam,
+    status: "Published",
+    phases: structuredClone(strategy.teamPlans?.[normalizedTeam]?.phases || {}),
+    createdAt: now,
+    updatedAt: now,
+    appliedBy: actor.uid
+  };
+  state.settings[`strategy${normalizedTeam}`] = strategy.name;
+  addAuditLog(state, actor, "strategy.applied", { strategyId, team: normalizedTeam });
+  return saveState();
+}
+
+export async function updateWeeklyPlanOrder(team, input, actor) {
+  const state = await getState();
+  const normalizedTeam = team === "B" ? "B" : "A";
+  const plan = state.weeklyPlans[normalizedTeam];
+  if (!plan) throw new Error(`Publish a Team ${normalizedTeam} strategy before editing orders`);
+  const phase = String(input.phase || "");
+  const group = String(input.group || "");
+  const order = plan.phases?.[phase]?.[group];
+  if (!order) throw new Error("That phase or tactical group was not found");
+
+  Object.assign(order, pick(input.patch, ["objective", "secondaryObjective", "action", "priority", "instruction"]));
+  plan.updatedAt = new Date().toISOString();
+  plan.version = Number(plan.version || 1) + 1;
+  addAuditLog(state, actor, "weekly-plan.order-updated", { team: normalizedTeam, phase, group });
   return saveState();
 }
 
@@ -365,11 +467,74 @@ function normalizeState(input) {
     members: Array.isArray(input?.members) ? input.members.map(normalizeMember) : [],
     users: Array.isArray(input?.users) ? input.users.map(normalizeUser) : [],
     auditLogs: Array.isArray(input?.auditLogs) ? input.auditLogs : [],
+    strategyLibrary: Array.isArray(input?.strategyLibrary) ? structuredClone(input.strategyLibrary) : [],
+    weeklyPlans: {
+      A: input?.weeklyPlans?.A ? structuredClone(input.weeklyPlans.A) : null,
+      B: input?.weeklyPlans?.B ? structuredClone(input.weeklyPlans.B) : null
+    },
+    migrations: { ...(input?.migrations || {}) },
     pendingResults: Array.isArray(input?.pendingResults) ? input.pendingResults.map(normalizePendingResult) : [],
     battles: Array.isArray(input?.battles) ? input.battles : []
   };
 
+  seedStrategyLibrary(state);
   return state;
+}
+
+function seedStrategyLibrary(state) {
+  const starters = createStarterStrategies();
+  for (const starter of starters) {
+    const existing = state.strategyLibrary.find((strategy) =>
+      strategy.id === starter.id || strategy.name.trim().toLowerCase() === starter.name.toLowerCase()
+    );
+    if (!existing) state.strategyLibrary.push(starter);
+  }
+
+  for (const team of ["A", "B"]) {
+    if (state.weeklyPlans[team]) continue;
+    const legacyName = state.settings[`strategy${team}`];
+    const strategyId = strategyIdForLegacyName(legacyName);
+    let strategy = state.strategyLibrary.find((item) => item.id === strategyId)
+      || state.strategyLibrary.find((item) => item.name === legacyName);
+    if (!strategy && legacyName) {
+      const base = state.strategyLibrary.find((item) => item.id === "strategy-standard-control-rotation");
+      strategy = {
+        ...structuredClone(base),
+        id: `strategy-legacy-${legacyName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`,
+        name: legacyName,
+        shortName: legacyName,
+        category: "Custom",
+        isStarterTemplate: false,
+        systemTemplateKey: "",
+        createdAt: state.updatedAt,
+        updatedAt: state.updatedAt
+      };
+      state.strategyLibrary.push(strategy);
+    }
+    if (!strategy) continue;
+    state.weeklyPlans[team] = {
+      id: `weekly-plan-migrated-${team.toLowerCase()}`,
+      sourceStrategyId: strategy.id,
+      sourceStrategyVersion: strategy.version,
+      legacyStrategyName: legacyName,
+      name: strategy.name,
+      team,
+      status: "Published",
+      phases: structuredClone(strategy.teamPlans?.[team]?.phases || {}),
+      createdAt: state.updatedAt,
+      updatedAt: state.updatedAt,
+      appliedBy: "migration"
+    };
+  }
+  for (const battle of state.battles) {
+    const strategyIdA = strategyIdForLegacyName(battle.strategyA);
+    const strategyIdB = strategyIdForLegacyName(battle.strategyB);
+    if (strategyIdA && !battle.strategyIdA) battle.strategyIdA = strategyIdA;
+    if (strategyIdB && !battle.strategyIdB) battle.strategyIdB = strategyIdB;
+  }
+  if (!state.migrations.strategyLibraryV1CompletedAt) {
+    state.migrations.strategyLibraryV1CompletedAt = new Date().toISOString();
+  }
 }
 
 async function loadState() {
@@ -391,6 +556,7 @@ function normalizeMember(member) {
     selected: Boolean(member.selected),
     team: member.team || "Reserve",
     type: member.type || "Sub",
+    group: member.group || "Reserve",
     unit: member.unit || "Unassigned",
     availability: member.availability || "Pending",
     availabilityNote: String(member.availabilityNote || ""),
@@ -454,6 +620,7 @@ function pickMemberFields(patch) {
     "selected",
     "team",
     "type",
+    "group",
     "unit",
     "availability",
     "availabilityNote",

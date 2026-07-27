@@ -7,6 +7,8 @@ import {
   applyResultMatchFix,
   applyResultScreenshotMatches,
   archiveBattle,
+  applyStrategyToTeam,
+  createStrategy,
   deleteBattle,
   deleteMember,
   ensureUser,
@@ -17,8 +19,10 @@ import {
   saveState,
   updateMember,
   updateOwnAvailability,
+  updateStrategy,
   updateSettings,
-  updateUser
+  updateUser,
+  updateWeeklyPlanOrder
 } from "./src/dataStore.js";
 import { readResultScreenshot } from "./src/resultScreenshotReader.js";
 
@@ -167,6 +171,34 @@ async function handleApi(request, response, url) {
     if (!requireRole(response, user, ["officer", "administrator"])) return;
     const payload = await readJsonBody(request);
     sendJson(response, 201, clientState(await archiveBattle(payload), user));
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/strategies") {
+    if (!requireRole(response, user, ["officer", "administrator"])) return;
+    sendJson(response, 201, await createStrategy(await readJsonBody(request), user));
+    return;
+  }
+
+  if (request.method === "PATCH" && url.pathname.startsWith("/api/strategies/")) {
+    if (!requireRole(response, user, ["administrator"])) return;
+    const strategyId = decodeURIComponent(url.pathname.split("/").pop());
+    sendJson(response, 200, await updateStrategy(strategyId, await readJsonBody(request), user));
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname.match(/^\/api\/weekly-plans\/[AB]$/)) {
+    if (!requireRole(response, user, ["officer", "administrator"])) return;
+    const team = url.pathname.split("/").pop();
+    const body = await readJsonBody(request);
+    sendJson(response, 200, clientState(await applyStrategyToTeam(body.strategyId, team, user), user));
+    return;
+  }
+
+  if (request.method === "PATCH" && url.pathname.match(/^\/api\/weekly-plans\/[AB]$/)) {
+    if (!requireRole(response, user, ["officer", "administrator"])) return;
+    const team = url.pathname.split("/").pop();
+    sendJson(response, 200, clientState(await updateWeeklyPlanOrder(team, await readJsonBody(request), user), user));
     return;
   }
 

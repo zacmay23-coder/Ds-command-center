@@ -11,7 +11,7 @@
     "start": "node server.js",
     "dev": "node server.js",
     "seed": "node scripts/seed-from-legacy.js",
-    "check": "node --check server.js && node --check src/dataStore.js && node --check src/resultScreenshotReader.js && node --check scripts/seed-from-legacy.js && node --check public/app.js && node --check public/auth.js && node --check public/login.js && node --check public/register.js && node --check public/profile-link.js"
+    "check": "node --check server.js && node --check src/dataStore.js && node --check src/strategyLibrary.js && node --check src/resultScreenshotReader.js && node --check scripts/seed-from-legacy.js && node --check public/app.js && node --check public/battle-plan.js && node --check public/auth.js && node --check public/login.js && node --check public/register.js && node --check public/profile-link.js"
   },
   "engines": {
     "node": ">=18"

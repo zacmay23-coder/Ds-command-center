@@ -1,4 +1,5 @@
 import { authFetch, clearSession, requireSession } from "./auth.js";
+import { battlePhases, objectivePositions, strategyPlans, tacticalGroups } from "./battle-plan.js";
 
 const api = {
   async getState() {
@@ -43,6 +44,24 @@ const api = {
       body: JSON.stringify(payload)
     });
   },
+  async createStrategy(payload) {
+    return request("/api/strategies", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+  async applyStrategy(strategyId, team) {
+    return request(`/api/weekly-plans/${team}`, {
+      method: "POST",
+      body: JSON.stringify({ strategyId })
+    });
+  },
+  async updateWeeklyPlan(team, payload) {
+    return request(`/api/weekly-plans/${team}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    });
+  },
   async deleteBattle(id) {
     return request(`/api/battles/${encodeURIComponent(id)}`, { method: "DELETE" });
   },
@@ -68,6 +87,8 @@ const api = {
 
 const strategies = [
   "Standard Control & Rotation",
+  "Aggressive Center Control",
+  "Balanced East Control",
   "Early Refinery Pressure",
   "Defensive Structure Hold",
   "Late-Game Strike"
@@ -108,6 +129,9 @@ const unitResponsibilities = {
 let state = null;
 let currentUser = null;
 let users = [];
+let planTeam = "A";
+let planPhaseIndex = 0;
+let planTimer = null;
 
 const elements = {
   saveStatus: document.querySelector("#saveStatus"),
@@ -120,6 +144,24 @@ const elements = {
   assignmentBoardB: document.querySelector("#assignmentBoardB"),
   historyList: document.querySelector("#historyList"),
   adminUserRows: document.querySelector("#adminUserRows"),
+  planGroupFilter: document.querySelector("#planGroupFilter"),
+  planPlayButton: document.querySelector("#planPlayButton"),
+  planStrategyName: document.querySelector("#planStrategyName"),
+  planServerTime: document.querySelector("#planServerTime"),
+  planClock: document.querySelector("#planClock"),
+  planPhaseButtons: document.querySelector("#planPhaseButtons"),
+  planScrubber: document.querySelector("#planScrubber"),
+  planMovementLayer: document.querySelector("#planMovementLayer"),
+  planObjectiveLayer: document.querySelector("#planObjectiveLayer"),
+  planOrdersTitle: document.querySelector("#planOrdersTitle"),
+  planOrders: document.querySelector("#planOrders"),
+  strategySearch: document.querySelector("#strategySearch"),
+  strategyCategory: document.querySelector("#strategyCategory"),
+  strategyBuilderForm: document.querySelector("#strategyBuilderForm"),
+  strategyBaseTemplate: document.querySelector("#strategyBaseTemplate"),
+  strategyLibraryCards: document.querySelector("#strategyLibraryCards"),
+  weeklyPlanA: document.querySelector("#weeklyPlanA"),
+  weeklyPlanB: document.querySelector("#weeklyPlanB"),
   searchInput: document.querySelector("#searchInput"),
   filterInput: document.querySelector("#filterInput"),
   strategyA: document.querySelector("#strategyA"),
@@ -199,8 +241,8 @@ function bindControls() {
   elements.directoryRows.addEventListener("click", handleDirectoryClick);
   elements.addMemberForm.addEventListener("submit", addMember);
   elements.resultRows.addEventListener("change", handleMemberChange);
-  elements.strategyA.addEventListener("change", () => saveSettings({ strategyA: elements.strategyA.value }));
-  elements.strategyB.addEventListener("change", () => saveSettings({ strategyB: elements.strategyB.value }));
+  elements.strategyA.addEventListener("change", () => publishSelectedStrategy("A"));
+  elements.strategyB.addEventListener("change", () => publishSelectedStrategy("B"));
   elements.battleTimeA.addEventListener("change", () => saveSettings({ battleTimeA: elements.battleTimeA.value }));
   elements.battleTimeB.addEventListener("change", () => saveSettings({ battleTimeB: elements.battleTimeB.value }));
   elements.battleForm.addEventListener("submit", archiveBattle);
@@ -208,6 +250,20 @@ function bindControls() {
   elements.importMatches.addEventListener("click", handleMatchFixClick);
   elements.historyList.addEventListener("click", handleHistoryClick);
   elements.adminUserRows.addEventListener("change", handleAdminUserChange);
+  document.querySelector(".battle-team-switch").addEventListener("click", handlePlanTeamClick);
+  elements.planPhaseButtons.addEventListener("click", handlePlanPhaseClick);
+  elements.planGroupFilter.addEventListener("change", renderBattlePlan);
+  elements.planOrders.addEventListener("change", handlePlanOrderChange);
+  elements.planPlayButton.addEventListener("click", togglePlanPlayback);
+  elements.planScrubber.addEventListener("input", () => {
+    stopPlanPlayback();
+    planPhaseIndex = Number(elements.planScrubber.value);
+    renderBattlePlan();
+  });
+  elements.strategySearch.addEventListener("input", renderStrategyLibrary);
+  elements.strategyCategory.addEventListener("change", renderStrategyLibrary);
+  elements.strategyBuilderForm.addEventListener("submit", createCustomStrategy);
+  elements.strategyLibraryCards.addEventListener("click", handleStrategyLibraryClick);
 }
 
 function logout() {
@@ -223,6 +279,7 @@ function fillStrategySelects() {
 }
 
 function render() {
+  syncStrategySelects();
   renderDashboard();
   renderDirectory();
   renderTeams();
@@ -230,6 +287,8 @@ function render() {
   renderResults();
   renderHistory();
   renderAdmin();
+  renderBattlePlan();
+  renderStrategyLibrary();
   elements.strategyA.value = state.settings.strategyA;
   elements.strategyB.value = state.settings.strategyB;
   elements.battleTimeA.value = state.settings.battleTimeA;
@@ -239,11 +298,184 @@ function render() {
   applyPermissions();
 }
 
+function syncStrategySelects() {
+  const names = (state.strategyLibrary || [])
+    .filter((strategy) => !strategy.archived)
+    .map((strategy) => strategy.name);
+  const availableNames = [...new Set([...names, state.settings.strategyA, state.settings.strategyB].filter(Boolean))];
+  elements.strategyA.innerHTML = optionHtml(availableNames, state.settings.strategyA);
+  elements.strategyB.innerHTML = optionHtml(availableNames, state.settings.strategyB);
+}
+
+function renderBattlePlan() {
+  const publishedPlan = state.weeklyPlans?.[planTeam];
+  const plan = publishedPlan?.phases && Object.keys(publishedPlan.phases).length
+    ? publishedPlan
+    : strategyPlans[planTeam];
+  const phaseKey = battlePhases[planPhaseIndex];
+  const assignments = plan.phases[phaseKey];
+  const selectedGroup = elements.planGroupFilter.value || "All Groups";
+
+  if (!elements.planGroupFilter.options.length) {
+    elements.planGroupFilter.innerHTML = optionHtml(["All Groups", ...tacticalGroups]);
+  }
+
+  document.querySelectorAll("[data-plan-team]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.planTeam === planTeam);
+  });
+  elements.planStrategyName.textContent = plan.name;
+  elements.planServerTime.textContent = `Team ${planTeam} battle · ${state.settings[`battleTime${planTeam}`]} server time`;
+  elements.planClock.textContent = `${phaseKey.replace("-", "–")} minutes`;
+  elements.planScrubber.value = String(planPhaseIndex);
+  elements.planPhaseButtons.innerHTML = battlePhases.map((phase, index) => `
+    <button type="button" data-plan-phase="${index}" class="${index === planPhaseIndex ? "active" : ""}">
+      ${phase.replace("-", "–")}
+    </button>
+  `).join("");
+
+  const visibleGroups = tacticalGroups.filter((group) => selectedGroup === "All Groups" || group === selectedGroup);
+  const byObjective = visibleGroups.reduce((groups, group) => {
+    const order = assignments[group];
+    if (!order?.objective) return groups;
+    if (!groups[order.objective]) groups[order.objective] = [];
+    groups[order.objective].push({ group, ...order });
+    return groups;
+  }, {});
+
+  elements.planObjectiveLayer.innerHTML = Object.entries(objectivePositions).map(([objective, [x, y]]) => {
+    const orders = byObjective[objective] || [];
+    const priority = orders.some((order) => order.priority === "Critical") ? "critical" : orders.length ? "active" : "";
+    return `
+      <button class="objective-hotspot ${priority}" style="left:${x}%;top:${y}%" type="button"
+        data-objective="${escapeHtml(objective)}" aria-label="${escapeHtml(objective)}: ${orders.length ? orders.map((order) => `${order.group} ${order.action}`).join(", ") : "no active assignment"}">
+        <span>${escapeHtml(objective)}</span>
+      </button>
+    `;
+  }).join("");
+
+  renderPlanMovements(plan, visibleGroups);
+  const canEditWeeklyPlan = ["officer", "administrator"].includes(currentUser?.role) && Boolean(publishedPlan);
+  elements.planOrdersTitle.textContent = `Team ${planTeam} · ${selectedGroup} · ${phaseKey.replace("-", "–")} min`;
+  elements.planOrders.innerHTML = visibleGroups.map((group) => {
+    const order = assignments[group];
+    const assignedPlayers = state.members.filter((member) =>
+      member.selected && member.team === planTeam && member.group === group
+    );
+    return `
+      <article class="plan-order ${priorityClass(order.priority)}">
+        <div><strong>${escapeHtml(group)}</strong><span>${escapeHtml(order.priority)}</span></div>
+        <p>${order.objective ? `${escapeHtml(order.action)} · ${escapeHtml(order.objective)}` : escapeHtml(order.action)}</p>
+        <small>${escapeHtml(order.instruction)}</small>
+        <p class="plan-order-members">${assignedPlayers.length
+          ? assignedPlayers.map((member) => escapeHtml(member.name)).join(" · ")
+          : "No selected members assigned to this group"}</p>
+        ${canEditWeeklyPlan ? `
+          <div class="plan-order-editor">
+            <label>Objective<select data-plan-order-group="${escapeHtml(group)}" data-plan-order-field="objective">${optionHtml(["", ...units.filter((unit) => unit !== "Unassigned")], order.objective)}</select></label>
+            <label>Action<select data-plan-order-group="${escapeHtml(group)}" data-plan-order-field="action">${optionHtml([...new Set([order.action, "Capture", "Hold", "Defend", "Attack", "Contest", "Reinforce", "Scout", "Rotate", "Standby", "Final strike"])], order.action)}</select></label>
+            <label>Priority<select data-plan-order-group="${escapeHtml(group)}" data-plan-order-field="priority">${optionHtml(["Critical", "Primary", "High", "Medium", "Secondary", "Support", "Standby"], order.priority)}</select></label>
+          </div>
+        ` : ""}
+      </article>
+    `;
+  }).join("");
+}
+
+async function handlePlanOrderChange(event) {
+  const group = event.target.dataset.planOrderGroup;
+  const field = event.target.dataset.planOrderField;
+  if (!group || !field) return;
+
+  try {
+    setStatus("Updating weekly order...");
+    state = await api.updateWeeklyPlan(planTeam, {
+      phase: battlePhases[planPhaseIndex],
+      group,
+      patch: { [field]: event.target.value }
+    });
+    render();
+    setStatus("Weekly order updated");
+  } catch (error) {
+    setStatus(error.message, true);
+    await refreshState();
+  }
+}
+
+function renderPlanMovements(plan, visibleGroups) {
+  if (planPhaseIndex === 0) {
+    elements.planMovementLayer.innerHTML = "";
+    return;
+  }
+
+  const current = plan.phases[battlePhases[planPhaseIndex]];
+  const previous = plan.phases[battlePhases[planPhaseIndex - 1]];
+  elements.planMovementLayer.innerHTML = visibleGroups.map((group) => {
+    const from = objectivePositions[previous[group]?.objective];
+    const to = objectivePositions[current[group]?.objective];
+    if (!from || !to || (from[0] === to[0] && from[1] === to[1])) return "";
+    const dx = to[0] - from[0];
+    const dy = to[1] - from[1];
+    const length = Math.hypot(dx, dy);
+    const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+    return `
+      <span class="movement-arrow" style="left:${from[0]}%;top:${from[1]}%;width:${length}%;transform:rotate(${angle}deg);--label-angle:${-angle}deg" aria-hidden="true">
+        <b>${escapeHtml(group)}</b>
+      </span>
+    `;
+  }).join("");
+}
+
+function handlePlanTeamClick(event) {
+  const button = event.target.closest("[data-plan-team]");
+  if (!button) return;
+  stopPlanPlayback();
+  planTeam = button.dataset.planTeam;
+  planPhaseIndex = 0;
+  renderBattlePlan();
+}
+
+function handlePlanPhaseClick(event) {
+  const button = event.target.closest("[data-plan-phase]");
+  if (!button) return;
+  stopPlanPlayback();
+  planPhaseIndex = Number(button.dataset.planPhase);
+  renderBattlePlan();
+}
+
+function togglePlanPlayback() {
+  if (planTimer) {
+    stopPlanPlayback();
+    return;
+  }
+  elements.planPlayButton.textContent = "Pause Timeline";
+  planTimer = window.setInterval(() => {
+    if (planPhaseIndex >= battlePhases.length - 1) {
+      stopPlanPlayback();
+      return;
+    }
+    planPhaseIndex += 1;
+    renderBattlePlan();
+  }, 1800);
+}
+
+function stopPlanPlayback() {
+  if (planTimer) window.clearInterval(planTimer);
+  planTimer = null;
+  elements.planPlayButton.textContent = "Play Timeline";
+}
+
+function priorityClass(priority) {
+  if (priority === "Critical") return "critical";
+  if (["High", "Primary"].includes(priority)) return "high";
+  return "";
+}
+
 function applyPermissions() {
   const isMember = currentUser?.role === "member";
   const isAdmin = currentUser?.role === "administrator";
   document.querySelector("#adminNavButton").hidden = !isAdmin;
   elements.addMemberForm.hidden = !isAdmin;
+  elements.strategyBuilderForm.hidden = isMember;
   document.querySelector("#resetButton").hidden = isMember;
   elements.importScreenshotButton.hidden = isMember;
   elements.battleForm.querySelector("button[type='submit']").hidden = isMember;
@@ -257,6 +489,111 @@ function applyPermissions() {
     document.querySelectorAll("[data-member-id][data-field]").forEach((control) => {
       control.disabled = true;
     });
+  }
+}
+
+function renderStrategyLibrary() {
+  const library = state.strategyLibrary || [];
+  const query = elements.strategySearch.value.trim().toLowerCase();
+  const category = elements.strategyCategory.value;
+  const canPublish = ["officer", "administrator"].includes(currentUser?.role);
+
+  elements.weeklyPlanA.textContent = state.weeklyPlans?.A?.name || state.settings.strategyA || "Not published";
+  elements.weeklyPlanB.textContent = state.weeklyPlans?.B?.name || state.settings.strategyB || "Not published";
+  elements.strategyBaseTemplate.innerHTML = library
+    .filter((strategy) => !strategy.archived)
+    .map((strategy) => `<option value="${escapeHtml(strategy.id)}">${escapeHtml(strategy.name)}</option>`)
+    .join("");
+
+  const visible = library
+    .filter((strategy) => !strategy.archived)
+    .filter((strategy) => category === "all" || strategy.category === category)
+    .filter((strategy) => {
+      const text = [strategy.name, strategy.category, strategy.goal, ...(strategy.tags || [])].join(" ").toLowerCase();
+      return !query || text.includes(query);
+    });
+
+  elements.strategyLibraryCards.innerHTML = visible.map((strategy) => `
+    <article class="strategy-card">
+      <div class="strategy-card-heading">
+        <div>
+          <span>${escapeHtml(strategy.templateType || (strategy.isStarterTemplate ? "Original Strategy" : "Custom Strategy"))}</span>
+          <h3>${escapeHtml(strategy.name)}</h3>
+        </div>
+        <span class="strategy-category">${escapeHtml(strategy.category)} · ${escapeHtml(strategy.difficulty || "Custom")}</span>
+      </div>
+      <p>${escapeHtml(strategy.goal || "No battle goal recorded.")}</p>
+      ${strategy.bestAgainst ? `<p class="strategy-matchup"><strong>Best against:</strong> ${escapeHtml(strategy.bestAgainst)}</p>` : ""}
+      <div class="strategy-tags">${(strategy.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>
+      ${(strategy.stageSummaries || []).length ? `
+        <div class="strategy-stages">
+          ${strategy.stageSummaries.map((stage, index) => `<p><strong>Stage ${index + 1}</strong>${escapeHtml(stage)}</p>`).join("")}
+        </div>
+      ` : ""}
+      <details>
+        <summary>Reference strengths and risks</summary>
+        <div class="strategy-reference-columns">
+          <div><strong>Strengths</strong>${(strategy.strengths || []).map((item) => `<p>+ ${escapeHtml(item)}</p>`).join("")}</div>
+          <div><strong>Risks</strong>${(strategy.risks || []).map((item) => `<p>– ${escapeHtml(item)}</p>`).join("")}</div>
+        </div>
+      </details>
+      ${canPublish ? `
+        <div class="strategy-card-actions">
+          <button class="secondary-button" type="button" data-apply-strategy="${escapeHtml(strategy.id)}" data-apply-team="A">Apply to Team A</button>
+          <button class="secondary-button" type="button" data-apply-strategy="${escapeHtml(strategy.id)}" data-apply-team="B">Apply to Team B</button>
+          <button class="secondary-button" type="button" data-duplicate-strategy="${escapeHtml(strategy.id)}">Duplicate</button>
+        </div>
+      ` : ""}
+    </article>
+  `).join("") || `<article class="panel"><p>No strategies match this view.</p></article>`;
+}
+
+async function createCustomStrategy(event) {
+  event.preventDefault();
+  try {
+    setStatus("Creating strategy...");
+    const payload = Object.fromEntries(new FormData(elements.strategyBuilderForm).entries());
+    await api.createStrategy(payload);
+    state = await api.getState();
+    elements.strategyBuilderForm.reset();
+    render();
+    setStatus("Strategy template created");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+async function handleStrategyLibraryClick(event) {
+  const applyButton = event.target.closest("[data-apply-strategy]");
+  const duplicateButton = event.target.closest("[data-duplicate-strategy]");
+
+  try {
+    if (applyButton) {
+      const team = applyButton.dataset.applyTeam;
+      const strategy = (state.strategyLibrary || []).find((item) => item.id === applyButton.dataset.applyStrategy);
+      if (!strategy || !confirm(`Publish ${strategy.name} as Team ${team}'s weekly plan?`)) return;
+      setStatus(`Publishing Team ${team} plan...`);
+      state = await api.applyStrategy(strategy.id, team);
+      planTeam = team;
+      planPhaseIndex = 0;
+      render();
+      setStatus(`Team ${team} plan published`);
+      return;
+    }
+
+    if (duplicateButton) {
+      const strategy = (state.strategyLibrary || []).find((item) => item.id === duplicateButton.dataset.duplicateStrategy);
+      if (!strategy) return;
+      const name = prompt("Name the duplicated strategy:", `${strategy.name} - Custom`);
+      if (!name) return;
+      setStatus("Duplicating strategy...");
+      await api.createStrategy({ name, category: "Custom", goal: strategy.goal, baseStrategyId: strategy.id });
+      state = await api.getState();
+      render();
+      setStatus("Strategy duplicated");
+    }
+  } catch (error) {
+    setStatus(error.message, true);
   }
 }
 
@@ -340,7 +677,7 @@ function renderDirectory() {
     .map(directoryRow)
     .join("");
 
-  elements.directoryRows.innerHTML = rows || `<tr><td colspan="9">No members match this view.</td></tr>`;
+  elements.directoryRows.innerHTML = rows || `<tr><td colspan="10">No members match this view.</td></tr>`;
 }
 
 function renderTeams() {
@@ -532,6 +869,29 @@ async function saveSettings(patch) {
   }
 }
 
+async function publishSelectedStrategy(team) {
+  const select = team === "B" ? elements.strategyB : elements.strategyA;
+  const strategy = (state.strategyLibrary || []).find((item) => item.name === select.value && !item.archived);
+
+  if (!strategy) {
+    setStatus("That strategy template is not available", true);
+    render();
+    return;
+  }
+
+  try {
+    setStatus(`Publishing Team ${team} strategy...`);
+    state = await api.applyStrategy(strategy.id, team);
+    planTeam = team;
+    planPhaseIndex = 0;
+    render();
+    setStatus(`Team ${team} strategy published`);
+  } catch (error) {
+    setStatus(error.message, true);
+    await refreshState();
+  }
+}
+
 async function resetWeek() {
   if (!confirm("Clear this week's selected rosters and availability?")) return;
   state = await api.resetWeek();
@@ -650,6 +1010,7 @@ function directoryRow(member) {
       <td>${escapeHtml(member.rank)}</td>
       <td><select data-member-id="${member.id}" data-field="team" data-version="${member.version || 0}">${optionHtml(["Reserve", "A", "B"], member.team)}</select></td>
       <td><select data-member-id="${member.id}" data-field="type" data-version="${member.version || 0}">${optionHtml(["Starter", "Sub"], member.type)}</select></td>
+      <td><select data-member-id="${member.id}" data-field="group" data-version="${member.version || 0}">${optionHtml(tacticalGroups, member.group || "Reserve")}</select></td>
       <td><select data-member-id="${member.id}" data-field="unit" data-version="${member.version || 0}">${optionHtml(units, assignedUnit(member))}</select></td>
       <td><select data-member-id="${member.id}" data-field="availability" data-version="${member.version || 0}">${optionHtml(["Pending", "Confirmed", "Not available"], member.availability)}</select></td>
       <td><input data-member-id="${member.id}" data-field="availabilityNote" data-version="${member.version || 0}" maxlength="240" value="${escapeHtml(member.availabilityNote || "")}" placeholder="Availability note"></td>
@@ -699,7 +1060,7 @@ function playerHistoryRow(member, history) {
 
   return `
     <tr class="player-history-row">
-      <td colspan="9">
+      <td colspan="10">
         <div class="player-history-panel">${content}</div>
       </td>
     </tr>

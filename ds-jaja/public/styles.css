@@ -967,9 +967,503 @@ tbody tr:hover td {
   text-transform: uppercase;
 }
 
+.battle-plan-controls,
+.battle-team-switch,
+.plan-phase-buttons,
+.plan-strategy-line {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.battle-plan-controls {
+  background: rgba(3, 16, 28, 0.86);
+  border: 1px solid #164e76;
+  justify-content: space-between;
+  padding: 12px;
+}
+
+.battle-team-switch {
+  border: 1px solid #176899;
+}
+
+.battle-team-switch button,
+.plan-phase-buttons button {
+  background: #03101c;
+  border: 0;
+  color: #7eacd2;
+  min-height: 38px;
+  padding: 8px 18px;
+  text-transform: uppercase;
+}
+
+.battle-team-switch button.active,
+.plan-phase-buttons button.active {
+  background: linear-gradient(180deg, #0b9fe8, #0663a7);
+  box-shadow: 0 0 14px rgba(0, 164, 255, 0.32);
+  color: #eefaff;
+}
+
+.plan-strategy-line {
+  background: linear-gradient(90deg, rgba(7, 33, 53, 0.95), rgba(2, 13, 23, 0.92));
+  border: 1px solid #145985;
+  margin-top: 12px;
+  padding: 10px 14px;
+}
+
+.plan-strategy-line span:first-child {
+  color: #6da8d1;
+  font-size: 11px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.plan-strategy-line strong {
+  color: var(--accent-strong);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+#planClock {
+  color: var(--cyan);
+  margin-left: auto;
+}
+
+.plan-phase-buttons {
+  background: #020b14;
+  border: 1px solid #14476c;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  margin-top: 10px;
+}
+
+.plan-phase-buttons button {
+  border-right: 1px solid #14476c;
+}
+
+.plan-phase-buttons button:last-child {
+  border-right: 0;
+}
+
+.plan-scrubber-label {
+  background: rgba(2, 12, 21, 0.88);
+  border: 1px solid #123d5e;
+  margin-top: 10px;
+  padding: 9px 12px;
+}
+
+.plan-scrubber-label input {
+  accent-color: var(--cyan);
+  min-height: 22px;
+  padding: 0;
+  width: 100%;
+}
+
+.tactical-map-layout {
+  align-items: start;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(420px, 620px) minmax(260px, 330px);
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.tactical-map {
+  aspect-ratio: 1 / 1;
+  background: #120c08;
+  border: 2px solid #1477b5;
+  box-shadow: inset 0 0 28px #000, 0 0 20px rgba(0, 137, 223, 0.18);
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
+  overflow: hidden;
+  position: relative;
+}
+
+.tactical-map::after {
+  background: rgba(1, 9, 16, 0.18);
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.tactical-map > img {
+  height: 100%;
+  left: 0;
+  max-width: 100%;
+  object-fit: fill;
+  position: absolute;
+  top: 0;
+  width: 100%;
+}
+
+.plan-objective-layer,
+.plan-movement-layer {
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 2;
+}
+
+.plan-objective-layer {
+  z-index: 3;
+}
+
+.objective-hotspot {
+  align-items: center;
+  background: rgba(3, 13, 22, 0.72);
+  border: 1px solid rgba(158, 191, 214, 0.55);
+  border-radius: 50%;
+  color: #dcefff;
+  display: flex;
+  height: 13px;
+  justify-content: center;
+  pointer-events: auto;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 13px;
+}
+
+.objective-hotspot.active {
+  background: rgba(0, 137, 224, 0.82);
+  border: 2px solid #b7e9ff;
+  box-shadow: 0 0 0 6px rgba(0, 149, 255, 0.18), 0 0 18px #00a6ff;
+  color: #fff;
+}
+
+.objective-hotspot.critical {
+  background: rgba(218, 37, 50, 0.9);
+  border: 2px solid #ffd6d6;
+  box-shadow: 0 0 0 7px rgba(255, 43, 57, 0.2), 0 0 20px #ff2a38;
+  color: #fff;
+}
+
+.objective-hotspot span {
+  background: rgba(2, 10, 17, 0.88);
+  border: 1px solid rgba(112, 174, 214, 0.7);
+  color: #edf8ff;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 700;
+  left: 50%;
+  letter-spacing: 0.035em;
+  padding: 2px 5px;
+  position: absolute;
+  text-transform: uppercase;
+  top: 14px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.movement-arrow {
+  background: linear-gradient(90deg, rgba(17, 199, 255, 0.15), #2acfff);
+  box-shadow: 0 0 7px #009be9;
+  height: 3px;
+  position: absolute;
+  transform-origin: left center;
+}
+
+.movement-arrow::after {
+  border-bottom: 6px solid transparent;
+  border-left: 10px solid #55dcff;
+  border-top: 6px solid transparent;
+  content: "";
+  position: absolute;
+  right: -2px;
+  top: -5px;
+}
+
+.movement-arrow b {
+  background: rgba(1, 12, 21, 0.88);
+  border: 1px solid #3bbee9;
+  color: #dff7ff;
+  font-size: 8px;
+  font-weight: 700;
+  left: 50%;
+  letter-spacing: 0.04em;
+  padding: 2px 4px;
+  position: absolute;
+  top: -10px;
+  transform: translateX(-50%) rotate(var(--label-angle, 0deg));
+  white-space: nowrap;
+}
+
+.plan-orders-panel {
+  background: linear-gradient(160deg, rgba(5, 25, 42, 0.98), rgba(2, 11, 19, 0.98));
+  border: 1px solid #165985;
+  max-height: 760px;
+  overflow: auto;
+  padding: 12px;
+}
+
+.plan-orders-panel h3 {
+  border-bottom: 1px solid #17486c;
+  color: #b8dcf7;
+  font-size: 14px;
+  letter-spacing: 0.07em;
+  margin: 0 0 8px;
+  padding-bottom: 10px;
+  text-transform: uppercase;
+}
+
+.plan-order {
+  border-bottom: 1px solid #12344d;
+  padding: 10px 4px;
+}
+
+.plan-order > div {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.plan-order span {
+  color: #79a2c4;
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.plan-order.high span {
+  color: var(--orange);
+}
+
+.plan-order.critical span {
+  color: #ff5a66;
+}
+
+.plan-order p {
+  color: #d8edff;
+  font-size: 12px;
+  margin: 5px 0;
+}
+
+.plan-order small {
+  color: #7898b2;
+  display: block;
+  line-height: 1.4;
+}
+
+.plan-order-members {
+  border-left: 2px solid #1876a9;
+  color: #9ec7df !important;
+  font-size: 10px !important;
+  padding-left: 7px;
+}
+
+#planServerTime {
+  color: var(--accent-strong);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.plan-order-editor {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 9px;
+}
+
+.plan-order-editor label {
+  font-size: 8px;
+}
+
+.plan-order-editor select {
+  font-size: 10px;
+  min-height: 30px;
+  padding: 4px;
+}
+
+.strategy-library-toolbar,
+.strategy-builder,
+.weekly-plan-reference,
+.strategy-library-grid,
+.strategy-card-actions,
+.strategy-reference-columns {
+  display: grid;
+  gap: 12px;
+}
+
+.strategy-library-toolbar {
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, 260px);
+  margin-bottom: 12px;
+}
+
+.strategy-builder {
+  align-items: end;
+  grid-template-columns: repeat(3, minmax(160px, 1fr)) auto;
+  margin-bottom: 12px;
+}
+
+.strategy-builder h3 {
+  grid-column: 1 / -1;
+}
+
+.strategy-goal-field {
+  grid-column: 1 / -2;
+}
+
+.strategy-goal-field textarea {
+  min-height: 68px;
+}
+
+.weekly-plan-reference {
+  grid-template-columns: repeat(2, 1fr);
+  margin-bottom: 12px;
+}
+
+.weekly-plan-reference article {
+  background: linear-gradient(145deg, rgba(7, 28, 47, 0.93), rgba(2, 12, 22, 0.97));
+  border: 1px solid #165985;
+  padding: 12px 14px;
+}
+
+.weekly-plan-reference span {
+  color: #78a8cb;
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.weekly-plan-reference strong {
+  color: var(--accent-strong);
+  display: block;
+  margin-top: 5px;
+}
+
+.strategy-library-grid {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.strategy-card {
+  background: linear-gradient(150deg, rgba(6, 25, 42, 0.96), rgba(2, 11, 20, 0.98));
+  border: 1px solid #16547e;
+  clip-path: polygon(0 0, calc(100% - 11px) 0, 100% 11px, 100% 100%, 0 100%);
+  padding: 15px;
+}
+
+.strategy-card-heading {
+  align-items: start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.strategy-card-heading > div > span {
+  color: var(--cyan);
+  font-size: 9px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.strategy-card h3 {
+  color: #e8f5ff;
+  letter-spacing: 0.055em;
+  margin: 3px 0;
+  text-transform: uppercase;
+}
+
+.strategy-card > p {
+  color: #91abc1;
+  line-height: 1.5;
+}
+
+.strategy-matchup {
+  color: #c9a968 !important;
+  font-size: 11px;
+}
+
+.strategy-stages {
+  border-left: 2px solid #176b9e;
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+  padding-left: 9px;
+}
+
+.strategy-stages p {
+  color: #88a8bd;
+  font-size: 10px;
+  margin: 0;
+}
+
+.strategy-stages strong {
+  color: #b8ddf5;
+  display: inline-block;
+  margin-right: 6px;
+  text-transform: uppercase;
+}
+
+.strategy-category,
+.strategy-tags span {
+  background: rgba(5, 46, 73, 0.7);
+  border: 1px solid #19608f;
+  color: #9bd7f7;
+  font-size: 9px;
+  padding: 4px 6px;
+  text-transform: uppercase;
+}
+
+.strategy-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.strategy-card details {
+  border-top: 1px solid #16384f;
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
+.strategy-card summary {
+  color: #89b5d4;
+  cursor: pointer;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.strategy-reference-columns {
+  grid-template-columns: repeat(2, 1fr);
+  margin-top: 10px;
+}
+
+.strategy-reference-columns strong {
+  color: #d9eaf5;
+}
+
+.strategy-reference-columns p {
+  color: #829eb3;
+  font-size: 11px;
+  margin: 5px 0;
+}
+
+.strategy-card-actions {
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 13px;
+}
+
 @media (max-width: 1100px) {
   .summary-grid {
     grid-template-columns: repeat(3, 1fr);
+  }
+
+  .tactical-map-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .plan-orders-panel {
+    max-height: none;
+  }
+
+  .strategy-builder {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .strategy-goal-field {
+    grid-column: 1 / -1;
   }
 }
 
@@ -996,6 +1490,18 @@ tbody tr:hover td {
   }
 
   .readiness-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .plan-phase-buttons {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .strategy-library-toolbar,
+  .strategy-builder,
+  .weekly-plan-reference,
+  .strategy-reference-columns,
+  .strategy-card-actions {
     grid-template-columns: 1fr;
   }
 }

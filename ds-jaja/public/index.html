@@ -28,6 +28,8 @@
         <button data-view="teams">Teams</button>
         <button data-view="assignmentsA">Team A Assignments</button>
         <button data-view="assignmentsB">Team B Assignments</button>
+        <button data-view="strategyLibrary">Strategy Library</button>
+        <button data-view="battlePlan">Tactical Map</button>
         <button data-view="results">Results</button>
         <button data-view="history">History</button>
         <button id="adminNavButton" data-view="admin" hidden>Administration</button>
@@ -81,8 +83,9 @@
                   <th>Player</th>
                   <th>Rank</th>
                   <th>Team</th>
-                  <th>Role</th>
-                  <th>Unit</th>
+                  <th>Roster slot</th>
+                  <th>Tactical group</th>
+                  <th>Opening objective</th>
                   <th>Availability</th>
                   <th>Availability note</th>
                   <th>Actions</th>
@@ -145,6 +148,85 @@
             <span>East: Field Hospitals 2 and 4, Oil Refinery 2, and Science Hub</span>
           </div>
           <div id="assignmentBoardB" class="assignment-grid"></div>
+        </section>
+
+        <section id="battlePlan" class="view">
+          <div class="section-title">
+            <h2>Interactive Battle Plan</h2>
+            <p>Simulate each task force’s planned movement through six five-minute phases.</p>
+          </div>
+          <div class="battle-plan-controls">
+            <div class="battle-team-switch" aria-label="Select battle plan team">
+              <button class="active" type="button" data-plan-team="A">Team A</button>
+              <button type="button" data-plan-team="B">Team B</button>
+            </div>
+            <label>
+              Group view
+              <select id="planGroupFilter"></select>
+            </label>
+            <button id="planPlayButton" class="primary-button" type="button">Play Timeline</button>
+          </div>
+          <div class="plan-strategy-line">
+            <span>Active strategy</span>
+            <strong id="planStrategyName"></strong>
+            <span id="planServerTime"></span>
+            <span id="planClock">0–5 minutes</span>
+          </div>
+          <div id="planPhaseButtons" class="plan-phase-buttons" aria-label="Battle phases"></div>
+          <label class="plan-scrubber-label">
+            Timeline progression
+            <input id="planScrubber" type="range" min="0" max="5" step="1" value="0">
+          </label>
+          <div class="tactical-map-layout">
+            <div id="tacticalMap" class="tactical-map" role="img" aria-label="Desert Storm tactical objective map">
+              <img src="/assets/desert-storm-map-clean.png" alt="Clean Desert Storm map with eleven objective buildings">
+              <div id="planMovementLayer" class="plan-movement-layer"></div>
+              <div id="planObjectiveLayer" class="plan-objective-layer"></div>
+            </div>
+            <aside class="plan-orders-panel">
+              <h3 id="planOrdersTitle">Team A orders</h3>
+              <div id="planOrders"></div>
+            </aside>
+          </div>
+        </section>
+
+        <section id="strategyLibrary" class="view">
+          <div class="section-title">
+            <h2>Strategy Library</h2>
+            <p>Reference starter doctrine, build custom templates, and publish independent weekly plans.</p>
+          </div>
+          <div class="strategy-library-toolbar">
+            <label>
+              Search strategies
+              <input id="strategySearch" type="search" placeholder="Name, category, tag, or goal">
+            </label>
+            <label>
+              Category
+              <select id="strategyCategory">
+                <option value="all">All categories</option>
+                <option value="Balanced">Balanced</option>
+                <option value="Aggressive">Aggressive</option>
+                <option value="Defensive">Defensive</option>
+                <option value="Timing">Timing</option>
+                <option value="Multi-lane aggressive">Multi-lane aggressive</option>
+                <option value="Reactive">Reactive</option>
+                <option value="Custom">Custom</option>
+              </select>
+            </label>
+          </div>
+          <form id="strategyBuilderForm" class="strategy-builder panel">
+            <h3>Build a custom strategy</h3>
+            <label>Name<input name="name" maxlength="80" required placeholder="Custom strategy name"></label>
+            <label>Category<input name="category" maxlength="40" value="Custom"></label>
+            <label>Start from<select name="baseStrategyId" id="strategyBaseTemplate"></select></label>
+            <label class="strategy-goal-field">Battle goal<textarea name="goal" maxlength="500" placeholder="What should this strategy accomplish?"></textarea></label>
+            <button class="primary-button" type="submit">Create Template</button>
+          </form>
+          <div class="weekly-plan-reference">
+            <article><span>Team A weekly plan</span><strong id="weeklyPlanA">Not published</strong></article>
+            <article><span>Team B weekly plan</span><strong id="weeklyPlanB">Not published</strong></article>
+          </div>
+          <div id="strategyLibraryCards" class="strategy-library-grid"></div>
         </section>
 
         <section id="results" class="view">
