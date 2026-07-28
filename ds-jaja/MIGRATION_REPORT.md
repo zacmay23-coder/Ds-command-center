@@ -1,7 +1,7 @@
 # Migration Report
 
 - Migration: legacy-weekly-to-events-v1
-- Completed: 2026-07-26T10:05:17.878Z
+- Completed: 2026-07-28T23:45:25.900Z
 - Players migrated: 97
 - Events migrated: 1
 - Participants migrated: 97
