@@ -33,6 +33,9 @@ const api = {
   async getAudit(eventId) {
     return request(`/api/events/${encodeURIComponent(eventId)}/audit`);
   },
+  async getAllAudit() {
+    return request("/api/audit");
+  },
   async getUsers() {
     return request("/api/users");
   },
@@ -104,6 +107,46 @@ const api = {
       method: "POST",
       body: JSON.stringify(fix)
     });
+  },
+  async saveVsScore(payload) {
+    return request("/api/vs-scores", { method: "POST", body: JSON.stringify(payload) });
+  },
+  async deleteVsScore(id) {
+    return request(`/api/vs-scores/${encodeURIComponent(id)}`, { method: "DELETE" });
+  },
+  async importVsScreenshot(file, date, weekId) {
+    const formData = new FormData();
+    formData.append("screenshot", file);
+    return request(`/api/import-vs-screenshot?date=${encodeURIComponent(date)}&weekId=${encodeURIComponent(weekId)}`, { method: "POST", body: formData, headers: {} });
+  },
+  async createVsWeek(payload) {
+    return request("/api/vs-weeks", { method: "POST", body: JSON.stringify(payload) });
+  },
+  async updateVsDayResult(id, payload) {
+    return request(`/api/vs-weeks/${encodeURIComponent(id)}/result`, { method: "PATCH", body: JSON.stringify(payload) });
+  },
+  async deleteVsWeek(id) {
+    return request(`/api/vs-weeks/${encodeURIComponent(id)}`, { method: "DELETE" });
+  },
+  async importVsStandings(weekId, file) {
+    const formData = new FormData();
+    formData.append("screenshot", file);
+    return request(`/api/vs-weeks/${encodeURIComponent(weekId)}/standings`, { method: "POST", body: formData, headers: {} });
+  },
+  async clearVsStandings(weekId) {
+    return request(`/api/vs-weeks/${encodeURIComponent(weekId)}/standings`, { method: "DELETE" });
+  },
+  async saveVsStandings(weekId, standings) {
+    return request(`/api/vs-weeks/${encodeURIComponent(weekId)}/standings`, { method: "PATCH", body: JSON.stringify({ standings }) });
+  },
+  async archiveDuelLeagueGroup(id) {
+    return request(`/api/duel-league-groups/${encodeURIComponent(id)}/archive`, { method: "POST", body: "{}" });
+  },
+  async auditVsDay(weekId, date) {
+    return request(`/api/vs-weeks/${encodeURIComponent(weekId)}/days/${encodeURIComponent(date)}/audit`);
+  },
+  async publishVsDay(weekId, date) {
+    return request(`/api/vs-weeks/${encodeURIComponent(weekId)}/days/${encodeURIComponent(date)}/publish`, { method: "POST", body: "{}" });
   },
   async resetWeek() {
     return request("/api/reset-week", { method: "POST" });
@@ -197,6 +240,9 @@ let timelinePlaybackTimer = null;
 let timelineSelectedGroup = "";
 let timelineEditMode = false;
 let timelineMovementView = "all";
+let selectedVsWeekId = "";
+let selectedVsDate = "";
+let latestVsAudit = null;
 
 const elements = {
   saveStatus: document.querySelector("#saveStatus"),
@@ -258,6 +304,33 @@ elements.allianceEventList = document.querySelector("#allianceEventList");
 elements.themeWeekForm = document.querySelector("#themeWeekForm");
 elements.themeWeekContent = document.querySelector("#themeWeekContent");
 elements.themeHistoryList = document.querySelector("#themeHistoryList");
+elements.vsScoreDate = document.querySelector("#vsScoreDate");
+elements.vsScreenshotInput = document.querySelector("#vsScreenshotInput");
+elements.vsImportButton = document.querySelector("#vsImportButton");
+elements.vsImportStatus = document.querySelector("#vsImportStatus");
+elements.vsImportMatches = document.querySelector("#vsImportMatches");
+elements.vsManualForm = document.querySelector("#vsManualForm");
+elements.vsPlayerSelect = document.querySelector("#vsPlayerSelect");
+elements.vsSummary = document.querySelector("#vsSummary");
+elements.vsRankingRows = document.querySelector("#vsRankingRows");
+elements.vsDailyTables = document.querySelector("#vsDailyTables");
+elements.vsWeekSelect = document.querySelector("#vsWeekSelect");
+elements.vsDayNavigation = document.querySelector("#vsDayNavigation");
+elements.vsMatchupHeader = document.querySelector("#vsMatchupHeader");
+elements.vsDailyResultForm = document.querySelector("#vsDailyResultForm");
+elements.vsWeekForm = document.querySelector("#vsWeekForm");
+elements.createdVsManagement = document.querySelector("#createdVsManagement");
+elements.vsDuelGroupReference = document.querySelector("#vsDuelGroupReference");
+elements.duelLeagueHistoryList = document.querySelector("#duelLeagueHistoryList");
+elements.vsAuditPanel = document.querySelector("#vsAuditPanel");
+elements.vsStandingsInput = document.querySelector("#vsStandingsInput");
+elements.vsStandingsImportButton = document.querySelector("#vsStandingsImportButton");
+elements.vsStandingsStatus = document.querySelector("#vsStandingsStatus");
+elements.vsStandingsRefreshButton = document.querySelector("#vsStandingsRefreshButton");
+elements.vsStandingsClearButton = document.querySelector("#vsStandingsClearButton");
+elements.vsStandingsPaste = document.querySelector("#vsStandingsPaste");
+elements.vsStandingsFillButton = document.querySelector("#vsStandingsFillButton");
+elements.vsStandingsSaveButton = document.querySelector("#vsStandingsSaveButton");
 elements.createdDsManagement = document.querySelector("#createdDsManagement");
 elements.createdThemeManagement = document.querySelector("#createdThemeManagement");
 elements.createdAllianceManagement = document.querySelector("#createdAllianceManagement");
@@ -394,6 +467,25 @@ function bindControls() {
   elements.themeWeekContent.addEventListener("click", handleThemeWeekClick);
   elements.themeWeekContent.addEventListener("change", handleThemeScreenshotChange);
   elements.themeHistoryList.addEventListener("click", handleThemeWeekClick);
+  elements.vsImportButton.addEventListener("click", importVsScreenshot);
+  elements.vsScoreDate.addEventListener("change", handleVsImportDaySelection);
+  elements.vsImportMatches.addEventListener("click", handleVsMatchFix);
+  elements.vsManualForm.addEventListener("submit", saveManualVsScore);
+  elements.vsDailyTables.addEventListener("click", handleVsScoreDelete);
+  elements.vsWeekSelect.addEventListener("change", handleVsWeekSelection);
+  elements.vsDayNavigation.addEventListener("click", handleVsDaySelection);
+  elements.vsDailyResultForm.addEventListener("submit", saveVsDailyResult);
+  elements.vsWeekForm.addEventListener("submit", createVsWeek);
+  elements.createdVsManagement.addEventListener("click", handleVsWeekDelete);
+  elements.createdVsManagement.addEventListener("click", handleDuelGroupAction);
+  elements.vsAuditPanel.addEventListener("change", handleVsAuditSelection);
+  elements.vsAuditPanel.addEventListener("click", handleVsAuditAction);
+  elements.duelLeagueHistoryList.addEventListener("change", handleDuelHistoryWeek);
+  elements.vsStandingsImportButton.addEventListener("click", importVsStandings);
+  elements.vsStandingsRefreshButton.addEventListener("click", refreshVsStandings);
+  elements.vsStandingsClearButton.addEventListener("click", clearVsStandings);
+  elements.vsStandingsFillButton.addEventListener("click", fillVsStandingsFromPaste);
+  elements.vsStandingsSaveButton.addEventListener("click", saveManualVsStandings);
 }
 
 function logout() {
@@ -414,6 +506,7 @@ function fillStrategySelects() {
   const allianceDate = elements.allianceEventForm?.querySelector("[name='date']");
   if (themeDate && !themeDate.value) themeDate.value = nextWeek;
   if (allianceDate && !allianceDate.value) allianceDate.value = nextWeek;
+  setDefaultVsMonday();
 }
 
 function showView(viewId) {
@@ -441,6 +534,7 @@ function render() {
   renderStrategyLibrary();
   renderAllianceWeeklyEvents();
   renderThemeWeeks();
+  renderVsScores();
   renderCreateManagement();
   if (state.permissions.isOfficer) {
     renderParticipation();
@@ -713,6 +807,7 @@ async function renderAdministration() {
     elements.dataQuality.innerHTML = qualityGroups.map(([label, records]) =>
       validationPanel(label, records, records.length ? "warning" : "passed")
     ).join("");
+    renderVsAuditPanel();
     elements.userList.innerHTML = users.map((user) => `
       <article class="panel user-card" data-user-id="${escapeHtml(user.uid)}">
         <div><strong>${escapeHtml(user.displayName)}</strong><span>${escapeHtml(user.email)}</span><small>${user.profileConfirmedAt
@@ -732,6 +827,35 @@ async function renderAdministration() {
   } catch (error) {
     elements.userList.innerHTML = emptyState(error.message);
   }
+}
+
+function renderVsAuditPanel() {
+  const weeks = (state.vsWeeks || []).filter((week) => {
+    const group = (state.duelLeagueGroups || []).find((item) => item.id === week.duelLeagueGroupId);
+    return !group?.archived;
+  });
+  const selectedWeekId = elements.vsAuditPanel.querySelector("[data-vs-audit-week]")?.value || weeks[0]?.id || "";
+  const week = weeks.find((item) => item.id === selectedWeekId) || weeks[0];
+  const days = week ? vsWeekDays(week.beginDate) : [];
+  const selectedDate = elements.vsAuditPanel.querySelector("[data-vs-audit-date]")?.value || days[0]?.date || "";
+  const group = (state.duelLeagueGroups || []).find((item) => item.id === week?.duelLeagueGroupId);
+  const audit = latestVsAudit?.weekId === week?.id && latestVsAudit?.date === selectedDate ? latestVsAudit : null;
+  elements.vsAuditPanel.innerHTML = `<div class="vs-audit-controls">
+    <label>Grouping / VS week<select data-vs-audit-week>${weeks.map((item) => {
+      const itemGroup = (state.duelLeagueGroups || []).find((groupItem) => groupItem.id === item.duelLeagueGroupId);
+      return `<option value="${escapeHtml(item.id)}" ${item.id === week?.id ? "selected" : ""}>${escapeHtml(itemGroup?.code || "")} · ${item.duelLeagueWeek}/4 · vs ${escapeHtml(item.opponent)}</option>`;
+    }).join("")}</select></label>
+    <label>Day<select data-vs-audit-date>${days.map((day) => `<option value="${day.date}" ${day.date === selectedDate ? "selected" : ""}>${day.label} · ${day.date}</option>`).join("")}</select></label>
+    <button class="secondary-button" type="button" data-run-vs-audit ${week ? "" : "disabled"}>Run Audit</button>
+    ${audit?.passed && !audit.published ? `<button class="primary-button" type="button" data-publish-vs-day>Publish Daily Scores</button>` : ""}
+  </div>
+  ${week ? `<p class="muted">${escapeHtml(group?.code || "")} Week ${week.duelLeagueWeek}/4</p>` : emptyState("No active VS weeks are available for audit.")}
+  ${audit ? `<div class="readiness-grid">
+    ${validationPanel("Missing player scores", audit.missingPlayers.map((player) => player.name), audit.missingPlayers.length ? "error" : "passed")}
+    ${validationPanel("Duplicate player scores", audit.duplicatePlayers.map((player) => `${player.name} × ${player.count}`), audit.duplicatePlayers.length ? "error" : "passed")}
+    ${validationPanel("Invalid scores", audit.invalidScores, audit.invalidScores.length ? "error" : "passed")}
+    ${validationPanel("Team final result", audit.missingTeamResult ? ["Daily team totals are missing"] : [], audit.missingTeamResult ? "error" : "passed")}
+  </div><p class="${audit.passed ? "audit-pass" : "audit-fail"}">${audit.published ? "Published and locked" : audit.passed ? `Audit passed: ${audit.submittedScores}/${audit.expectedPlayers} player scores verified.` : "Audit failed. Correct the items above before publishing."}</p>` : ""}`;
 }
 
 async function handleUserChange(event) {
@@ -1284,6 +1408,30 @@ function renderHistory() {
       </div>
     </article>
   `).join("") || `<article class="panel"><p>No battles have been archived yet.</p></article>`;
+  elements.duelLeagueHistoryList.innerHTML = (state.duelLeagueGroups || []).filter((group) =>
+    group.archived || (state.vsWeeks || []).some((week) =>
+      week.duelLeagueGroupId === group.id && Object.keys(week.publishedDays || {}).length
+    )
+  ).map((group) => {
+    const weeks = (state.vsWeeks || []).filter((week) => week.duelLeagueGroupId === group.id).sort((left, right) => left.duelLeagueWeek - right.duelLeagueWeek);
+    return `<details class="history-card" data-duel-history-group="${escapeHtml(group.id)}"><summary><strong>Duel League ${escapeHtml(group.code)} · ${group.archived ? "Archived four-week cycle" : "Published daily history"}</strong></summary>
+      <label>Reference week<select data-history-duel-week>${weeks.map((week) => `<option value="${week.id}">Week ${week.duelLeagueWeek}/4 · vs ${escapeHtml(week.opponent)}</option>`).join("")}</select></label>
+      ${weeks.map((week, index) => {
+        const dates = vsWeekDays(week.beginDate);
+        return `<section data-history-week-panel="${escapeHtml(week.id)}" ${index ? "hidden" : ""}>
+          <h4>${escapeHtml(group.code)} · Week ${week.duelLeagueWeek}/4 · EWAR vs ${escapeHtml(week.opponent)}</h4>
+          <p class="muted">Server ${escapeHtml(week.server)} · ${week.opponentMembers} opponent members · begins ${escapeHtml(week.beginDate)}</p>
+          ${duelRankingTable(week.standings)}
+          <div class="history-score-table"><table><thead><tr><th>Day</th><th>Final</th><th>Result</th><th>Published</th></tr></thead><tbody>
+          ${dates.map((day) => {
+            const result = week.dailyResults?.[day.date] || {};
+            const outcome = Number(result.ourScore) === Number(result.opponentScore) ? "Pending" : Number(result.ourScore) > Number(result.opponentScore) ? "Win" : "Loss";
+            return `<tr><td>${day.label}</td><td>${Number(result.ourScore || 0).toLocaleString()} – ${Number(result.opponentScore || 0).toLocaleString()}</td><td>${outcome}</td><td>${week.publishedDays?.[day.date] ? formatDateTime(week.publishedDays[day.date].publishedAt) : "Not published"}</td></tr>`;
+          }).join("")}</tbody></table></div>
+        </section>`;
+      }).join("")}
+    </details>`;
+  }).join("") || emptyState("No Duel League cycles archived yet.");
 }
 
 function renderAllianceWeeklyEvents() {
@@ -1368,6 +1516,25 @@ function renderCreateManagement() {
     </form>
     <div class="record-actions"><button class="secondary-button" data-edit-alliance-event="${escapeHtml(item.id)}" type="button">Edit</button><button class="primary-button" data-save-alliance-event="${escapeHtml(item.id)}" type="button" hidden>Save</button><button class="secondary-button" data-cancel-alliance-event="${escapeHtml(item.id)}" type="button" hidden>Cancel</button><button class="danger-button" data-delete-alliance-event="${escapeHtml(item.id)}" type="button">Delete</button></div>
   </article>`).join("") || emptyState("No alliance events created.");
+
+  const duelGroups = (state.duelLeagueGroups || []).map((group) => {
+    const weeks = (state.vsWeeks || []).filter((week) => week.duelLeagueGroupId === group.id);
+    return `<article class="panel compact-management-card">
+      <div><p class="eyebrow">${group.archived ? "Archived cycle" : "Active grouping set"}</p><h4>Duel League ${escapeHtml(group.code)}</h4>
+      <p>${weeks.length}/4 weeks assigned</p></div>
+      ${!group.archived ? `<div class="record-actions"><button class="primary-button" type="button" data-archive-duel-group="${escapeHtml(group.id)}">Archive 4-Week Cycle</button></div>` : ""}
+    </article>`;
+  }).join("");
+  const vsWeeks = (state.vsWeeks || []).map((week) => {
+    const group = (state.duelLeagueGroups || []).find((item) => item.id === week.duelLeagueGroupId);
+    const completed = Object.values(week.dailyResults || {}).filter((result) => Number(result.ourScore) || Number(result.opponentScore)).length;
+    return `<article class="panel compact-management-card">
+      <div><p class="eyebrow">${escapeHtml(group?.code || "Duel League")} · ${week.duelLeagueWeek}/4 · Week of ${escapeHtml(week.beginDate)}</p><h4>VS ${escapeHtml(week.opponent)}</h4>
+      <p>Server ${escapeHtml(week.server)} · ${week.opponentMembers} members · ${completed}/6 daily results</p></div>
+      <div class="record-actions"><button class="danger-button" type="button" data-delete-vs-week="${escapeHtml(week.id)}">Delete</button></div>
+    </article>`;
+  }).join("");
+  elements.createdVsManagement.innerHTML = duelGroups + vsWeeks || emptyState("No Duel League groups or VS weeks created.");
 
   elements.createdThemeManagement.innerHTML = (state.themeWeeks || []).map((theme) => `<article class="panel compact-management-card">
     <div data-theme-display="${escapeHtml(theme.id)}"><h4>${escapeHtml(theme.title)} · ${escapeHtml(theme.weekOf)}</h4><p>${escapeHtml(theme.description)}</p></div>
@@ -1847,16 +2014,16 @@ async function handleStrategyApply(event) {
 }
 
 async function renderAudit() {
-  if (!state?.permissions?.isOfficer || !state.activeEvent) return;
+  if (!state?.permissions?.isAdministrator) return;
   try {
-    const entries = await api.getAudit(state.activeEvent.id);
+    const entries = await api.getAllAudit();
     elements.auditList.innerHTML = entries.slice(0, 200).map((entry) => `
       <article class="audit-entry panel">
         <div><strong>${escapeHtml(humanize(entry.action))}</strong><span>${escapeHtml(entry.userDisplayName)}</span></div>
         <p>${escapeHtml(entry.recordType)} · ${escapeHtml(entry.field || entry.recordId || "")}</p>
         <small>${escapeHtml(formatDateTime(entry.timestamp))}${entry.reason ? ` · ${escapeHtml(entry.reason)}` : ""}</small>
       </article>
-    `).join("") || emptyState("No important changes recorded for this event.");
+    `).join("") || emptyState("No important changes have been recorded.");
   } catch (error) {
     elements.auditList.innerHTML = emptyState(error.message);
   }
@@ -2094,6 +2261,388 @@ function renderImportMatches(matches, unmatched = []) {
     ${matchedHtml}
     ${unmatchedHtml ? `<h4 class="match-review-title">Needs manual match</h4>${unmatchedHtml}` : ""}
   `;
+}
+
+function renderVsScores() {
+  const weeks = state.vsWeeks || [];
+  if (!weeks.some((week) => week.id === selectedVsWeekId)) selectedVsWeekId = weeks[0]?.id || "";
+  const week = weeks.find((item) => item.id === selectedVsWeekId);
+  const duelGroup = (state.duelLeagueGroups || []).find((group) => group.id === week?.duelLeagueGroupId);
+  elements.vsWeekSelect.innerHTML = weeks.map((item) =>
+    `<option value="${escapeHtml(item.id)}" ${item.id === selectedVsWeekId ? "selected" : ""}>${escapeHtml(item.beginDate)} · vs ${escapeHtml(item.opponent)}</option>`
+  ).join("") || `<option value="">No VS week created</option>`;
+  const days = week ? vsWeekDays(week.beginDate) : [];
+  if (!days.some((day) => day.date === selectedVsDate)) selectedVsDate = days[0]?.date || "";
+  elements.vsDayNavigation.innerHTML = days.map((day) =>
+    `<button class="${day.date === selectedVsDate ? "primary-button" : "secondary-button"}" type="button" data-vs-day="${day.date}">${day.label}<small>${day.shortDate}</small></button>`
+  ).join("");
+  elements.vsScoreDate.innerHTML = days.map((day) =>
+    `<option value="${day.date}" ${day.date === selectedVsDate ? "selected" : ""}>${day.label} · ${day.date}</option>`
+  ).join("");
+  const manualDate = elements.vsManualForm.querySelector("[name='date']");
+  manualDate.value = selectedVsDate;
+  elements.vsImportButton.disabled = !week;
+  elements.vsManualForm.querySelector("button").disabled = !week;
+  elements.vsDailyResultForm.querySelector("button").disabled = !week;
+  elements.vsPlayerSelect.innerHTML = `<option value="">Choose roster player</option>${state.players
+    .filter((player) => player.active !== false)
+    .sort((left, right) => left.gameName.localeCompare(right.gameName))
+    .map((player) => `<option value="${escapeHtml(player.id)}">${escapeHtml(player.gameName)} · ${escapeHtml(player.rank || "Unranked")}</option>`).join("")}`;
+
+  const scores = (state.vsScores || []).filter((entry) =>
+    week && (entry.vsWeekId === week.id || (!entry.vsWeekId && days.some((day) => day.date === entry.date)))
+  );
+  const dailyScores = scores.filter((entry) => entry.date === selectedVsDate);
+  const byPlayer = new Map();
+  for (const entry of scores) {
+    const record = byPlayer.get(entry.playerId) || { name: entry.playerName, total: 0, entries: [] };
+    record.total += Number(entry.score || 0);
+    record.entries.push(entry);
+    byPlayer.set(entry.playerId, record);
+  }
+  const ranking = [...byPlayer.values()].sort((left, right) => right.total - left.total || left.name.localeCompare(right.name));
+  const total = scores.reduce((sum, entry) => sum + Number(entry.score || 0), 0);
+  const result = week?.dailyResults?.[selectedVsDate] || { ourScore: 0, opponentScore: 0 };
+  const published = Boolean(week?.publishedDays?.[selectedVsDate]);
+  const outcome = Number(result.ourScore) === Number(result.opponentScore) ? "Pending" : Number(result.ourScore) > Number(result.opponentScore) ? "Win" : "Loss";
+  const resultClass = outcome === "Win" ? "vs-win" : outcome === "Loss" ? "vs-loss" : "vs-pending";
+  elements.vsMatchupHeader.innerHTML = week ? `<article class="panel vs-matchup-header ${resultClass}">
+    <div><p class="eyebrow">${escapeHtml(duelGroup?.code || "Duel League")} · Week ${week.duelLeagueWeek}/4 · ${escapeHtml(days.find((day) => day.date === selectedVsDate)?.label || "")} · ${escapeHtml(selectedVsDate)}</p><h3>EWAR vs ${escapeHtml(week.opponent)}</h3><p>Server ${escapeHtml(week.server)} · ${week.opponentMembers} opponent members</p></div>
+    <div class="vs-final-score"><span>${published ? `Published · ${outcome}` : outcome}</span><strong>${Number(result.ourScore).toLocaleString()} – ${Number(result.opponentScore).toLocaleString()}</strong></div>
+  </article>` : emptyState("Create a VS week in the Create tab to begin scoring.");
+  elements.vsDailyResultForm.querySelector("[name='ourScore']").value = Number(result.ourScore || 0);
+  elements.vsDailyResultForm.querySelector("[name='opponentScore']").value = Number(result.opponentScore || 0);
+  elements.vsDailyResultForm.querySelectorAll("input, button").forEach((control) => { control.disabled = !week || published; });
+  elements.vsImportButton.disabled = !week || published;
+  elements.vsManualForm.querySelectorAll("select, input, button").forEach((control) => { control.disabled = !week || published; });
+  elements.vsDuelGroupReference.innerHTML = week
+    ? `<p class="muted">${escapeHtml(duelGroup?.code || "")} · VS Week ${week.duelLeagueWeek}/4 standings snapshot</p>${duelRankingTable(week.standings, state.permissions.isOfficer && !published)}`
+    : duelRankingTable([]);
+  elements.vsStandingsImportButton.disabled = !week || published;
+  elements.vsStandingsRefreshButton.disabled = !week;
+  elements.vsStandingsClearButton.disabled = !week || published || !week.standings?.length;
+  elements.vsStandingsPaste.disabled = !week || published;
+  elements.vsStandingsFillButton.disabled = !week || published;
+  elements.vsStandingsSaveButton.disabled = !week || published;
+  elements.vsStandingsStatus.textContent = week?.standings?.length
+    ? `${week.standings.length} alliances imported for this VS week.`
+    : "No standings imported for this week.";
+  elements.vsSummary.innerHTML = `
+    <article class="summary-card"><span>Ranked players</span><strong>${ranking.length}</strong></article>
+    <article class="summary-card"><span>Selected day entries</span><strong>${dailyScores.length}</strong></article>
+    <article class="summary-card"><span>Total VS score</span><strong>${total.toLocaleString()}</strong></article>
+    <article class="summary-card"><span>Current leader</span><strong>${escapeHtml(ranking[0]?.name || "—")}</strong></article>`;
+  elements.vsRankingRows.innerHTML = ranking.map((record, index) => {
+    const latest = [...record.entries].sort((left, right) => right.date.localeCompare(left.date))[0];
+    return `<tr><td><strong>#${index + 1}</strong></td><td>${escapeHtml(record.name)}</td><td><strong>${record.total.toLocaleString()}</strong></td><td>${record.entries.length}</td><td>${Math.round(record.total / record.entries.length).toLocaleString()}</td><td>${Number(latest.score).toLocaleString()} <small>${escapeHtml(latest.date)}</small></td></tr>`;
+  }).join("") || `<tr><td colspan="6">No VS scores have been recorded yet.</td></tr>`;
+  const daily = [...dailyScores].sort((left, right) => Number(right.score) - Number(left.score));
+  elements.vsDailyTables.innerHTML = week ? `<section class="panel vs-daily-panel"><div class="assignment-heading"><h3>${escapeHtml(days.find((day) => day.date === selectedVsDate)?.label || "")} Player Scores</h3><span>${daily.reduce((sum, entry) => sum + Number(entry.score), 0).toLocaleString()} total</span></div>
+      <div class="table-frame"><table><thead><tr><th>Daily rank</th><th>Player</th><th>Score</th><th>Source</th>${state.permissions.isOfficer ? "<th>Action</th>" : ""}</tr></thead>
+      <tbody>${daily.map((entry, index) => `<tr><td>#${index + 1}</td><td>${escapeHtml(entry.playerName)}</td><td>${Number(entry.score).toLocaleString()}</td><td>${escapeHtml(entry.source)}</td>${state.permissions.isOfficer ? `<td>${published ? "Locked" : `<button class="danger-button" type="button" data-delete-vs-score="${escapeHtml(entry.id)}">Delete</button>`}</td>` : ""}</tr>`).join("")}</tbody></table></div></section>`
+  : "";
+}
+
+function duelRankingTable(rankings = [], editable = false) {
+  const rowCount = editable ? Math.max(10, rankings.length) : rankings.length;
+  const rows = rankings.length || editable
+    ? Array.from({ length: rowCount }, (_, index) => rankings[index] || ({ rank: index + 1, alliance: "", weeks: [] }))
+    : [];
+  if (!rows.length) return `<div class="table-frame duel-ranking-table"><table><thead><tr><th>Ranking</th><th>Alliance</th><th>Week 1</th><th>Week 2</th><th>Week 3</th><th>Week 4</th></tr></thead><tbody>${Array.from({ length: 8 }, (_, index) => `<tr><td>#${index + 1}</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>`).join("")}</tbody></table></div>`;
+  return `<div class="table-frame duel-ranking-table"><table><thead><tr><th>Ranking</th><th>Alliance</th><th>Week 1</th><th>Week 2</th><th>Week 3</th><th>Week 4</th></tr></thead>
+    <tbody>${rows.map((row, rowIndex) => `<tr data-vs-standing-row><td>${editable ? `<input data-standing-rank type="number" min="1" value="${Number(row.rank || rowIndex + 1)}">` : `#${Number(row.rank)}`}</td><td>${editable ? `<input data-standing-alliance value="${escapeHtml(row.alliance || "")}" placeholder="Alliance name">` : escapeHtml(row.alliance || "—")}</td>${Array.from({ length: 4 }, (_, index) => {
+      const outcome = row.weeks?.[index] || "";
+      return editable
+        ? `<td><select data-standing-week="${index}"><option value="">—</option><option value="W" ${outcome === "W" ? "selected" : ""}>W</option><option value="L" ${outcome === "L" ? "selected" : ""}>L</option></select></td>`
+        : `<td><span class="vs-standing-result ${outcome === "W" ? "vs-standing-win" : outcome === "L" ? "vs-standing-loss" : ""}">${outcome || "—"}</span></td>`;
+    }).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+
+async function importVsScreenshot() {
+  const file = elements.vsScreenshotInput.files[0];
+  if (!file) {
+    elements.vsImportStatus.textContent = "Choose a screenshot first.";
+    return;
+  }
+  try {
+    setStatus("Reading VS screenshot...");
+    elements.vsImportStatus.textContent = "Reading screenshot. This can take a moment.";
+    const result = await api.importVsScreenshot(file, elements.vsScoreDate.value, selectedVsWeekId);
+    state = result.state;
+    render();
+    elements.vsImportStatus.textContent = `${result.matches.length} scores saved. ${result.unmatched.length} need a roster match.`;
+    renderVsImportMatches(result.matches, result.unmatched);
+    setStatus(`Saved ${result.matches.length} VS scores`);
+  } catch (error) {
+    elements.vsImportStatus.textContent = error.message;
+    setStatus(error.message, true);
+  }
+}
+
+function renderVsImportMatches(matches, unmatched) {
+  elements.vsImportMatches.innerHTML = matches.map((match) =>
+    `<div class="import-match"><strong>${escapeHtml(match.name)}</strong><span>${Number(match.score).toLocaleString()}</span></div>`
+  ).join("") + unmatched.map((item) => `<div class="unmatched-card">
+    <div><strong>${Number(item.score).toLocaleString()}</strong><p class="muted">${escapeHtml(item.ocrName)}</p></div>
+    <select><option value="">Choose roster player</option>${state.players.map((player) => `<option value="${escapeHtml(player.id)}">${escapeHtml(player.gameName)}</option>`).join("")}</select>
+    <button class="secondary-button" type="button" data-vs-match-score="${Number(item.score)}">Save Match</button>
+  </div>`).join("");
+}
+
+async function handleVsMatchFix(event) {
+  const button = event.target.closest("[data-vs-match-score]");
+  if (!button) return;
+  const card = button.closest(".unmatched-card");
+  const playerId = card.querySelector("select").value;
+  if (!playerId) return setStatus("Choose a roster player", true);
+  try {
+    state = await api.saveVsScore({ playerId, date: elements.vsScoreDate.value, vsWeekId: selectedVsWeekId, score: Number(button.dataset.vsMatchScore), source: "screenshot" });
+    render();
+    card.remove();
+    setStatus("VS match saved");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+async function saveManualVsScore(event) {
+  event.preventDefault();
+  try {
+    state = await api.saveVsScore({ ...Object.fromEntries(new FormData(event.currentTarget)), vsWeekId: selectedVsWeekId });
+    const retainedDate = event.currentTarget.querySelector("[name='date']").value;
+    event.currentTarget.reset();
+    event.currentTarget.querySelector("[name='date']").value = retainedDate;
+    render();
+    setStatus("VS score saved");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+function vsWeekDays(beginDate) {
+  const labels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  return labels.map((label, offset) => {
+    const date = new Date(`${beginDate}T12:00:00`);
+    date.setDate(date.getDate() + offset);
+    return {
+      label,
+      date: date.toISOString().slice(0, 10),
+      shortDate: date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+    };
+  });
+}
+
+function handleVsWeekSelection() {
+  selectedVsWeekId = elements.vsWeekSelect.value;
+  selectedVsDate = "";
+  renderVsScores();
+}
+
+function handleVsDaySelection(event) {
+  const button = event.target.closest("[data-vs-day]");
+  if (!button) return;
+  selectedVsDate = button.dataset.vsDay;
+  renderVsScores();
+}
+
+function handleVsImportDaySelection() {
+  selectedVsDate = elements.vsScoreDate.value;
+  renderVsScores();
+}
+
+async function saveVsDailyResult(event) {
+  event.preventDefault();
+  if (!selectedVsWeekId || !selectedVsDate) return;
+  try {
+    state = await api.updateVsDayResult(selectedVsWeekId, { ...Object.fromEntries(new FormData(event.currentTarget)), date: selectedVsDate });
+    render();
+    setStatus("Daily VS final result saved");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+async function createVsWeek(event) {
+  event.preventDefault();
+  try {
+    const formData = new FormData(event.currentTarget);
+    const payload = Object.fromEntries(formData);
+    state = await api.createVsWeek(payload);
+    selectedVsWeekId = state.vsWeeks[0]?.id || "";
+    selectedVsDate = "";
+    event.currentTarget.reset();
+    setDefaultVsMonday();
+    render();
+    setStatus("New VS week created with a blank Duel League standings table");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+async function importVsStandings() {
+  const file = elements.vsStandingsInput.files[0];
+  if (!selectedVsWeekId) return setStatus("Create or select a VS week first", true);
+  if (!file) return setStatus("Choose a Duel League standings screenshot", true);
+  try {
+    setStatus("Reading Duel League standings...");
+    const result = await api.importVsStandings(selectedVsWeekId, file);
+    state = result.state;
+    render();
+    setStatus(`Imported ${result.standings.length} alliances${result.unmatched.length ? `; ${result.unmatched.length} OCR lines were skipped` : ""}`);
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+async function refreshVsStandings() {
+  try {
+    await refreshState();
+    setStatus("VS standings refreshed");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+async function clearVsStandings() {
+  if (!selectedVsWeekId) return setStatus("Select a VS week first", true);
+  if (!confirm("Clear the imported Duel League standings for this VS week?")) return;
+  try {
+    state = await api.clearVsStandings(selectedVsWeekId);
+    elements.vsStandingsInput.value = "";
+    render();
+    setStatus("Imported VS standings cleared");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+function fillVsStandingsFromPaste() {
+  const parsed = elements.vsStandingsPaste.value.split(/\r?\n/).map((line, index) => {
+    const parts = line.split(/\t|,/).map((part) => part.trim()).filter((part) => part !== "");
+    if (!parts.length) return null;
+    const hasRank = /^\d+$/.test(parts[0]);
+    const rank = hasRank ? Number(parts.shift()) : index + 1;
+    const outcomes = [];
+    while (parts.length && outcomes.length < 4) {
+      const token = String(parts[parts.length - 1]).toUpperCase();
+      if (!["W", "L", "WIN", "LOSS"].includes(token)) break;
+      outcomes.unshift(token.startsWith("W") ? "W" : "L");
+      parts.pop();
+    }
+    return { rank, alliance: parts.join(" ").trim(), weeks: outcomes };
+  }).filter((row) => row?.alliance);
+  const rows = [...elements.vsDuelGroupReference.querySelectorAll("[data-vs-standing-row]")];
+  rows.forEach((row, index) => {
+    const value = parsed[index] || { rank: index + 1, alliance: "", weeks: [] };
+    row.querySelector("[data-standing-rank]").value = value.rank;
+    row.querySelector("[data-standing-alliance]").value = value.alliance;
+    row.querySelectorAll("[data-standing-week]").forEach((select, weekIndex) => {
+      select.value = value.weeks[weekIndex] || "";
+    });
+  });
+  setStatus(`Filled ${Math.min(parsed.length, rows.length)} standings rows. Select Save Manual Table to keep them.`);
+}
+
+async function saveManualVsStandings() {
+  if (!selectedVsWeekId) return setStatus("Select a VS week first", true);
+  const standings = [...elements.vsDuelGroupReference.querySelectorAll("[data-vs-standing-row]")].map((row) => ({
+    rank: Number(row.querySelector("[data-standing-rank]").value || 0),
+    alliance: row.querySelector("[data-standing-alliance]").value.trim(),
+    weeks: [...row.querySelectorAll("[data-standing-week]")].map((select) => select.value)
+  })).filter((row) => row.alliance);
+  if (!standings.length) return setStatus("Enter or paste at least one alliance", true);
+  try {
+    state = await api.saveVsStandings(selectedVsWeekId, standings);
+    render();
+    setStatus(`Saved ${standings.length} manual standings rows`);
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+async function handleDuelGroupAction(event) {
+  const archiveButton = event.target.closest("[data-archive-duel-group]");
+  if (!archiveButton) return;
+  const groupId = archiveButton.dataset.archiveDuelGroup;
+  try {
+    state = await api.archiveDuelLeagueGroup(groupId);
+    render();
+    setStatus("Duel League four-week cycle archived");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+function handleVsAuditSelection() {
+  latestVsAudit = null;
+  renderVsAuditPanel();
+}
+
+async function handleVsAuditAction(event) {
+  const run = event.target.closest("[data-run-vs-audit]");
+  const publish = event.target.closest("[data-publish-vs-day]");
+  if (!run && !publish) return;
+  const weekId = elements.vsAuditPanel.querySelector("[data-vs-audit-week]")?.value;
+  const date = elements.vsAuditPanel.querySelector("[data-vs-audit-date]")?.value;
+  if (!weekId || !date) return;
+  try {
+    if (run) {
+      latestVsAudit = await api.auditVsDay(weekId, date);
+      renderVsAuditPanel();
+      setStatus(latestVsAudit.passed ? "VS daily audit passed" : "VS daily audit found issues", !latestVsAudit.passed);
+    } else {
+      state = await api.publishVsDay(weekId, date);
+      latestVsAudit = { ...latestVsAudit, published: true };
+      render();
+      setStatus("Daily VS scores published and locked");
+    }
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+function handleDuelHistoryWeek(event) {
+  const select = event.target.closest("[data-history-duel-week]");
+  if (!select) return;
+  const card = select.closest("[data-duel-history-group]");
+  card.querySelectorAll("[data-history-week-panel]").forEach((panel) => {
+    panel.hidden = panel.dataset.historyWeekPanel !== select.value;
+  });
+}
+
+async function handleVsWeekDelete(event) {
+  const button = event.target.closest("[data-delete-vs-week]");
+  if (!button || !confirm("Delete this VS week and all of its linked player scores?")) return;
+  try {
+    state = await api.deleteVsWeek(button.dataset.deleteVsWeek);
+    selectedVsWeekId = "";
+    selectedVsDate = "";
+    render();
+    setStatus("VS week deleted");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+function setDefaultVsMonday() {
+  const input = elements.vsWeekForm?.querySelector("[name='beginDate']");
+  if (!input || input.value) return;
+  const date = new Date();
+  const daysUntilMonday = (8 - date.getDay()) % 7 || 7;
+  date.setDate(date.getDate() + daysUntilMonday);
+  input.value = date.toISOString().slice(0, 10);
+}
+
+async function handleVsScoreDelete(event) {
+  const button = event.target.closest("[data-delete-vs-score]");
+  if (!button || !confirm("Delete this daily VS score?")) return;
+  try {
+    state = await api.deleteVsScore(button.dataset.deleteVsScore);
+    render();
+    setStatus("VS score deleted");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
 }
 
 function directoryRow(member) {

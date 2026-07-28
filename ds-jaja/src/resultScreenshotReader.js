@@ -5,6 +5,14 @@ const require = createRequire(import.meta.url);
 const englishData = require("@tesseract.js-data/eng");
 
 export async function readResultScreenshot(imageBuffer, members) {
+  const text = await readScreenshotText(imageBuffer);
+  return {
+    text,
+    ...matchPlayersFromText(text, members)
+  };
+}
+
+export async function readScreenshotText(imageBuffer) {
   const worker = await createWorker("eng", undefined, {
     gzip: englishData.gzip,
     langPath: englishData.langPath
@@ -12,14 +20,71 @@ export async function readResultScreenshot(imageBuffer, members) {
 
   try {
     const result = await worker.recognize(imageBuffer);
-    const text = result.data.text || "";
-    return {
-      text,
-      ...matchPlayersFromText(text, members)
-    };
+    return result.data.text || "";
   } finally {
     await worker.terminate();
   }
+}
+
+export function parseDuelLeagueRankings(text) {
+  const rankings = [];
+  const unmatched = [];
+  for (const sourceLine of String(text).split(/\r?\n/).map((line) => line.trim()).filter(Boolean)) {
+    const rankMatch = sourceLine.match(/^\s*#?\s*(\d{1,3})\b/);
+    const serverMatch = sourceLine.match(/\b(?:server\s*)?(S?\s*#?\s*\d{2,6})\b/i);
+    if (!rankMatch || !serverMatch) {
+      unmatched.push(sourceLine);
+      continue;
+    }
+    const rank = Number(rankMatch[1]);
+    const server = serverMatch[1].replace(/\s|#/g, "").toUpperCase();
+    const alliance = sourceLine
+      .slice(rankMatch[0].length)
+      .replace(serverMatch[0], "")
+      .replace(/^[\s.)\-:]+|[\s.)\-:]+$/g, "")
+      .trim();
+    if (!alliance) {
+      unmatched.push(sourceLine);
+      continue;
+    }
+    rankings.push({ rank, alliance, server, sourceLine });
+  }
+  rankings.sort((left, right) => left.rank - right.rank);
+  return { rankings, unmatched };
+}
+
+export function parseDuelLeagueStandings(text) {
+  const standings = [];
+  const unmatched = [];
+  for (const sourceLine of String(text).split(/\r?\n/).map((line) => line.trim()).filter(Boolean)) {
+    const rankMatch = sourceLine.match(/^\s*#?\s*(\d{1,3})\b/);
+    if (!rankMatch) {
+      unmatched.push(sourceLine);
+      continue;
+    }
+    const remainder = sourceLine.slice(rankMatch[0].length).trim();
+    const tokens = remainder.split(/\s+/);
+    const outcomes = [];
+    while (tokens.length && outcomes.length < 4) {
+      const token = tokens[tokens.length - 1].replace(/[^a-z]/gi, "").toUpperCase();
+      if (!["W", "L", "WIN", "LOSS"].includes(token)) break;
+      outcomes.unshift(token.startsWith("W") ? "W" : "L");
+      tokens.pop();
+    }
+    const alliance = tokens.join(" ").replace(/^[\s.)\-:]+|[\s.)\-:]+$/g, "").trim();
+    if (!alliance) {
+      unmatched.push(sourceLine);
+      continue;
+    }
+    standings.push({
+      rank: Number(rankMatch[1]),
+      alliance,
+      weeks: Array.from({ length: 4 }, (_, index) => outcomes[index] || ""),
+      sourceLine
+    });
+  }
+  standings.sort((left, right) => left.rank - right.rank);
+  return { standings, unmatched };
 }
 
 export function matchPlayersFromText(text, members) {
@@ -37,21 +102,19 @@ export function matchPlayersFromText(text, members) {
     const hasPlayerMarker = /\[?\s*ewar\s*\]?/i.test(line);
 
     if (!score) {
-      if (hasPlayerMarker) pendingNameLine = line;
+      if (hasPlayerMarker || /[a-z]/i.test(line)) pendingNameLine = line;
       continue;
     }
 
     const searchLine = hasPlayerMarker ? line : `${pendingNameLine} ${line}`;
     const member = findBestMember(searchLine, members, usedMemberIds);
     if (!member) {
-      if (/\[?\s*ewar\s*\]?/i.test(searchLine)) {
-        unmatched.push({
-          score,
-          sourceLine: line,
-          ocrName: pendingNameLine || line,
-          searchLine
-        });
-      }
+      unmatched.push({
+        score,
+        sourceLine: line,
+        ocrName: pendingNameLine || line,
+        searchLine
+      });
       pendingNameLine = "";
       continue;
     }

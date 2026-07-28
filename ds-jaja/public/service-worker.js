@@ -1,4 +1,4 @@
-const CACHE_NAME = "ewar-command-center-v1";
+const CACHE_NAME = "ewar-command-center-v2";
 const APP_SHELL = [
   "/",
   "/index.html",

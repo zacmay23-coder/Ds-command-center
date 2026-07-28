@@ -57,9 +57,20 @@ import {
   addOfficerQuestion,
   addAnnouncement,
   acknowledgeAnnouncement,
-  deleteAnnouncement
+  deleteAnnouncement,
+  saveVsScore,
+  applyVsScreenshotMatches,
+  deleteVsScore
+  ,createVsWeek
+  ,updateVsDayResult
+  ,deleteVsWeek
+  ,archiveDuelLeagueGroup
+  ,auditVsDay
+  ,publishVsDay
+  ,updateVsWeekStandings
+  ,clearVsWeekStandings
 } from "./src/dataStore.js";
-import { readResultScreenshot } from "./src/resultScreenshotReader.js";
+import { parseDuelLeagueStandings, readResultScreenshot, readScreenshotText } from "./src/resultScreenshotReader.js";
 import { canEditOwnAvailability, requireRole, ROLES } from "./src/permissions.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -331,6 +342,11 @@ async function handleApi(request, response, url) {
     sendJson(response, 200, await getDataQuality());
     return;
   }
+  if (request.method === "GET" && url.pathname === "/api/audit") {
+    requireRole(user, ROLES.ADMIN);
+    sendJson(response, 200, await getAudit());
+    return;
+  }
   if (request.method === "POST" && url.pathname === "/api/players") {
     requireRole(user, ROLES.OFFICER);
     sendJson(response, 201, await addPlayer(await readJsonBody(request), user));
@@ -467,6 +483,103 @@ async function handleApi(request, response, url) {
       unmatched: importResult.unmatched,
       text: importResult.text
     });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/vs-scores") {
+    requireRole(user, ROLES.OFFICER);
+    await saveVsScore(await readJsonBody(request), user);
+    sendJson(response, 201, await getClientState(user));
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/vs-weeks") {
+    requireRole(user, ROLES.OFFICER);
+    await createVsWeek(await readJsonBody(request), user);
+    sendJson(response, 201, await getClientState(user));
+    return;
+  }
+
+  const vsStandingsRoute = url.pathname.match(/^\/api\/vs-weeks\/([^/]+)\/standings$/);
+  if (vsStandingsRoute && request.method === "POST") {
+    requireRole(user, ROLES.OFFICER);
+    const image = await readMultipartImage(request);
+    const parsed = parseDuelLeagueStandings(await readScreenshotText(image.buffer));
+    await updateVsWeekStandings(decodeURIComponent(vsStandingsRoute[1]), parsed.standings, user);
+    sendJson(response, 200, { state: await getClientState(user), ...parsed });
+    return;
+  }
+  if (vsStandingsRoute && request.method === "DELETE") {
+    requireRole(user, ROLES.OFFICER);
+    await clearVsWeekStandings(decodeURIComponent(vsStandingsRoute[1]), user);
+    sendJson(response, 200, await getClientState(user));
+    return;
+  }
+  if (vsStandingsRoute && request.method === "PATCH") {
+    requireRole(user, ROLES.OFFICER);
+    const payload = await readJsonBody(request);
+    await updateVsWeekStandings(decodeURIComponent(vsStandingsRoute[1]), payload.standings, user);
+    sendJson(response, 200, await getClientState(user));
+    return;
+  }
+
+  const duelArchiveRoute = url.pathname.match(/^\/api\/duel-league-groups\/([^/]+)\/archive$/);
+  if (duelArchiveRoute && request.method === "POST") {
+    requireRole(user, ROLES.OFFICER);
+    await archiveDuelLeagueGroup(decodeURIComponent(duelArchiveRoute[1]), user);
+    sendJson(response, 200, await getClientState(user));
+    return;
+  }
+
+  const vsWeekResultRoute = url.pathname.match(/^\/api\/vs-weeks\/([^/]+)\/result$/);
+  if (vsWeekResultRoute && request.method === "PATCH") {
+    requireRole(user, ROLES.OFFICER);
+    await updateVsDayResult(decodeURIComponent(vsWeekResultRoute[1]), await readJsonBody(request), user);
+    sendJson(response, 200, await getClientState(user));
+    return;
+  }
+
+  const vsDayAuditRoute = url.pathname.match(/^\/api\/vs-weeks\/([^/]+)\/days\/([^/]+)\/audit$/);
+  if (vsDayAuditRoute && request.method === "GET") {
+    requireRole(user, ROLES.ADMIN);
+    sendJson(response, 200, await auditVsDay(decodeURIComponent(vsDayAuditRoute[1]), decodeURIComponent(vsDayAuditRoute[2])));
+    return;
+  }
+
+  const vsDayPublishRoute = url.pathname.match(/^\/api\/vs-weeks\/([^/]+)\/days\/([^/]+)\/publish$/);
+  if (vsDayPublishRoute && request.method === "POST") {
+    requireRole(user, ROLES.ADMIN);
+    await publishVsDay(decodeURIComponent(vsDayPublishRoute[1]), decodeURIComponent(vsDayPublishRoute[2]), user);
+    sendJson(response, 200, await getClientState(user));
+    return;
+  }
+
+  const vsWeekRoute = url.pathname.match(/^\/api\/vs-weeks\/([^/]+)$/);
+  if (vsWeekRoute && request.method === "DELETE") {
+    requireRole(user, ROLES.OFFICER);
+    await deleteVsWeek(decodeURIComponent(vsWeekRoute[1]), user);
+    sendJson(response, 200, await getClientState(user));
+    return;
+  }
+
+  const vsScoreRoute = url.pathname.match(/^\/api\/vs-scores\/([^/]+)$/);
+  if (vsScoreRoute && request.method === "DELETE") {
+    requireRole(user, ROLES.OFFICER);
+    await deleteVsScore(decodeURIComponent(vsScoreRoute[1]), user);
+    sendJson(response, 200, await getClientState(user));
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/import-vs-screenshot") {
+    requireRole(user, ROLES.OFFICER);
+    const image = await readMultipartImage(request);
+    const date = url.searchParams.get("date") || new Date().toISOString().slice(0, 10);
+    const vsWeekId = url.searchParams.get("weekId") || "";
+    const currentState = await getState();
+    const roster = Object.values(currentState.players).map((player) => ({ ...player, name: player.gameName }));
+    const importResult = await readResultScreenshot(image.buffer, roster);
+    await applyVsScreenshotMatches(importResult.matches, date, user, vsWeekId);
+    sendJson(response, 200, { state: await getClientState(user), matches: importResult.matches, unmatched: importResult.unmatched });
     return;
   }
 

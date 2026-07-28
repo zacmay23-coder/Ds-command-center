@@ -1,6 +1,6 @@
 {
   "schema": "dscc-events-v3",
-  "updatedAt": "2026-07-28T12:42:59.279Z",
+  "updatedAt": "2026-07-28T16:59:05.350Z",
   "users": {
     "YrvLC7ZL9xWzACxoeUks4dadnr32": {
       "uid": "YrvLC7ZL9xWzACxoeUks4dadnr32",
@@ -22,7 +22,7 @@
       "profileBio": "Ewar founder/leader- A team built on friendships and community, survived by overcoming adversity",
       "active": true,
       "createdAt": "2026-07-27T07:27:26.729Z",
-      "lastLoginAt": "2026-07-28T12:42:59.277Z",
+      "lastLoginAt": "2026-07-28T16:59:05.350Z",
       "version": 12
     }
   },
@@ -21977,6 +21977,1679 @@
         "after": null,
         "reason": "",
         "timestamp": "2026-07-28T12:22:09.115Z"
+      },
+      "audit-b4d7501b-352d-4c2f-b3bc-711cc72b1ba5": {
+        "id": "audit-b4d7501b-352d-4c2f-b3bc-711cc72b1ba5",
+        "eventId": "system",
+        "userId": "YrvLC7ZL9xWzACxoeUks4dadnr32",
+        "userDisplayName": "zacmay23@gmail.com",
+        "action": "duel_group_created_from_vs_week",
+        "recordType": "duelLeagueGroup",
+        "recordId": "duel-group-ac70ea9a-9bc2-4460-a436-8fde95397716",
+        "field": null,
+        "before": null,
+        "after": {
+          "id": "duel-group-ac70ea9a-9bc2-4460-a436-8fde95397716",
+          "code": "S35",
+          "rankings": [],
+          "archived": false,
+          "createdAt": "2026-07-28T16:54:49.133Z",
+          "createdBy": "YrvLC7ZL9xWzACxoeUks4dadnr32",
+          "updatedAt": "2026-07-28T16:54:49.133Z"
+        },
+        "reason": "",
+        "timestamp": "2026-07-28T16:54:49.133Z"
+      },
+      "audit-00920037-4fab-477a-960e-479222a4f8d5": {
+        "id": "audit-00920037-4fab-477a-960e-479222a4f8d5",
+        "eventId": "system",
+        "userId": "YrvLC7ZL9xWzACxoeUks4dadnr32",
+        "userDisplayName": "zacmay23@gmail.com",
+        "action": "vs_week_created",
+        "recordType": "vsWeek",
+        "recordId": "vs-week-ee01b5d7-feb1-45a3-b8ff-36cc857f2d61",
+        "field": null,
+        "before": null,
+        "after": {
+          "id": "vs-week-ee01b5d7-feb1-45a3-b8ff-36cc857f2d61",
+          "beginDate": "2026-07-27",
+          "opponent": "(Rtn) return",
+          "server": "1487",
+          "opponentMembers": 49,
+          "duelLeagueGroupId": "duel-group-ac70ea9a-9bc2-4460-a436-8fde95397716",
+          "duelLeagueWeek": 1,
+          "dailyResults": {},
+          "publishedDays": {},
+          "standings": [
+            {
+              "rank": 6,
+              "alliance": "§ DBOFEH",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "(Hom) ;",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "[Rtn] |",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 9,
+              "alliance": "J Suicide Squad °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 10,
+              "alliance": "NA War of Master °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 11,
+              "alliance": "A) HOUSE of WARRIORS ~~ &*",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 12,
+              "alliance": "] Bo The Last Dam Laugh «©",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 14,
+              "alliance": "RES a Lords of War 7% — hed a",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 15,
+              "alliance": "Fark Allies",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 75,
+              "alliance": "[TDL]",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            }
+          ],
+          "active": true,
+          "createdAt": "2026-07-28T16:54:49.133Z",
+          "createdBy": "YrvLC7ZL9xWzACxoeUks4dadnr32",
+          "updatedAt": "2026-07-28T16:55:30.940Z"
+        },
+        "reason": "",
+        "timestamp": "2026-07-28T16:54:49.133Z"
+      },
+      "audit-b691963e-5371-4e37-b839-7395c292d899": {
+        "id": "audit-b691963e-5371-4e37-b839-7395c292d899",
+        "eventId": "system",
+        "userId": "YrvLC7ZL9xWzACxoeUks4dadnr32",
+        "userDisplayName": "zacmay23@gmail.com",
+        "action": "vs_week_standings_imported",
+        "recordType": "vsWeek",
+        "recordId": "vs-week-ee01b5d7-feb1-45a3-b8ff-36cc857f2d61",
+        "field": null,
+        "before": null,
+        "after": {
+          "standings": [
+            {
+              "rank": 6,
+              "alliance": "§ DBOFEH",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "(Hom) ;",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "[Rtn] |",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 9,
+              "alliance": "J Suicide Squad °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 10,
+              "alliance": "NA War of Master °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 11,
+              "alliance": "A) HOUSE of WARRIORS ~~ &*",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 12,
+              "alliance": "] Bo The Last Dam Laugh «©",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 14,
+              "alliance": "RES a Lords of War 7% — hed a",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 15,
+              "alliance": "Fark Allies",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 75,
+              "alliance": "[TDL]",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            }
+          ]
+        },
+        "reason": "",
+        "timestamp": "2026-07-28T16:55:22.464Z"
+      },
+      "audit-9e39b0e9-c89f-474e-b08f-aa97640fdb7a": {
+        "id": "audit-9e39b0e9-c89f-474e-b08f-aa97640fdb7a",
+        "eventId": "system",
+        "userId": "YrvLC7ZL9xWzACxoeUks4dadnr32",
+        "userDisplayName": "zacmay23@gmail.com",
+        "action": "vs_week_standings_imported",
+        "recordType": "vsWeek",
+        "recordId": "vs-week-ee01b5d7-feb1-45a3-b8ff-36cc857f2d61",
+        "field": null,
+        "before": null,
+        "after": {
+          "standings": [
+            {
+              "rank": 6,
+              "alliance": "§ DBOFEH",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "(Hom) ;",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "[Rtn] |",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 9,
+              "alliance": "J Suicide Squad °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 10,
+              "alliance": "NA War of Master °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 11,
+              "alliance": "A) HOUSE of WARRIORS ~~ &*",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 12,
+              "alliance": "] Bo The Last Dam Laugh «©",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 14,
+              "alliance": "RES a Lords of War 7% — hed a",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 15,
+              "alliance": "Fark Allies",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 75,
+              "alliance": "[TDL]",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            }
+          ]
+        },
+        "reason": "",
+        "timestamp": "2026-07-28T16:55:24.838Z"
+      },
+      "audit-02bef280-ce32-42b3-a0a9-2d58009b0ead": {
+        "id": "audit-02bef280-ce32-42b3-a0a9-2d58009b0ead",
+        "eventId": "system",
+        "userId": "YrvLC7ZL9xWzACxoeUks4dadnr32",
+        "userDisplayName": "zacmay23@gmail.com",
+        "action": "vs_week_standings_imported",
+        "recordType": "vsWeek",
+        "recordId": "vs-week-ee01b5d7-feb1-45a3-b8ff-36cc857f2d61",
+        "field": null,
+        "before": null,
+        "after": {
+          "standings": [
+            {
+              "rank": 6,
+              "alliance": "§ DBOFEH",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "(Hom) ;",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "[Rtn] |",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 9,
+              "alliance": "J Suicide Squad °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 10,
+              "alliance": "NA War of Master °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 11,
+              "alliance": "A) HOUSE of WARRIORS ~~ &*",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 12,
+              "alliance": "] Bo The Last Dam Laugh «©",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 14,
+              "alliance": "RES a Lords of War 7% — hed a",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 15,
+              "alliance": "Fark Allies",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 75,
+              "alliance": "[TDL]",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            }
+          ]
+        },
+        "reason": "",
+        "timestamp": "2026-07-28T16:55:25.395Z"
+      },
+      "audit-e603e1bf-3afd-4763-89be-212e3257c443": {
+        "id": "audit-e603e1bf-3afd-4763-89be-212e3257c443",
+        "eventId": "system",
+        "userId": "YrvLC7ZL9xWzACxoeUks4dadnr32",
+        "userDisplayName": "zacmay23@gmail.com",
+        "action": "vs_week_standings_imported",
+        "recordType": "vsWeek",
+        "recordId": "vs-week-ee01b5d7-feb1-45a3-b8ff-36cc857f2d61",
+        "field": null,
+        "before": null,
+        "after": {
+          "standings": [
+            {
+              "rank": 6,
+              "alliance": "§ DBOFEH",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "(Hom) ;",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "[Rtn] |",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 9,
+              "alliance": "J Suicide Squad °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 10,
+              "alliance": "NA War of Master °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 11,
+              "alliance": "A) HOUSE of WARRIORS ~~ &*",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 12,
+              "alliance": "] Bo The Last Dam Laugh «©",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 14,
+              "alliance": "RES a Lords of War 7% — hed a",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 15,
+              "alliance": "Fark Allies",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 75,
+              "alliance": "[TDL]",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            }
+          ]
+        },
+        "reason": "",
+        "timestamp": "2026-07-28T16:55:25.827Z"
+      },
+      "audit-f35c34b8-e5da-4910-b860-e30f0d6223dd": {
+        "id": "audit-f35c34b8-e5da-4910-b860-e30f0d6223dd",
+        "eventId": "system",
+        "userId": "YrvLC7ZL9xWzACxoeUks4dadnr32",
+        "userDisplayName": "zacmay23@gmail.com",
+        "action": "vs_week_standings_imported",
+        "recordType": "vsWeek",
+        "recordId": "vs-week-ee01b5d7-feb1-45a3-b8ff-36cc857f2d61",
+        "field": null,
+        "before": null,
+        "after": {
+          "standings": [
+            {
+              "rank": 6,
+              "alliance": "§ DBOFEH",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "(Hom) ;",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "[Rtn] |",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 9,
+              "alliance": "J Suicide Squad °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 10,
+              "alliance": "NA War of Master °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 11,
+              "alliance": "A) HOUSE of WARRIORS ~~ &*",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 12,
+              "alliance": "] Bo The Last Dam Laugh «©",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 14,
+              "alliance": "RES a Lords of War 7% — hed a",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 15,
+              "alliance": "Fark Allies",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 75,
+              "alliance": "[TDL]",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            }
+          ]
+        },
+        "reason": "",
+        "timestamp": "2026-07-28T16:55:26.199Z"
+      },
+      "audit-800d5012-9e33-41e1-aab4-2eeac7a7c439": {
+        "id": "audit-800d5012-9e33-41e1-aab4-2eeac7a7c439",
+        "eventId": "system",
+        "userId": "YrvLC7ZL9xWzACxoeUks4dadnr32",
+        "userDisplayName": "zacmay23@gmail.com",
+        "action": "vs_week_standings_imported",
+        "recordType": "vsWeek",
+        "recordId": "vs-week-ee01b5d7-feb1-45a3-b8ff-36cc857f2d61",
+        "field": null,
+        "before": null,
+        "after": {
+          "standings": [
+            {
+              "rank": 6,
+              "alliance": "§ DBOFEH",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "(Hom) ;",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "[Rtn] |",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 9,
+              "alliance": "J Suicide Squad °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 10,
+              "alliance": "NA War of Master °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 11,
+              "alliance": "A) HOUSE of WARRIORS ~~ &*",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 12,
+              "alliance": "] Bo The Last Dam Laugh «©",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 14,
+              "alliance": "RES a Lords of War 7% — hed a",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 15,
+              "alliance": "Fark Allies",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 75,
+              "alliance": "[TDL]",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            }
+          ]
+        },
+        "reason": "",
+        "timestamp": "2026-07-28T16:55:27.827Z"
+      },
+      "audit-0a7e435c-df06-468c-9cf6-b024f5de445e": {
+        "id": "audit-0a7e435c-df06-468c-9cf6-b024f5de445e",
+        "eventId": "system",
+        "userId": "YrvLC7ZL9xWzACxoeUks4dadnr32",
+        "userDisplayName": "zacmay23@gmail.com",
+        "action": "vs_week_standings_imported",
+        "recordType": "vsWeek",
+        "recordId": "vs-week-ee01b5d7-feb1-45a3-b8ff-36cc857f2d61",
+        "field": null,
+        "before": null,
+        "after": {
+          "standings": [
+            {
+              "rank": 6,
+              "alliance": "§ DBOFEH",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "(Hom) ;",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "[Rtn] |",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 9,
+              "alliance": "J Suicide Squad °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 10,
+              "alliance": "NA War of Master °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 11,
+              "alliance": "A) HOUSE of WARRIORS ~~ &*",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 12,
+              "alliance": "] Bo The Last Dam Laugh «©",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 14,
+              "alliance": "RES a Lords of War 7% — hed a",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 15,
+              "alliance": "Fark Allies",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 75,
+              "alliance": "[TDL]",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            }
+          ]
+        },
+        "reason": "",
+        "timestamp": "2026-07-28T16:55:29.884Z"
+      },
+      "audit-56789b73-4217-43d9-a26b-3acfb9527373": {
+        "id": "audit-56789b73-4217-43d9-a26b-3acfb9527373",
+        "eventId": "system",
+        "userId": "YrvLC7ZL9xWzACxoeUks4dadnr32",
+        "userDisplayName": "zacmay23@gmail.com",
+        "action": "vs_week_standings_imported",
+        "recordType": "vsWeek",
+        "recordId": "vs-week-ee01b5d7-feb1-45a3-b8ff-36cc857f2d61",
+        "field": null,
+        "before": null,
+        "after": {
+          "standings": [
+            {
+              "rank": 6,
+              "alliance": "§ DBOFEH",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "(Hom) ;",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "[Rtn] |",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 9,
+              "alliance": "J Suicide Squad °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 10,
+              "alliance": "NA War of Master °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 11,
+              "alliance": "A) HOUSE of WARRIORS ~~ &*",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 12,
+              "alliance": "] Bo The Last Dam Laugh «©",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 14,
+              "alliance": "RES a Lords of War 7% — hed a",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 15,
+              "alliance": "Fark Allies",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 75,
+              "alliance": "[TDL]",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            }
+          ]
+        },
+        "reason": "",
+        "timestamp": "2026-07-28T16:55:30.115Z"
+      },
+      "audit-c7d56936-4c2c-4ff0-b58d-a1570b9df6f0": {
+        "id": "audit-c7d56936-4c2c-4ff0-b58d-a1570b9df6f0",
+        "eventId": "system",
+        "userId": "YrvLC7ZL9xWzACxoeUks4dadnr32",
+        "userDisplayName": "zacmay23@gmail.com",
+        "action": "vs_week_standings_imported",
+        "recordType": "vsWeek",
+        "recordId": "vs-week-ee01b5d7-feb1-45a3-b8ff-36cc857f2d61",
+        "field": null,
+        "before": null,
+        "after": {
+          "standings": [
+            {
+              "rank": 6,
+              "alliance": "§ DBOFEH",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "(Hom) ;",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "[Rtn] |",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 9,
+              "alliance": "J Suicide Squad °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 10,
+              "alliance": "NA War of Master °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 11,
+              "alliance": "A) HOUSE of WARRIORS ~~ &*",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 12,
+              "alliance": "] Bo The Last Dam Laugh «©",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 14,
+              "alliance": "RES a Lords of War 7% — hed a",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 15,
+              "alliance": "Fark Allies",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 75,
+              "alliance": "[TDL]",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            }
+          ]
+        },
+        "reason": "",
+        "timestamp": "2026-07-28T16:55:30.516Z"
+      },
+      "audit-294953b8-c298-4c07-97b4-3ac48fba9e17": {
+        "id": "audit-294953b8-c298-4c07-97b4-3ac48fba9e17",
+        "eventId": "system",
+        "userId": "YrvLC7ZL9xWzACxoeUks4dadnr32",
+        "userDisplayName": "zacmay23@gmail.com",
+        "action": "vs_week_standings_imported",
+        "recordType": "vsWeek",
+        "recordId": "vs-week-ee01b5d7-feb1-45a3-b8ff-36cc857f2d61",
+        "field": null,
+        "before": null,
+        "after": {
+          "standings": [
+            {
+              "rank": 6,
+              "alliance": "§ DBOFEH",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "(Hom) ;",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "[Rtn] |",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 9,
+              "alliance": "J Suicide Squad °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 10,
+              "alliance": "NA War of Master °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 11,
+              "alliance": "A) HOUSE of WARRIORS ~~ &*",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 12,
+              "alliance": "] Bo The Last Dam Laugh «©",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 14,
+              "alliance": "RES a Lords of War 7% — hed a",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 15,
+              "alliance": "Fark Allies",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 75,
+              "alliance": "[TDL]",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            }
+          ]
+        },
+        "reason": "",
+        "timestamp": "2026-07-28T16:55:30.940Z"
+      },
+      "audit-03363309-c289-44a2-ac71-243547e435a3": {
+        "id": "audit-03363309-c289-44a2-ac71-243547e435a3",
+        "eventId": "system",
+        "userId": "YrvLC7ZL9xWzACxoeUks4dadnr32",
+        "userDisplayName": "zacmay23@gmail.com",
+        "action": "vs_week_standings_cleared",
+        "recordType": "vsWeek",
+        "recordId": "vs-week-ee01b5d7-feb1-45a3-b8ff-36cc857f2d61",
+        "field": null,
+        "before": [
+          {
+            "rank": 6,
+            "alliance": "§ DBOFEH",
+            "weeks": [
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          {
+            "rank": 7,
+            "alliance": "(Hom) ;",
+            "weeks": [
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          {
+            "rank": 7,
+            "alliance": "[Rtn] |",
+            "weeks": [
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          {
+            "rank": 9,
+            "alliance": "J Suicide Squad °°",
+            "weeks": [
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          {
+            "rank": 10,
+            "alliance": "NA War of Master °°",
+            "weeks": [
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          {
+            "rank": 11,
+            "alliance": "A) HOUSE of WARRIORS ~~ &*",
+            "weeks": [
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          {
+            "rank": 12,
+            "alliance": "] Bo The Last Dam Laugh «©",
+            "weeks": [
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          {
+            "rank": 14,
+            "alliance": "RES a Lords of War 7% — hed a",
+            "weeks": [
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          {
+            "rank": 15,
+            "alliance": "Fark Allies",
+            "weeks": [
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          {
+            "rank": 75,
+            "alliance": "[TDL]",
+            "weeks": [
+              "",
+              "",
+              "",
+              ""
+            ]
+          }
+        ],
+        "after": {
+          "standings": []
+        },
+        "reason": "",
+        "timestamp": "2026-07-28T16:58:29.582Z"
+      },
+      "audit-bf63b3f8-c7da-4f06-82c9-3562325bd2d1": {
+        "id": "audit-bf63b3f8-c7da-4f06-82c9-3562325bd2d1",
+        "eventId": "system",
+        "userId": "YrvLC7ZL9xWzACxoeUks4dadnr32",
+        "userDisplayName": "zacmay23@gmail.com",
+        "action": "vs_week_standings_imported",
+        "recordType": "vsWeek",
+        "recordId": "vs-week-ee01b5d7-feb1-45a3-b8ff-36cc857f2d61",
+        "field": null,
+        "before": null,
+        "after": {
+          "standings": [
+            {
+              "rank": 6,
+              "alliance": "§ DBOFEH",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "(Hom) ;",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 7,
+              "alliance": "[Rtn] |",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 9,
+              "alliance": "J Suicide Squad °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 10,
+              "alliance": "NA War of Master °°",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 11,
+              "alliance": "A) HOUSE of WARRIORS ~~ &*",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 12,
+              "alliance": "] Bo The Last Dam Laugh «©",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 14,
+              "alliance": "RES a Lords of War 7% — hed a",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 15,
+              "alliance": "Fark Allies",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "rank": 75,
+              "alliance": "[TDL]",
+              "weeks": [
+                "",
+                "",
+                "",
+                ""
+              ]
+            }
+          ]
+        },
+        "reason": "",
+        "timestamp": "2026-07-28T16:58:47.321Z"
+      },
+      "audit-1b88a3a7-5c0d-439d-aba3-18d3699be180": {
+        "id": "audit-1b88a3a7-5c0d-439d-aba3-18d3699be180",
+        "eventId": "system",
+        "userId": "YrvLC7ZL9xWzACxoeUks4dadnr32",
+        "userDisplayName": "zacmay23@gmail.com",
+        "action": "vs_week_standings_cleared",
+        "recordType": "vsWeek",
+        "recordId": "vs-week-ee01b5d7-feb1-45a3-b8ff-36cc857f2d61",
+        "field": null,
+        "before": [
+          {
+            "rank": 6,
+            "alliance": "§ DBOFEH",
+            "weeks": [
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          {
+            "rank": 7,
+            "alliance": "(Hom) ;",
+            "weeks": [
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          {
+            "rank": 7,
+            "alliance": "[Rtn] |",
+            "weeks": [
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          {
+            "rank": 9,
+            "alliance": "J Suicide Squad °°",
+            "weeks": [
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          {
+            "rank": 10,
+            "alliance": "NA War of Master °°",
+            "weeks": [
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          {
+            "rank": 11,
+            "alliance": "A) HOUSE of WARRIORS ~~ &*",
+            "weeks": [
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          {
+            "rank": 12,
+            "alliance": "] Bo The Last Dam Laugh «©",
+            "weeks": [
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          {
+            "rank": 14,
+            "alliance": "RES a Lords of War 7% — hed a",
+            "weeks": [
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          {
+            "rank": 15,
+            "alliance": "Fark Allies",
+            "weeks": [
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          {
+            "rank": 75,
+            "alliance": "[TDL]",
+            "weeks": [
+              "",
+              "",
+              "",
+              ""
+            ]
+          }
+        ],
+        "after": {
+          "standings": []
+        },
+        "reason": "",
+        "timestamp": "2026-07-28T16:59:05.350Z"
       }
     },
     "event-86dbdbcd-5773-450b-a7a3-99c379bc2cd0": {
@@ -22036,6 +23709,36 @@
     }
   },
   "pendingResults": [],
+  "vsScores": [],
+  "vsWeeks": {
+    "vs-week-ee01b5d7-feb1-45a3-b8ff-36cc857f2d61": {
+      "id": "vs-week-ee01b5d7-feb1-45a3-b8ff-36cc857f2d61",
+      "beginDate": "2026-07-27",
+      "opponent": "(Rtn) return",
+      "server": "1487",
+      "opponentMembers": 49,
+      "duelLeagueGroupId": "duel-group-ac70ea9a-9bc2-4460-a436-8fde95397716",
+      "duelLeagueWeek": 1,
+      "dailyResults": {},
+      "publishedDays": {},
+      "standings": [],
+      "active": true,
+      "createdAt": "2026-07-28T16:54:49.133Z",
+      "createdBy": "YrvLC7ZL9xWzACxoeUks4dadnr32",
+      "updatedAt": "2026-07-28T16:59:05.350Z"
+    }
+  },
+  "duelLeagueGroups": {
+    "duel-group-ac70ea9a-9bc2-4460-a436-8fde95397716": {
+      "id": "duel-group-ac70ea9a-9bc2-4460-a436-8fde95397716",
+      "code": "S35",
+      "rankings": [],
+      "archived": false,
+      "createdAt": "2026-07-28T16:54:49.133Z",
+      "createdBy": "YrvLC7ZL9xWzACxoeUks4dadnr32",
+      "updatedAt": "2026-07-28T16:54:49.133Z"
+    }
+  },
   "allianceWeeklyEvents": {},
   "themeWeeks": {},
   "memberNotices": [],

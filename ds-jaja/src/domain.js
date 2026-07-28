@@ -130,6 +130,9 @@ export function migrateLegacyState(input, actor = {}) {
       strategyVersions: input?.strategyVersions || {},
       auditLogs: input?.auditLogs || {},
       pendingResults: input?.pendingResults || [],
+      vsScores: input?.vsScores || [],
+      vsWeeks: input?.vsWeeks || {},
+      duelLeagueGroups: input?.duelLeagueGroups || {},
       systemSettings: input?.systemSettings || { invitationCodes: [] },
       migrations: { ...(input?.migrations || {}), [MIGRATION_ID]: { completedAt: timestamp, report } }
     }),
@@ -151,6 +154,9 @@ export function normalizeState(input = {}) {
     strategyVersions: input.strategyVersions || {},
     auditLogs: input.auditLogs || {},
     pendingResults: Array.isArray(input.pendingResults) ? input.pendingResults : [],
+    vsScores: Array.isArray(input.vsScores) ? input.vsScores.map(normalizeVsScore) : [],
+    vsWeeks: objectMap(input.vsWeeks, normalizeVsWeek),
+    duelLeagueGroups: objectMap(input.duelLeagueGroups, normalizeDuelLeagueGroup),
     allianceWeeklyEvents: objectMap(input.allianceWeeklyEvents, normalizeAllianceWeeklyEvent),
     themeWeeks: objectMap(input.themeWeeks, normalizeThemeWeek),
     memberNotices: Array.isArray(input.memberNotices) ? input.memberNotices : [],
@@ -158,6 +164,62 @@ export function normalizeState(input = {}) {
     announcements: Array.isArray(input.announcements) ? input.announcements : [],
     systemSettings: input.systemSettings || { invitationCodes: [] },
     migrations: input.migrations || {}
+  };
+}
+
+export function normalizeVsScore(entry = {}) {
+  return {
+    id: String(entry.id || newId("vs-score")),
+    date: entry.date || new Date().toISOString().slice(0, 10),
+    vsWeekId: String(entry.vsWeekId || ""),
+    playerId: String(entry.playerId || entry.memberId || ""),
+    playerName: String(entry.playerName || entry.name || ""),
+    score: Math.max(0, Number(entry.score || 0)),
+    source: entry.source === "screenshot" ? "screenshot" : "manual",
+    sourceLine: String(entry.sourceLine || ""),
+    createdAt: entry.createdAt || now(),
+    createdBy: String(entry.createdBy || ""),
+    updatedAt: entry.updatedAt || now()
+  };
+}
+
+export function normalizeVsWeek(week = {}) {
+  const beginDate = week.beginDate || new Date().toISOString().slice(0, 10);
+  return {
+    id: String(week.id || newId("vs-week")),
+    beginDate,
+    opponent: String(week.opponent || ""),
+    server: String(week.server || ""),
+    opponentMembers: Math.max(0, Number(week.opponentMembers || 0)),
+    duelLeagueGroupId: String(week.duelLeagueGroupId || ""),
+    duelLeagueWeek: Math.min(4, Math.max(1, Number(week.duelLeagueWeek || 1))),
+    dailyResults: typeof week.dailyResults === "object" && week.dailyResults ? week.dailyResults : {},
+    publishedDays: typeof week.publishedDays === "object" && week.publishedDays ? week.publishedDays : {},
+    standings: Array.isArray(week.standings) ? week.standings.map((row, index) => ({
+      rank: Math.max(1, Number(row.rank || index + 1)),
+      alliance: String(row.alliance || ""),
+      weeks: Array.from({ length: 4 }, (_, weekIndex) => ["W", "L"].includes(row.weeks?.[weekIndex]) ? row.weeks[weekIndex] : "")
+    })) : [],
+    active: week.active !== false,
+    createdAt: week.createdAt || now(),
+    createdBy: String(week.createdBy || ""),
+    updatedAt: week.updatedAt || now()
+  };
+}
+
+export function normalizeDuelLeagueGroup(group = {}) {
+  return {
+    id: String(group.id || newId("duel-group")),
+    code: String(group.code || "").trim().toUpperCase(),
+    rankings: Array.isArray(group.rankings) ? group.rankings.map((row, index) => ({
+      rank: Math.max(1, Number(row.rank || index + 1)),
+      alliance: String(row.alliance || row.teamName || ""),
+      server: String(row.server || "")
+    })) : [],
+    archived: Boolean(group.archived),
+    createdAt: group.createdAt || now(),
+    createdBy: String(group.createdBy || ""),
+    updatedAt: group.updatedAt || now()
   };
 }
 

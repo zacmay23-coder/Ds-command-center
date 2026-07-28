@@ -88,6 +88,7 @@
             <button class="secondary-button" type="button" data-event-subview="events">DS</button>
             <button class="secondary-button" type="button" data-event-subview="themeWeek">Theme Week</button>
             <button class="primary-button" type="button" data-event-subview="allianceWeeklyEvents">Alliance Events</button>
+            <button class="secondary-button" type="button" data-event-subview="vsEvents">VS</button>
           </div>
           <div id="allianceEventList" class="history-list"></div>
         </section>
@@ -101,6 +102,7 @@
             <button class="secondary-button" type="button" data-event-subview="events">DS</button>
             <button class="primary-button" type="button" data-event-subview="themeWeek">Theme Week</button>
             <button class="secondary-button" type="button" data-event-subview="allianceWeeklyEvents">Alliance Events</button>
+            <button class="secondary-button" type="button" data-event-subview="vsEvents">VS</button>
           </div>
           <div id="themeWeekContent"></div>
         </section>
@@ -138,11 +140,75 @@
             <button class="primary-button" type="button" data-event-subview="events">DS</button>
             <button class="secondary-button" type="button" data-event-subview="themeWeek">Theme Week</button>
             <button class="secondary-button" type="button" data-event-subview="allianceWeeklyEvents">Alliance Events</button>
+            <button class="secondary-button" type="button" data-event-subview="vsEvents">VS</button>
           </div>
           <div id="eventActions" class="event-actions panel"></div>
           <div id="publishReadiness" class="readiness-grid"></div>
           <div id="dsEventTeamOverview" class="ds-team-overview"></div>
           <div id="eventList" class="history-list"></div>
+        </section>
+
+        <section id="vsEvents" class="view">
+          <div class="section-title">
+            <h2>VS Daily Scores</h2>
+            <p>Capture daily VS screenshots, supplement them with roster-linked entries, and track cumulative rankings.</p>
+          </div>
+          <div class="event-hub-selector panel">
+            <button class="secondary-button" type="button" data-event-subview="events">DS</button>
+            <button class="secondary-button" type="button" data-event-subview="themeWeek">Theme Week</button>
+            <button class="secondary-button" type="button" data-event-subview="allianceWeeklyEvents">Alliance Events</button>
+            <button class="primary-button" type="button" data-event-subview="vsEvents">VS</button>
+          </div>
+          <div class="panel vs-week-controls">
+            <label>VS week<select id="vsWeekSelect"></select></label>
+            <div id="vsDayNavigation" class="vs-day-navigation" aria-label="VS scoring day"></div>
+          </div>
+          <div id="vsMatchupHeader"></div>
+          <form id="vsDailyResultForm" class="panel vs-result-form" data-role="officer">
+            <h3>Daily Team Result</h3>
+            <label>Our team total<input name="ourScore" type="number" min="0" required></label>
+            <label>Opponent total<input name="opponentScore" type="number" min="0" required></label>
+            <button class="primary-button" type="submit">Save Final Result</button>
+          </form>
+          <div class="screenshot-import panel" data-role="officer">
+            <div><h3>Import Daily VS Screenshot</h3><p class="muted">Scores matched to names in the Master Roster are saved for the selected day.</p></div>
+            <label>Import VS day<select id="vsScoreDate"></select></label>
+            <label class="file-picker">Screenshot<input id="vsScreenshotInput" type="file" accept="image/*"></label>
+            <button id="vsImportButton" class="secondary-button" type="button">Read Screenshot</button>
+            <p id="vsImportStatus" class="muted import-status">No screenshot selected.</p>
+            <div id="vsImportMatches" class="import-matches"></div>
+          </div>
+          <form id="vsManualForm" class="panel vs-manual-form" data-role="officer">
+            <h3>Supplement Daily Scores</h3>
+            <label>Player<select name="playerId" id="vsPlayerSelect" required></select></label>
+            <label>Selected day<input name="date" type="text" readonly required></label>
+            <label>VS score<input name="score" type="number" min="0" required></label>
+            <button class="primary-button" type="submit">Save Score</button>
+          </form>
+          <div id="vsSummary" class="summary-grid"></div>
+          <section class="panel">
+            <div class="assignment-heading"><div><h3>Duel League Standings</h3><p class="muted">This table begins blank for every new VS week.</p></div></div>
+            <div class="vs-standings-import" data-role="officer">
+              <label>Standings screenshot<input id="vsStandingsInput" type="file" accept="image/*"></label>
+              <button id="vsStandingsImportButton" class="secondary-button" type="button">Import Standings</button>
+              <button id="vsStandingsRefreshButton" class="secondary-button" type="button">Refresh Table</button>
+              <button id="vsStandingsClearButton" class="danger-button" type="button">Clear Import</button>
+              <span id="vsStandingsStatus" class="muted">No standings imported for this week.</span>
+              <label class="vs-standings-paste">Paste standings
+                <textarea id="vsStandingsPaste" placeholder="1, Alliance Name, W, L, W, W&#10;2, Another Alliance, L, W, L, W"></textarea>
+              </label>
+              <button id="vsStandingsFillButton" class="secondary-button" type="button">Fill Table from Paste</button>
+              <button id="vsStandingsSaveButton" class="primary-button" type="button">Save Manual Table</button>
+            </div>
+            <div id="vsDuelGroupReference"></div>
+          </section>
+          <div class="table-frame">
+            <table class="vs-ranking-table">
+              <thead><tr><th>Rank</th><th>Player</th><th>Total VS</th><th>Days</th><th>Daily average</th><th>Latest score</th></tr></thead>
+              <tbody id="vsRankingRows"></tbody>
+            </table>
+          </div>
+          <div id="vsDailyTables"></div>
         </section>
 
         <section id="create" class="view" data-role="officer">
@@ -181,12 +247,23 @@
               <label class="wide-field">Brief overview<textarea name="overview" maxlength="800" required></textarea></label>
               <button class="primary-button" type="submit">Create Alliance Event</button>
             </form>
+            <form id="vsWeekForm" class="panel weekly-editor-form" data-role="officer">
+              <h3>Create New VS Week</h3>
+              <label>Duel League code<input name="duelLeagueCode" type="text" placeholder="S35" maxlength="20" required></label>
+              <label>Duel League week<select name="duelLeagueWeek" required><option value="1">Week 1/4</option><option value="2">Week 2/4</option><option value="3">Week 3/4</option><option value="4">Week 4/4</option></select></label>
+              <label>Week begins (Monday)<input name="beginDate" type="date" required></label>
+              <label>Weekly VS opponent<input name="opponent" maxlength="100" required></label>
+              <label>Opponent server<input name="server" maxlength="40" required></label>
+              <label>Opponent total members<input name="opponentMembers" type="number" min="1" required></label>
+              <button class="primary-button" type="submit">Create VS Week</button>
+            </form>
           </div>
           <div class="section-title"><h2>Created Event Management</h2><p>Edit or delete created items here. Their Events views remain read-only.</p></div>
           <div class="create-management-grid">
             <section><h3>DS Battles</h3><div id="createdDsManagement"></div></section>
             <section><h3>Theme Weeks</h3><div id="createdThemeManagement"></div></section>
             <section><h3>Alliance Events</h3><div id="createdAllianceManagement"></div></section>
+            <section><h3>VS Weeks</h3><div id="createdVsManagement"></div></section>
           </div>
         </section>
 
@@ -428,6 +505,8 @@
           <div id="historyList" class="history-list"></div>
           <h3 class="archive-subheading">Theme Week Archives</h3>
           <div id="themeHistoryList" class="history-list"></div>
+          <div class="section-title"><h2>Duel League Archives</h2><p>Completed four-week VS cycles grouped by Duel League code.</p></div>
+          <div id="duelLeagueHistoryList" class="history-list"></div>
         </section>
 
         <section id="audit" class="view" data-role="administrator">
@@ -448,6 +527,11 @@
             <button class="secondary-button" type="button" data-admin-subview="audit">Audit Logs</button>
           </div>
           <div id="dataQuality" class="readiness-grid"></div>
+          <section class="panel">
+            <h3>VS Daily Score Audit &amp; Publishing</h3>
+            <p class="muted">Checks every active roster player for a score, duplicate entries, invalid values, and a completed team result.</p>
+            <div id="vsAuditPanel"></div>
+          </section>
           <div id="officerInbox" class="admin-inbox"></div>
           <div id="userList" class="history-list"></div>
         </section>

@@ -14,6 +14,9 @@ import {
   normalizeParticipant,
   normalizePlayer,
   normalizeAllianceWeeklyEvent,
+  normalizeVsScore,
+  normalizeVsWeek,
+  normalizeDuelLeagueGroup,
   normalizeThemeWeek,
   normalizeTemplate,
   now,
@@ -186,6 +189,11 @@ export async function getClientState(user) {
       .filter((account) => account.active && ["officer", "administrator"].includes(account.role))
       .map((account) => ({ uid: account.uid, displayName: account.displayName, role: account.role })),
     pendingResults: user.role === "member" ? [] : state.pendingResults,
+    vsScores: [...state.vsScores].sort((left, right) =>
+      right.date.localeCompare(left.date) || Number(right.score) - Number(left.score)
+    ),
+    vsWeeks: Object.values(state.vsWeeks).sort((left, right) => right.beginDate.localeCompare(left.beginDate)),
+    duelLeagueGroups: Object.values(state.duelLeagueGroups).sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
     permissions: permissionsFor(user)
   };
 }
@@ -987,6 +995,228 @@ export async function applyResultMatchFix(fix) {
   if (!player) throw statusError(422, "Choose a valid roster member");
   upsertPendingResult(state, { memberId: player.id, name: player.gameName, rank: player.rank, team: fix.team, score: fix.score, attendance: "Present", notes: "Imported from screenshot match fix", sourceLine: fix.alias });
   return saveState();
+}
+
+export async function saveVsScore(input, actor) {
+  const state = await getState();
+  const player = state.players[String(input.playerId || "")];
+  if (!player) throw statusError(422, "Choose a valid roster member");
+  const date = String(input.date || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw statusError(422, "Choose a valid VS score date");
+  const vsWeekId = String(input.vsWeekId || "");
+  if (vsWeekId) {
+    const week = state.vsWeeks[vsWeekId];
+    if (!week) throw statusError(422, "Choose a valid VS week");
+    const start = new Date(`${week.beginDate}T12:00:00`);
+    const validDates = Array.from({ length: 6 }, (_, offset) => {
+      const day = new Date(start);
+      day.setDate(day.getDate() + offset);
+      return day.toISOString().slice(0, 10);
+    });
+    if (!validDates.includes(date)) throw statusError(422, "Choose Monday through Saturday in this VS week");
+    if (week.publishedDays?.[date]) throw statusError(409, "Published daily VS scores are read-only");
+  }
+  const score = Number(input.score);
+  if (!Number.isFinite(score) || score < 0) throw statusError(422, "Enter a valid VS score");
+  const existing = state.vsScores.find((item) => item.date === date && item.playerId === player.id && item.vsWeekId === vsWeekId);
+  const next = normalizeVsScore({
+    ...existing,
+    date,
+    vsWeekId,
+    playerId: player.id,
+    playerName: player.gameName,
+    score,
+    source: input.source,
+    sourceLine: input.sourceLine,
+    createdBy: existing?.createdBy || actor.uid,
+    updatedAt: now()
+  });
+  if (existing) Object.assign(existing, next);
+  else state.vsScores.push(next);
+  addAudit(state, actor, { action: existing ? "vs_score_updated" : "vs_score_created", recordType: "vsScore", recordId: next.id, after: next });
+  await saveState();
+  return next;
+}
+
+export async function createVsWeek(input, actor) {
+  const state = await getState();
+  const beginDate = String(input.beginDate || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(beginDate)) throw statusError(422, "Choose a valid VS week begin date");
+  if (new Date(`${beginDate}T12:00:00`).getDay() !== 1) throw statusError(422, "VS week must begin on a Monday");
+  if (Object.values(state.vsWeeks).some((item) => item.beginDate === beginDate)) throw statusError(409, "A VS week already begins on that Monday");
+  if (!String(input.opponent || "").trim()) throw statusError(422, "Enter the weekly VS opponent");
+  if (!String(input.server || "").trim()) throw statusError(422, "Enter the opponent server");
+  if (Number(input.opponentMembers || 0) < 1) throw statusError(422, "Enter the opponent member count");
+  const duelLeagueCode = String(input.duelLeagueCode || "").trim().toUpperCase();
+  if (!/^[A-Z]+\d+$/i.test(duelLeagueCode)) throw statusError(422, "Enter a Duel League code such as S35");
+  const duelLeagueWeek = Number(input.duelLeagueWeek || 0);
+  let group = Object.values(state.duelLeagueGroups).find((item) => item.code === duelLeagueCode && !item.archived);
+  if (!group) {
+    group = normalizeDuelLeagueGroup({ code: duelLeagueCode, rankings: [], id: newId("duel-group"), createdBy: actor.uid });
+    state.duelLeagueGroups[group.id] = group;
+    addAudit(state, actor, { action: "duel_group_created_from_vs_week", recordType: "duelLeagueGroup", recordId: group.id, after: group });
+  }
+  const duelLeagueGroupId = group.id;
+  if (![1, 2, 3, 4].includes(duelLeagueWeek)) throw statusError(422, "Choose Duel League week 1, 2, 3, or 4");
+  if (Object.values(state.vsWeeks).some((item) => item.duelLeagueGroupId === duelLeagueGroupId && item.duelLeagueWeek === duelLeagueWeek)) {
+    throw statusError(409, `Week ${duelLeagueWeek}/4 is already assigned to ${group.code}`);
+  }
+  const week = normalizeVsWeek({ ...input, duelLeagueGroupId, id: newId("vs-week"), createdBy: actor.uid, createdAt: now(), updatedAt: now() });
+  state.vsWeeks[week.id] = week;
+  addAudit(state, actor, { action: "vs_week_created", recordType: "vsWeek", recordId: week.id, after: week });
+  await saveState();
+  return week;
+}
+
+export async function updateVsWeekStandings(weekId, standings, actor) {
+  const state = await getState();
+  const week = state.vsWeeks[weekId];
+  if (!week) throw statusError(404, "VS week was not found");
+  if (Object.keys(week.publishedDays || {}).length) throw statusError(409, "Standings for a published VS week are read-only");
+  const normalized = normalizeVsWeek({ standings }).standings;
+  if (!normalized.length) throw statusError(422, "No Duel League standings could be extracted");
+  week.standings = normalized;
+  week.updatedAt = now();
+  addAudit(state, actor, { action: "vs_week_standings_imported", recordType: "vsWeek", recordId: week.id, after: { standings: normalized } });
+  await saveState();
+  return week;
+}
+
+export async function clearVsWeekStandings(weekId, actor) {
+  const state = await getState();
+  const week = state.vsWeeks[weekId];
+  if (!week) throw statusError(404, "VS week was not found");
+  if (Object.keys(week.publishedDays || {}).length) throw statusError(409, "Standings for a published VS week are read-only");
+  const before = structuredClone(week.standings || []);
+  week.standings = [];
+  week.updatedAt = now();
+  addAudit(state, actor, { action: "vs_week_standings_cleared", recordType: "vsWeek", recordId: week.id, before, after: { standings: [] } });
+  await saveState();
+  return week;
+}
+
+export async function archiveDuelLeagueGroup(groupId, actor) {
+  const state = await getState();
+  const group = state.duelLeagueGroups[groupId];
+  if (!group) throw statusError(404, "Duel League grouping set was not found");
+  const weeks = Object.values(state.vsWeeks).filter((week) => week.duelLeagueGroupId === groupId);
+  const slots = new Set(weeks.map((week) => week.duelLeagueWeek));
+  if (slots.size !== 4) throw statusError(409, "Assign all four VS weeks before archiving this Duel League cycle");
+  group.archived = true;
+  group.updatedAt = now();
+  addAudit(state, actor, { action: "duel_group_archived", recordType: "duelLeagueGroup", recordId: group.id, after: group });
+  await saveState();
+  return group;
+}
+
+export async function updateVsDayResult(weekId, input, actor) {
+  const state = await getState();
+  const week = state.vsWeeks[weekId];
+  if (!week) throw statusError(404, "VS week was not found");
+  const date = String(input.date || "");
+  const validDates = Array.from({ length: 6 }, (_, offset) => {
+    const day = new Date(`${week.beginDate}T12:00:00`);
+    day.setDate(day.getDate() + offset);
+    return day.toISOString().slice(0, 10);
+  });
+  if (!validDates.includes(date)) throw statusError(422, "Choose Monday through Saturday in this VS week");
+  if (week.publishedDays?.[date]) throw statusError(409, "Published daily VS results are read-only");
+  const ourScore = Math.max(0, Number(input.ourScore || 0));
+  const opponentScore = Math.max(0, Number(input.opponentScore || 0));
+  week.dailyResults[date] = { ourScore, opponentScore, updatedAt: now(), updatedBy: actor.uid };
+  week.updatedAt = now();
+  addAudit(state, actor, { action: "vs_day_result_updated", recordType: "vsWeek", recordId: week.id, after: { date, ...week.dailyResults[date] } });
+  await saveState();
+  return week;
+}
+
+export async function auditVsDay(weekId, date) {
+  const state = await getState();
+  const week = state.vsWeeks[weekId];
+  if (!week) throw statusError(404, "VS week was not found");
+  const validDates = Array.from({ length: 6 }, (_, offset) => {
+    const day = new Date(`${week.beginDate}T12:00:00`);
+    day.setDate(day.getDate() + offset);
+    return day.toISOString().slice(0, 10);
+  });
+  if (!validDates.includes(date)) throw statusError(422, "Choose a valid day in this VS week");
+  const activePlayers = Object.values(state.players).filter((player) => player.active !== false);
+  const scores = state.vsScores.filter((entry) => entry.vsWeekId === weekId && entry.date === date);
+  const counts = new Map();
+  for (const score of scores) counts.set(score.playerId, (counts.get(score.playerId) || 0) + 1);
+  const missingPlayers = activePlayers.filter((player) => !counts.has(player.id)).map((player) => ({ id: player.id, name: player.gameName }));
+  const duplicatePlayers = [...counts.entries()].filter(([, count]) => count > 1).map(([playerId, count]) => ({
+    id: playerId,
+    name: state.players[playerId]?.gameName || playerId,
+    count
+  }));
+  const invalidScores = scores.filter((entry) => !Number.isFinite(Number(entry.score)) || Number(entry.score) < 0).map((entry) => entry.playerName);
+  const result = week.dailyResults?.[date];
+  const missingTeamResult = !result || (!Number(result.ourScore) && !Number(result.opponentScore));
+  return {
+    weekId,
+    date,
+    passed: !missingPlayers.length && !duplicatePlayers.length && !invalidScores.length && !missingTeamResult,
+    expectedPlayers: activePlayers.length,
+    submittedScores: scores.length,
+    missingPlayers,
+    duplicatePlayers,
+    invalidScores,
+    missingTeamResult,
+    published: Boolean(week.publishedDays?.[date])
+  };
+}
+
+export async function publishVsDay(weekId, date, actor) {
+  const state = await getState();
+  const audit = await auditVsDay(weekId, date);
+  if (!audit.passed) throw statusError(409, "VS day cannot be published until its Administration audit passes");
+  const week = state.vsWeeks[weekId];
+  if (week.publishedDays?.[date]) return week.publishedDays[date];
+  week.publishedDays ||= {};
+  week.publishedDays[date] = {
+    publishedAt: now(),
+    publishedBy: actor.uid,
+    audit: structuredClone(audit)
+  };
+  addAudit(state, actor, {
+    action: "vs_day_published",
+    recordType: "vsDay",
+    recordId: `${weekId}:${date}`,
+    after: { date, duelLeagueGroupId: week.duelLeagueGroupId, duelLeagueWeek: week.duelLeagueWeek, audit }
+  });
+  await saveState();
+  return week.publishedDays[date];
+}
+
+export async function deleteVsWeek(weekId, actor) {
+  const state = await getState();
+  const week = state.vsWeeks[weekId];
+  if (!week) throw statusError(404, "VS week was not found");
+  if (Object.keys(week.publishedDays || {}).length) throw statusError(409, "A VS week with published daily history cannot be deleted");
+  delete state.vsWeeks[weekId];
+  state.vsScores = state.vsScores.filter((score) => score.vsWeekId !== weekId);
+  addAudit(state, actor, { action: "vs_week_deleted", recordType: "vsWeek", recordId: weekId, before: week });
+  await saveState();
+  return week;
+}
+
+export async function applyVsScreenshotMatches(matches, date, actor, vsWeekId = "") {
+  for (const match of matches) {
+    await saveVsScore({ date, vsWeekId, playerId: match.memberId, score: match.score, source: "screenshot", sourceLine: match.sourceLine }, actor);
+  }
+}
+
+export async function deleteVsScore(scoreId, actor) {
+  const state = await getState();
+  const index = state.vsScores.findIndex((item) => item.id === scoreId);
+  if (index < 0) throw statusError(404, "VS score was not found");
+  const target = state.vsScores[index];
+  if (state.vsWeeks[target.vsWeekId]?.publishedDays?.[target.date]) throw statusError(409, "Published daily VS scores are read-only");
+  const [removed] = state.vsScores.splice(index, 1);
+  addAudit(state, actor, { action: "vs_score_deleted", recordType: "vsScore", recordId: scoreId, before: removed });
+  await saveState();
+  return removed;
 }
 
 async function loadAndMigrateState() {
