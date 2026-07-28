@@ -65,6 +65,7 @@ async function linkProfile(event) {
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Profile could not be linked");
+    sessionStorage.setItem("ewar-entering-command-center", "true");
     window.location.href = "/";
   } catch (error) {
     message.textContent = error.message;

@@ -3,23 +3,32 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Sign In - Desert Storm Command Center</title>
+    <meta name="theme-color" content="#020914">
+    <title>Sign In - Ewar Command Center</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body class="auth-page">
-    <main class="auth-card">
-      <p class="eyebrow">Command Center Access</p>
-      <h1>Sign in</h1>
-      <p class="muted">Sign in with your Command Center account.</p>
+    <main class="auth-shell">
+      <header class="auth-brand">
+        <span class="auth-crest" aria-hidden="true">EW</span>
+        <p>Ewar</p>
+        <h1>Lords of War</h1>
+        <small><i></i>Alliance Operations<i></i></small>
+      </header>
+      <section class="auth-card">
+        <p class="eyebrow">Command Access</p>
+        <h2>Sign in</h2>
+        <p class="muted">Enter your credentials to access the Alliance Operations center.</p>
 
-      <form id="loginForm" class="auth-form">
-        <label>Email<input name="email" type="email" autocomplete="email" required></label>
-        <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
-        <button class="primary-button" type="submit">Sign In</button>
-      </form>
+        <form id="loginForm" class="auth-form">
+          <label>Email address<input name="email" type="email" autocomplete="email" placeholder="Enter your email" required></label>
+          <label>Password<div class="auth-password-field"><input name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required><button type="button" data-toggle-password aria-label="Show password">Show</button></div></label>
+          <button class="primary-button auth-submit" type="submit">Sign In <span aria-hidden="true">→</span></button>
+        </form>
 
-      <p id="authMessage" class="auth-message"></p>
-      <p class="auth-link">Need access? <a href="/register.html">Register an account</a>.</p>
+        <p id="authMessage" class="auth-message"></p>
+        <p class="auth-link">Need access? <a href="/register.html">Register an account</a></p>
+      </section>
     </main>
 
     <script type="module" src="/login.js"></script>

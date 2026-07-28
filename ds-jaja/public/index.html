@@ -8,6 +8,21 @@
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
+    <div class="tactical-world-overlay" aria-hidden="true">
+      <span class="atmosphere-clouds"></span>
+      <span class="atmosphere-fog fog-near"></span>
+      <span class="atmosphere-fog fog-far"></span>
+      <span class="atmosphere-particles particles-blue"></span>
+      <span class="atmosphere-particles particles-ember"></span>
+      <span class="atmosphere-lightning"></span>
+      <span class="tactical-compass"><i>N</i><b></b><small>EWAR OPS</small></span>
+      <span class="tactical-coordinate coordinate-nw">GRID 07 · 14<br>LAT 38.8895 N</span>
+      <span class="tactical-coordinate coordinate-ne">SECTOR DS-01<br>BEARING 045°</span>
+      <span class="tactical-coordinate coordinate-sw">ALLIANCE NET<br>CHANNEL 05</span>
+      <span class="tactical-coordinate coordinate-se">TACTICAL SYSTEM<br>STATUS ACTIVE</span>
+      <span class="blueprint-corner corner-nw"></span>
+      <span class="blueprint-corner corner-se"></span>
+    </div>
     <header class="app-header">
       <div>
         <h1>Ewar: Lords of war Alliance opperations</h1>
@@ -170,15 +185,16 @@
         <section id="directory" class="view">
           <div class="section-title">
             <h2>Master Roster</h2>
-            <p>Build Team A and Team B, confirm in-game signup, assign tactical units, structure focus, and optional leaders.</p>
+            <p>Review alliance readiness, find members quickly, and manage weekly team, unit, structure, and leadership assignments.</p>
           </div>
-          <div class="toolbar">
+          <div id="directorySummary" class="roster-overview"></div>
+          <div class="toolbar roster-filter-bar">
             <label>
-              Search
-              <input id="searchInput" type="search" placeholder="Player name">
+              Find member
+              <input id="searchInput" type="search" placeholder="Search in-game name">
             </label>
             <label>
-              Filter
+              Weekly status
               <select id="filterInput">
                 <option value="all">All members</option>
                 <option value="selected">Selected this week</option>
@@ -186,7 +202,7 @@
               </select>
             </label>
             <label>
-              Team
+              Battle team
               <select id="directoryTeamFilter">
                 <option value="">All teams</option>
                 <option value="A">Team A</option>
@@ -195,7 +211,7 @@
               </select>
             </label>
             <label>
-              Rank grouping
+              Rank
               <select id="rankSort">
                 <option value="grouped">Separate R1–R5 groups</option>
                 <option value="R1">R1 only</option>
@@ -206,7 +222,11 @@
               </select>
             </label>
           </div>
-          <div class="table-frame">
+          <div class="roster-table-heading">
+            <div><span>Alliance directory</span><small>Assignments save automatically</small></div>
+            <p><i></i> Select a player card to open their profile</p>
+          </div>
+          <div class="table-frame roster-table-frame">
             <table>
               <thead>
                 <tr>

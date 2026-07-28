@@ -196,6 +196,7 @@ let timelinePhaseIndex = 0;
 let timelinePlaybackTimer = null;
 let timelineSelectedGroup = "";
 let timelineEditMode = false;
+let timelineMovementView = "all";
 
 const elements = {
   saveStatus: document.querySelector("#saveStatus"),
@@ -224,6 +225,7 @@ const elements = {
   summaryCards: document.querySelector("#summaryCards"),
   readinessPanels: document.querySelector("#readinessPanels"),
   directoryRows: document.querySelector("#directoryRows"),
+  directorySummary: document.querySelector("#directorySummary"),
   resultRows: document.querySelector("#resultRows"),
   teamPanels: document.querySelector("#teamPanels"),
   assignmentBoardA: document.querySelector("#assignmentBoardA"),
@@ -274,6 +276,11 @@ document.addEventListener("DOMContentLoaded", initialize);
 
 async function initialize() {
   requireSession();
+  if (sessionStorage.getItem("ewar-entering-command-center")) {
+    document.body.classList.add("app-entering");
+    sessionStorage.removeItem("ewar-entering-command-center");
+    window.setTimeout(() => document.body.classList.remove("app-entering"), 1600);
+  }
   bindNavigation();
   bindControls();
   fillStrategySelects();
@@ -1133,6 +1140,14 @@ function renderDirectory() {
   const lockRow = !state.activeEvent?.setupPublishedAt
     ? `<tr class="directory-group-row"><th colspan="9">Roster locked — create and publish Team A/B server times and strategies in Create.</th></tr>`
     : "";
+  const selectedMembers = state.members.filter((member) => member.selected);
+  const confirmedMembers = selectedMembers.filter((member) => member.availability === "Confirmed");
+  elements.directorySummary.innerHTML = `
+    <article><span>Alliance members</span><strong>${state.members.length}</strong><small>Registered roster profiles</small></article>
+    <article><span>Team A</span><strong>${state.members.filter((member) => member.team === "A").length}</strong><small>${selectedMembers.filter((member) => member.team === "A").length} selected this week</small></article>
+    <article><span>Team B</span><strong>${state.members.filter((member) => member.team === "B").length}</strong><small>${selectedMembers.filter((member) => member.team === "B").length} selected this week</small></article>
+    <article><span>Confirmed</span><strong>${confirmedMembers.length}/${selectedMembers.length}</strong><small>Selected players signed up</small></article>
+  `;
   elements.directoryRows.innerHTML = `${lockRow}${rows || `<tr><td colspan="9">No members match this view.</td></tr>`}`;
 }
 
@@ -1535,11 +1550,12 @@ function renderStrategyTimeline() {
   timelinePhaseIndex = Math.min(timelinePhaseIndex, Math.max(phases.length - 1, 0));
   const phase = phases[timelinePhaseIndex];
   const orders = timelineGroupOrders(timelineTeam, phase, timelinePhaseIndex);
-  const activeObjectives = new Set(orders.flatMap((order) => [order.primaryObjective, order.secondaryObjective]).filter(Boolean));
   if (!timelineSelectedGroup || !orders.some((order) => order.group === timelineSelectedGroup)) {
     timelineSelectedGroup = orders.find((order) => order.members.length)?.group || orders[0]?.group || "";
   }
   const selectedOrder = orders.find((order) => order.group === timelineSelectedGroup);
+  const displayedOrders = timelineMovementView === "selected" && selectedOrder ? [selectedOrder] : orders;
+  const activeObjectives = new Set(displayedOrders.flatMap((order) => [order.primaryObjective, order.secondaryObjective]).filter(Boolean));
 
   elements.strategyTimelineContent.innerHTML = `
     <div class="tactical-command-shell">
@@ -1560,11 +1576,17 @@ function renderStrategyTimeline() {
       </article>
       <div class="strategy-map-layout">
         <div class="strategy-map-stage">
-          <div class="strategy-map-heading"><div><span>Live tactical position</span><strong>Team ${timelineTeam} movement map</strong></div><small>Select a unit marker or use the unit legend.</small></div>
+          <div class="strategy-map-heading">
+            <div><span>Live tactical position</span><strong>${timelineMovementView === "selected" ? `${escapeHtml(selectedOrder?.group || "Selected squad")} movement` : `Team ${timelineTeam} movement map`}</strong></div>
+            <div class="movement-view-switch" aria-label="Movement display mode">
+              <button type="button" data-movement-view="all" class="${timelineMovementView === "all" ? "active" : ""}">All unit movements</button>
+              <button type="button" data-movement-view="selected" class="${timelineMovementView === "selected" ? "active" : ""}" ${selectedOrder ? "" : "disabled"}>Watch selected squad</button>
+            </div>
+          </div>
           <div class="strategy-tactical-map" aria-label="Interactive Desert Storm objective map">
             <img src="/assets/desert-storm-map-clean.png" alt="Desert Storm battle map">
-            <div class="strategy-route-layer">${timelineRoutes(orders)}</div>
-            <div class="strategy-group-layer">${timelineGroupMarkers(orders)}</div>
+            <div class="strategy-route-layer">${timelineRoutes(displayedOrders)}</div>
+            <div class="strategy-group-layer">${timelineGroupMarkers(displayedOrders)}</div>
             <div class="strategy-objective-layer">${Object.entries(objectivePositions).map(([objective, [x, y]]) => `
               <button type="button" class="strategy-objective ${activeObjectives.has(objective) ? "active" : ""}" style="left:${x}%;top:${y}%" data-map-objective="${escapeHtml(objective)}"><span>${escapeHtml(objective)}</span></button>
             `).join("")}</div>
@@ -1725,11 +1747,13 @@ function handleTimelineClick(event) {
   const playButton = event.target.closest("[data-timeline-play]");
   const objectiveButton = event.target.closest("[data-map-objective]");
   const groupButton = event.target.closest("[data-map-group]");
+  const movementViewButton = event.target.closest("[data-movement-view]");
   if (teamButton) {
     stopTimelinePlayback();
     timelineTeam = teamButton.dataset.timelineTeam;
     timelinePhaseIndex = 0;
     timelineSelectedGroup = "";
+    timelineMovementView = "all";
     renderStrategyTimeline();
   } else if (phaseButton) {
     stopTimelinePlayback();
@@ -1740,6 +1764,9 @@ function handleTimelineClick(event) {
     toggleTimelinePlayback();
   } else if (groupButton) {
     timelineSelectedGroup = groupButton.dataset.mapGroup;
+    renderStrategyTimeline();
+  } else if (movementViewButton) {
+    timelineMovementView = movementViewButton.dataset.movementView;
     renderStrategyTimeline();
   } else if (objectiveButton) {
     const objective = objectiveButton.dataset.mapObjective;
@@ -2068,18 +2095,24 @@ function directoryRow(member) {
   const rosterLocked = !state.activeEvent?.setupPublishedAt;
   const locked = rosterLocked ? "disabled title=\"Publish the DS setup in Create to unlock this roster\"" : "";
   return `
-    <tr>
+    <tr class="roster-member-row team-${escapeHtml(member.team)} ${member.selected ? "selected" : ""}">
       <td data-label="Selected"><input data-member-id="${member.id}" data-field="selected" type="checkbox" ${member.selected ? "checked" : ""} ${locked}></td>
       <td data-label="Player">
         ${memberMiniProfile(member, `${member.rank} · Team ${member.team}`)}
         ${member.availabilityGuidance ? `<small class="availability-guidance">Availability: ${escapeHtml(member.availabilityGuidance)}</small>` : ""}
-        <button class="row-expander" type="button" data-expand-player="${member.id}" aria-expanded="${expanded}">${expanded ? "Hide" : "Show"}</button>
-        <input class="directory-name-input" data-member-id="${member.id}" data-player-field="gameName" value="${escapeHtml(member.name)}" aria-label="In-game name">
-        <label class="profile-image-picker">Picture<input data-member-id="${member.id}" data-player-image type="file" accept="image/*"></label>
-        ${state.permissions.isAdministrator ? `<button class="delete-member-button" type="button" data-delete-player="${member.id}">Delete</button>` : ""}
-        <span class="history-count">${history.length} DS</span>
+        <div class="roster-player-actions">
+          <button class="row-expander" type="button" data-expand-player="${member.id}" aria-expanded="${expanded}">${expanded ? "Close history" : `${history.length} DS records`}</button>
+          <details class="roster-profile-tools">
+            <summary>Profile tools</summary>
+            <div>
+              <label>In-game name<input class="directory-name-input" data-member-id="${member.id}" data-player-field="gameName" value="${escapeHtml(member.name)}"></label>
+              <label class="profile-image-picker">Replace picture<input data-member-id="${member.id}" data-player-image type="file" accept="image/*"></label>
+              ${state.permissions.isAdministrator ? `<button class="delete-member-button" type="button" data-delete-player="${member.id}">Delete profile</button>` : ""}
+            </div>
+          </details>
+        </div>
       </td>
-      <td data-label="Rank">${escapeHtml(member.rank)}</td>
+      <td data-label="Rank"><span class="roster-rank-badge rank-${escapeHtml(member.rank)}">${escapeHtml(member.rank)}</span></td>
       <td data-label="Team"><select data-member-id="${member.id}" data-field="team" ${locked}>${optionHtml(["Reserve", "A", "B"], member.team)}</select></td>
       <td data-label="Role"><select data-member-id="${member.id}" data-field="type" ${locked}>${optionHtml(["Starter", "Sub"], member.type)}</select></td>
       <td data-label="Unit"><select data-member-id="${member.id}" data-field="tacticalGroup" ${locked}>${optionHtml(tacticalGroups, member.tacticalGroup || "Reserve")}</select></td>
@@ -2209,9 +2242,9 @@ function roleOrder(type) {
 
 function readinessPanel(team, data) {
   return `
-    <article class="panel">
+    <article class="panel readiness-panel ${data.score >= 75 ? "ready" : data.score >= 45 ? "forming" : "attention"}">
       <div class="panel-heading">
-        <h3>Team ${team} Readiness</h3>
+        <h3><i class="readiness-live-dot"></i>Team ${team} Readiness</h3>
         <strong>${data.score}%</strong>
       </div>
       <div class="meter"><span style="width: ${data.score}%"></span></div>

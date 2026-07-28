@@ -3,25 +3,34 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Register - Desert Storm Command Center</title>
+    <meta name="theme-color" content="#020914">
+    <title>Register - Ewar Command Center</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body class="auth-page">
-    <main class="auth-card">
-      <p class="eyebrow">Member Access</p>
-      <h1>Register</h1>
-      <p class="muted">New accounts are created as members. An administrator must grant officer access.</p>
+    <main class="auth-shell">
+      <header class="auth-brand">
+        <span class="auth-crest" aria-hidden="true">EW</span>
+        <p>Ewar</p>
+        <h1>Lords of War</h1>
+        <small><i></i>Alliance Operations<i></i></small>
+      </header>
+      <section class="auth-card">
+        <p class="eyebrow">Member Access</p>
+        <h2>Create account</h2>
+        <p class="muted">Register as an alliance member. Command permissions are assigned by an administrator.</p>
 
-      <form id="registerForm" class="auth-form">
-        <label>Display name<input name="displayName" maxlength="80" autocomplete="name" required></label>
-        <label>Email<input name="email" type="email" autocomplete="email" required></label>
-        <label>Password<input name="password" type="password" autocomplete="new-password" minlength="6" required></label>
-        <label>Confirm password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="6" required></label>
-        <button class="primary-button" type="submit">Create Account</button>
-      </form>
+        <form id="registerForm" class="auth-form">
+          <label>Display name<input name="displayName" maxlength="80" autocomplete="name" placeholder="Your command name" required></label>
+          <label>Email address<input name="email" type="email" autocomplete="email" placeholder="Enter your email" required></label>
+          <label>Password<div class="auth-password-field"><input name="password" type="password" autocomplete="new-password" minlength="6" placeholder="Create a password" required><button type="button" data-toggle-password aria-label="Show password">Show</button></div></label>
+          <label>Confirm password<div class="auth-password-field"><input name="confirmPassword" type="password" autocomplete="new-password" minlength="6" placeholder="Confirm your password" required><button type="button" data-toggle-password aria-label="Show password">Show</button></div></label>
+          <button class="primary-button auth-submit" type="submit">Create Account <span aria-hidden="true">→</span></button>
+        </form>
 
-      <p id="authMessage" class="auth-message"></p>
-      <p class="auth-link">Already registered? <a href="/login.html">Sign in</a>.</p>
+        <p id="authMessage" class="auth-message"></p>
+        <p class="auth-link">Already registered? <a href="/login.html">Sign in</a></p>
+      </section>
     </main>
 
     <script type="module" src="/register.js"></script>
