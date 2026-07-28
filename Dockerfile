@@ -5,14 +5,14 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8082
 
-COPY package*.json ./
+COPY ds-jaja/package*.json ./
 RUN npm ci --omit=dev
 
-COPY server.js ./
-COPY src ./src
-COPY public ./public
-COPY scripts ./scripts
-COPY data ./data
+COPY ds-jaja/server.js ./
+COPY ds-jaja/src ./src
+COPY ds-jaja/public ./public
+COPY ds-jaja/scripts ./scripts
+COPY ds-jaja/data ./data
 
 RUN mkdir -p /app/data && chown -R node:node /app
 
