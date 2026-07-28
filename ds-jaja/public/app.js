@@ -289,6 +289,10 @@ async function initialize() {
     window.location.href = "/profile-link.html";
     return;
   }
+  const requestedView = new URLSearchParams(window.location.search).get("view");
+  const requestedButton = requestedView && document.querySelector(`.sidebar button[data-view="${requestedView}"]`);
+  const requestedPanel = requestedView && document.querySelector(`#${requestedView}`);
+  if (requestedButton && requestedPanel && !requestedButton.hidden) showView(requestedView);
   connectLiveUpdates();
 }
 
@@ -327,6 +331,8 @@ function bindNavigation() {
     document.querySelectorAll(".view").forEach((view) => view.classList.remove("active"));
     button.classList.add("active");
     document.querySelector(`#${button.dataset.view}`).classList.add("active");
+    history.replaceState(null, "", `?view=${encodeURIComponent(button.dataset.view)}`);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   });
 }
 
@@ -413,6 +419,7 @@ function fillStrategySelects() {
 function showView(viewId) {
   document.querySelectorAll(".sidebar button").forEach((item) => item.classList.remove("active"));
   document.querySelectorAll(".view").forEach((view) => view.classList.remove("active"));
+  document.querySelector(`.sidebar button[data-view="${viewId}"]`)?.classList.add("active");
   document.querySelector(`#${viewId}`)?.classList.add("active");
 }
 
