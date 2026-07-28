@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Desert Storm Command Center</title>
+    <meta name="theme-color" content="#0b1118">
+    <title>Ewar: Lords of war Alliance opperations</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
     <header class="app-header">
       <div>
-        <p class="eyebrow">Lords of War Alliance Operations</p>
-        <h1>Ewar: Lords of War Command Center</h1>
+        <h1>Ewar: Lords of war Alliance opperations</h1>
       </div>
       <div class="header-actions">
         <button id="profileTabButton" class="header-profile-button" data-header-view="userProfile" type="button">
@@ -43,7 +43,7 @@
         <section id="userProfile" class="view">
           <div class="section-title">
             <h2>My Profile</h2>
-            <p>Your private account link, member identity, profile picture, and Command Center profile settings.</p>
+            <p>Maintain the title and short bio shown with your alliance identity.</p>
           </div>
           <div id="userProfileContent"></div>
         </section>
@@ -51,7 +51,7 @@
         <section id="myAssignment" class="view">
           <div class="section-title">
             <h2>My Weekly Briefing &amp; Assignments</h2>
-            <p>Your personalized Desert Storm, alliance-event, and theme-week briefing.</p>
+            <p>Your current orders, event schedule, alerts, availability, and alliance updates in one operational brief.</p>
           </div>
           <div id="myAssignmentContent"></div>
         </section>
@@ -85,17 +85,22 @@
         <section id="dashboard" class="view active">
           <div class="section-title">
             <h2>Ewar Dashboard</h2>
-            <p>Roster health, weekly readiness, and officer priorities.</p>
+            <p>Current alliance posture, readiness indicators, and command announcements.</p>
           </div>
+          <div class="dashboard-section-label"><span>Operational overview</span><small>Live weekly status</small></div>
           <div id="summaryCards" class="summary-grid"></div>
-          <form id="announcementForm" class="panel announcement-editor" data-role="officer">
-            <h3>Post announcement</h3>
-            <label>Title<input name="title" maxlength="120" required></label>
-            <label>Summary<textarea name="summary" maxlength="1200" required></textarea></label>
-            <label>Photo or file<input name="attachmentFile" type="file" accept="image/*,.pdf,.txt,.doc,.docx"></label>
-            <button class="primary-button" type="submit">Post to Ewar Dashboard</button>
-          </form>
+          <details class="dashboard-command-composer panel" data-role="officer">
+            <summary>Post a command announcement</summary>
+            <form id="announcementForm" class="announcement-editor">
+              <label>Title<input name="title" maxlength="120" required></label>
+              <label>Summary<textarea name="summary" maxlength="1200" required></textarea></label>
+              <label>Photo or file<input name="attachmentFile" type="file" accept="image/*,.pdf,.txt,.doc,.docx"></label>
+              <button class="primary-button" type="submit">Publish announcement</button>
+            </form>
+          </details>
+          <div class="dashboard-section-label dashboard-announcement-label"><span>Command feed</span><small>Current notices and attachments</small></div>
           <div id="announcementList" class="announcement-list"></div>
+          <div class="dashboard-section-label dashboard-readiness-label"><span>Battle readiness</span><small>Team A and Team B</small></div>
           <div id="readinessPanels" class="readiness-grid"></div>
         </section>
 
@@ -103,7 +108,7 @@
           <div class="section-title">
             <div>
               <h2>Events</h2>
-              <p>Choose a current weekly event for a concise member reference.</p>
+              <p>Review the active Desert Storm operation, Theme Week, or alliance schedule.</p>
             </div>
           </div>
           <div class="event-hub-selector panel">
@@ -120,7 +125,7 @@
         <section id="create" class="view" data-role="officer">
           <div class="section-title">
             <h2>Create Weekly Events</h2>
-            <p>Start a fresh dated DS battle, Theme Week, or Alliance Event. Published changes flow to every linked member.</p>
+            <p>Prepare and publish the next operational week. Approved changes flow directly to linked member briefings.</p>
           </div>
           <div class="create-workflow-grid">
             <article class="panel">
@@ -165,7 +170,7 @@
         <section id="directory" class="view">
           <div class="section-title">
             <h2>Master Roster</h2>
-            <p><strong>Choose team, role, assignments</strong> — select the weekly roster, in-game signup status, tactical unit, structure focus, and optional leaders.</p>
+            <p>Build Team A and Team B, confirm in-game signup, assign tactical units, structure focus, and optional leaders.</p>
           </div>
           <div class="toolbar">
             <label>
@@ -355,18 +360,18 @@
         </section>
 
         <section id="strategyTimeline" class="view">
-          <div class="section-title">
-            <h2>Tactical Map Planning</h2>
-            <p>Interactive A/B team battle map with each unit's primary and secondary objectives, commands, rotations, and fallback plans.</p>
+          <div class="section-title tactical-page-title">
+            <div><span class="tactical-kicker">Desert Storm Operations</span><h2>Tactical Map Planning</h2></div>
+            <p>Review the battle flow, inspect unit commands, and coordinate primary and secondary objectives from one operational workspace.</p>
           </div>
           <div id="strategyControls" class="toolbar" data-role="officer"></div>
-          <div id="strategyTimelineContent" class="timeline-grid"></div>
+          <div id="strategyTimelineContent"></div>
         </section>
 
         <section id="strategyLibrary" class="view">
           <div class="section-title">
             <h2>Strategy Library</h2>
-            <p>Workbook templates and custom six-phase battle strategies used by Team A and Team B.</p>
+            <p>Reusable six-phase battle doctrine for Team A and Team B, with custom operational variants.</p>
           </div>
           <form id="customStrategyForm" class="strategy-builder panel" data-role="officer">
             <h3>Build a custom strategy</h3>

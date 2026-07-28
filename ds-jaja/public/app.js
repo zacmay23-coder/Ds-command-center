@@ -194,6 +194,8 @@ let state = null;
 let timelineTeam = "A";
 let timelinePhaseIndex = 0;
 let timelinePlaybackTimer = null;
+let timelineSelectedGroup = "";
+let timelineEditMode = false;
 
 const elements = {
   saveStatus: document.querySelector("#saveStatus"),
@@ -352,6 +354,7 @@ function bindControls() {
   elements.myAssignmentContent.addEventListener("click", handleThemeWeekClick);
   elements.myAssignmentContent.addEventListener("change", handleAvailabilityNote);
   elements.strategyControls.addEventListener("change", handleStrategyApply);
+  elements.strategyControls.addEventListener("click", handleStrategyControlsClick);
   elements.strategyTimelineContent.addEventListener("click", handleTimelineClick);
   elements.strategyTimelineContent.addEventListener("change", handleTimelineChange);
   elements.userList.addEventListener("change", handleUserChange);
@@ -586,22 +589,10 @@ function renderUserProfile() {
         ${user.accountPhotoUrl ? `<button class="secondary-button" type="button" data-use-account-photo>Use Account Picture</button>` : ""}
       </div>
       <form id="ownProfileForm" class="member-profile-details">
-        <p class="eyebrow">${escapeHtml(user.role)} account</p>
+        <p class="eyebrow">Member profile</p>
         <h3>${escapeHtml(player.gameName)}</h3>
-        <div class="profile-facts">
-          ${detail("Email", user.email)}
-          ${detail("Rank", player.rank || "Not set")}
-          ${detail("Team", participant?.team || player.defaultTeam || "Reserve")}
-          ${detail("Unit", participant?.tacticalGroup || player.defaultTacticalGroup || "Reserve")}
-          ${detail("Structure focus", participant?.unit || player.defaultUnit || "Unassigned")}
-          ${detail("Profile link", user.profileConfirmedAt ? "Confirmed" : "Confirmation required")}
-        </div>
         <label>Member title<input name="profileTitle" maxlength="60" value="${escapeHtml(user.profileTitle || "Alliance Member")}"></label>
         <label>Member bio<textarea name="profileBio" maxlength="400" placeholder="Add a short alliance or battle profile.">${escapeHtml(user.profileBio || "")}</textarea></label>
-        <div class="profile-image-settings">
-          <label>Picture fit<select name="profileImageFit">${optionHtml(["cover", "contain"], player.profileImageFit || "cover")}</select></label>
-          <label>Picture position<select name="profileImagePosition">${optionHtml(["center", "top", "bottom", "left", "right"], player.profileImagePosition || "center")}</select></label>
-        </div>
         <button class="primary-button" type="submit">Save My Profile</button>
       </form>
     </article>
@@ -640,7 +631,7 @@ async function handleOwnProfileImage(event) {
 
 function renderHeaderProfile() {
   const player = state.players.find((item) => item.id === state.me.playerId);
-  elements.headerProfileLabel.textContent = player?.gameName || "My Profile";
+  elements.headerProfileLabel.innerHTML = `<strong>${escapeHtml(state.me.profileTitle || "Alliance Member")}</strong><small>${escapeHtml(state.me.profileBio || "Member bio")}</small>`;
   elements.headerProfileAvatar.innerHTML = player?.profileImage
     ? `<img src="${escapeHtml(player.profileImage)}" alt="" style="object-fit:${escapeHtml(player.profileImageFit || "cover")};object-position:${escapeHtml(player.profileImagePosition || "center")}">`
     : `<strong>${escapeHtml(player?.gameName?.slice(0, 1) || "?")}</strong>`;
@@ -1523,17 +1514,9 @@ function renderStrategyTimeline() {
     return;
   }
   if (state.permissions.isOfficer) {
-    elements.strategyControls.innerHTML = `
-      <label>Template
-        <select id="strategyTemplateSelect">
-          <option value="">Choose template</option>
-          ${state.strategyTemplates.map((template) => `<option value="${escapeHtml(template.id)}">${escapeHtml(template.name)}</option>`).join("")}
-        </select>
-      </label>
-      <label>Apply to
-        <select id="strategyApplyTeam"><option>A</option><option>B</option></select>
-      </label>
-    `;
+    elements.strategyControls.classList.toggle("planning-mode-active", timelineEditMode);
+    elements.strategyControls.innerHTML = `<div class="planning-mode-heading"><div><strong>${timelineEditMode ? "Planning mode" : "Tactical view"}</strong><span>${timelineEditMode ? "Strategy and squad orders are editable." : "Playback and squad reference only."}</span></div><button class="${timelineEditMode ? "primary-button" : "secondary-button"}" type="button" data-toggle-planning-mode>${timelineEditMode ? "Close planning mode" : "Open planning mode"}</button></div>
+      ${timelineEditMode ? `<label>Strategy template<select id="strategyTemplateSelect"><option value="">Choose template</option>${state.strategyTemplates.map((template) => `<option value="${escapeHtml(template.id)}">${escapeHtml(template.name)}</option>`).join("")}</select></label><label>Apply template to<select id="strategyApplyTeam"><option>A</option><option>B</option></select></label>` : ""}`;
   }
   const teams = state.permissions.isMember
     ? [state.participants.find((item) => item.playerId === state.me.playerId)?.team].filter((team) => ["A", "B"].includes(team))
@@ -1553,37 +1536,71 @@ function renderStrategyTimeline() {
   const phase = phases[timelinePhaseIndex];
   const orders = timelineGroupOrders(timelineTeam, phase, timelinePhaseIndex);
   const activeObjectives = new Set(orders.flatMap((order) => [order.primaryObjective, order.secondaryObjective]).filter(Boolean));
+  if (!timelineSelectedGroup || !orders.some((order) => order.group === timelineSelectedGroup)) {
+    timelineSelectedGroup = orders.find((order) => order.members.length)?.group || orders[0]?.group || "";
+  }
+  const selectedOrder = orders.find((order) => order.group === timelineSelectedGroup);
 
   elements.strategyTimelineContent.innerHTML = `
-    <div class="timeline-map-controls panel">
-      <div class="timeline-team-switch">${teams.map((team) => `<button type="button" data-timeline-team="${team}" class="${team === timelineTeam ? "active" : ""}">Team ${team}</button>`).join("")}</div>
-      <div><strong>${escapeHtml(strategy?.name || event[`strategy${timelineTeam}`])}</strong><span>Team ${timelineTeam} · ${escapeHtml(event[`battleTime${timelineTeam}`])} Server Time</span></div>
+    <div class="tactical-command-shell">
+    <div class="timeline-map-controls">
+      <div class="timeline-team-switch" aria-label="Choose tactical team">${teams.map((team) => `<button type="button" data-timeline-team="${team}" class="${team === timelineTeam ? "active" : ""}"><small>Battle group</small><strong>Team ${team}</strong></button>`).join("")}</div>
+      <div class="tactical-strategy-identity"><span>Active strategy</span><strong>${escapeHtml(strategy?.name || event[`strategy${timelineTeam}`])}</strong><small>${escapeHtml(event[`battleTime${timelineTeam}`])} server time · ${escapeHtml(event.date || "Current battle")}</small></div>
     </div>
     ${phases.length ? `
       <div class="timeline-playback-bar">
-        <button class="primary-button" type="button" data-timeline-play>${timelinePlaybackTimer ? "Pause playback" : "Play strategy"}</button>
-        <input aria-label="Battle timeline" data-timeline-scrubber type="range" min="0" max="5" step="1" value="${timelinePhaseIndex}">
-        <strong>${Number(phase.startMinute)}–${Number(phase.endMinute)} min</strong>
+        <button class="tactical-play-button" type="button" data-timeline-play><span>${timelinePlaybackTimer ? "Ⅱ" : "▶"}</span>${timelinePlaybackTimer ? "Pause playback" : "Play battle plan"}</button>
+        <div><span>Battle progress</span><input aria-label="Battle timeline" data-timeline-scrubber type="range" min="0" max="5" step="1" value="${timelinePhaseIndex}"></div>
+        <strong><small>Live interval</small>${Number(phase.startMinute)}–${Number(phase.endMinute)} min</strong>
       </div>
-      <div class="timeline-phase-buttons">${phases.map((item, index) => `<button type="button" data-timeline-phase="${index}" class="${index === timelinePhaseIndex ? "active" : ""}">${Number(item.startMinute)}–${Number(item.endMinute)} min</button>`).join("")}</div>
+      <div class="timeline-phase-buttons">${phases.map((item, index) => `<button type="button" data-timeline-phase="${index}" class="${index === timelinePhaseIndex ? "active" : ""}"><small>Phase ${index + 1}</small><strong>${Number(item.startMinute)}–${Number(item.endMinute)}</strong></button>`).join("")}</div>
       <article class="timeline-phase-summary panel">
-        <div><span>Current phase</span><strong>${escapeHtml(phase.name)}</strong></div>
-        <p>${escapeHtml(phase.instructions || "")}</p>
-        <small>${escapeHtml(phase.fallbackPlan ? `Secondary command: ${phase.fallbackPlan}` : "Follow the primary command until an officer calls the fallback.")}</small>
+        <div class="phase-indicator"><span>Battle phase ${timelinePhaseIndex + 1} of ${phases.length}</span><strong>${Number(phase.startMinute)}–${Number(phase.endMinute)} minutes · ${escapeHtml(phase.name)}</strong></div>
+        <div class="phase-explanation"><p>${escapeHtml(phase.instructions || "")}</p><small>${escapeHtml(phase.fallbackPlan ? `Fallback: ${phase.fallbackPlan}` : "Maintain the primary command until an officer calls the secondary objective.")}</small></div>
       </article>
       <div class="strategy-map-layout">
-        <div class="strategy-tactical-map" aria-label="Interactive Desert Storm objective map">
-          <img src="/assets/desert-storm-map-clean.png" alt="Desert Storm battle map">
-          <div class="strategy-route-layer">${timelineRoutes(orders)}</div>
-          <div class="strategy-group-layer">${timelineGroupMarkers(orders)}</div>
-          <div class="strategy-objective-layer">${Object.entries(objectivePositions).map(([objective, [x, y]]) => `
-            <button type="button" class="strategy-objective ${activeObjectives.has(objective) ? "active" : ""}" style="left:${x}%;top:${y}%" data-map-objective="${escapeHtml(objective)}"><span>${escapeHtml(objective)}</span></button>
-          `).join("")}</div>
+        <div class="strategy-map-stage">
+          <div class="strategy-map-heading"><div><span>Live tactical position</span><strong>Team ${timelineTeam} movement map</strong></div><small>Select a unit marker or use the unit legend.</small></div>
+          <div class="strategy-tactical-map" aria-label="Interactive Desert Storm objective map">
+            <img src="/assets/desert-storm-map-clean.png" alt="Desert Storm battle map">
+            <div class="strategy-route-layer">${timelineRoutes(orders)}</div>
+            <div class="strategy-group-layer">${timelineGroupMarkers(orders)}</div>
+            <div class="strategy-objective-layer">${Object.entries(objectivePositions).map(([objective, [x, y]]) => `
+              <button type="button" class="strategy-objective ${activeObjectives.has(objective) ? "active" : ""}" style="left:${x}%;top:${y}%" data-map-objective="${escapeHtml(objective)}"><span>${escapeHtml(objective)}</span></button>
+            `).join("")}</div>
+          </div>
         </div>
-        <div class="strategy-unit-orders">${orders.map(timelineOrderCard).join("") || `<p class="muted">No Team ${timelineTeam} units are assigned for this battle.</p>`}</div>
+        <aside class="strategy-unit-rail">
+          <div class="strategy-legend-heading"><span>Unit legend</span><small>Choose a unit to inspect its orders</small></div>
+          <div class="strategy-map-legend">${orders.map((order) => `<button type="button" data-map-group="${escapeHtml(order.group)}" class="${timelineSelectedGroup === order.group ? "active" : ""}"><i style="background:${tacticalGroupColor(order.group)}"></i><span><strong>${escapeHtml(order.group)}</strong><small>${order.members.length} players</small></span></button>`).join("")}</div>
+          ${selectedOrder ? timelineSelectedUnitPanel(selectedOrder, phases) : `<article class="map-selection-hint panel"><strong>No units available</strong><span>Assign players to tactical units to display battle commands.</span></article>`}
+        </aside>
       </div>
     ` : `<article class="panel"><p class="muted">Apply a reusable strategy template to add timed battle phases and map commands.</p></article>`}
+    </div>
   `;
+}
+
+function timelineSelectedUnitPanel(order, phases) {
+  const phaseRows = phases.map((phase, index) => {
+    const phaseOrder = timelineGroupOrders(timelineTeam, phase, index).find((item) => item.group === order.group);
+    return `<button type="button" data-timeline-phase="${index}" class="unit-phase-row ${index === timelinePhaseIndex ? "active" : ""}">
+      <span>${phase.startMinute}–${phase.endMinute}</span>
+      <strong>${escapeHtml(phaseOrder?.primaryAction || "Hold")} · ${escapeHtml(phaseOrder?.primaryObjective || "Officer call")}</strong>
+      <small>${escapeHtml(phaseOrder?.secondaryAction || "Support")} · ${escapeHtml(phaseOrder?.secondaryObjective || "Officer call")}</small>
+    </button>`;
+  }).join("");
+  return `<article class="map-unit-brief panel">
+    <div class="selected-unit-heading"><i style="background:${tacticalGroupColor(order.group)}"></i><div><p class="eyebrow">Team ${timelineTeam} · Active unit</p><h3>${escapeHtml(order.group)}</h3></div><span>${order.members.length} players</span></div>
+    <div class="selected-unit-phase"><span>Phase ${timelinePhaseIndex + 1} · ${battlePhases[timelinePhaseIndex]} min</span><p>${escapeHtml(order.goal || "Follow the active phase order.")}</p></div>
+    <div class="unit-command-grid">
+      <div><span>Primary command</span><strong>${escapeHtml(order.primaryAction)}</strong><small>${escapeHtml(order.primaryObjective || "Officer call")}</small></div>
+      <div><span>Secondary command</span><strong>${escapeHtml(order.secondaryAction)}</strong><small>${escapeHtml(order.secondaryObjective || "Officer call")}</small></div>
+    </div>
+    ${state.permissions.isOfficer && timelineEditMode && state.eventStrategy?.[timelineTeam] ? timelineOrderEditor(order) : ""}
+    <details class="selected-unit-members"><summary>Assigned members (${order.members.length})</summary><div class="mini-profile-list">${order.members.map((member) => memberMiniProfile(member.playerId, `${member.rosterStatus} · Team ${timelineTeam}`)).join("") || "<small>No assigned players</small>"}</div></details>
+    <div class="unit-phase-breakdown"><div><strong>Full battle breakdown</strong><small>Primary and secondary command by phase</small></div>${phaseRows}</div>
+  </article>`;
 }
 
 function timelineGroupOrders(team, phase, phaseIndex) {
@@ -1613,9 +1630,14 @@ function timelineGroupOrders(team, phase, phaseIndex) {
 }
 
 function timelineOrderCard(order) {
-  return `<article class="strategy-unit-order">
-    <div class="assignment-heading"><h3>${escapeHtml(order.group)}</h3><span>${order.members.length} players</span></div>
-    <dl>
+  const isSelected = timelineSelectedGroup === order.group;
+  return `<details class="strategy-unit-order ${isSelected ? "highlighted" : ""}" ${isSelected ? "open" : ""}>
+    <summary class="strategy-unit-summary">
+      <span class="squad-color-dot" style="background:${tacticalGroupColor(order.group)}"></span>
+      <span><strong>${escapeHtml(order.group)}</strong><small>${escapeHtml(order.primaryAction)} · ${escapeHtml(order.primaryObjective || "Officer call")}</small></span>
+      <em>${order.members.length} players</em>
+    </summary>
+    <dl class="strategy-order-details">
       <div><dt>Primary objective</dt><dd>${escapeHtml(order.primaryObjective || "Officer call")}</dd></div>
       <div><dt>Secondary objective</dt><dd>${escapeHtml(order.secondaryObjective || "Officer call")}</dd></div>
       <div><dt>Primary action</dt><dd>${escapeHtml(order.primaryAction)}</dd></div>
@@ -1625,19 +1647,30 @@ function timelineOrderCard(order) {
     <div class="mini-profile-list">${order.members.length
       ? order.members.map((member) => memberMiniProfile(member.playerId, `${order.group} · Team ${timelineTeam}`)).join("")
       : "<small>No assigned members</small>"}</div>
-    ${state.permissions.isOfficer && state.eventStrategy?.[timelineTeam] ? timelineOrderEditor(order) : ""}
-  </article>`;
+    ${state.permissions.isOfficer && timelineEditMode && state.eventStrategy?.[timelineTeam] ? timelineOrderEditor(order) : ""}
+  </details>`;
+}
+
+function handleStrategyControlsClick(event) {
+  if (!event.target.closest("[data-toggle-planning-mode]")) return;
+  timelineEditMode = !timelineEditMode;
+  renderStrategyTimeline();
 }
 
 function timelineOrderEditor(order) {
   const objectives = ["", ...Object.keys(objectivePositions)];
   const actions = ["Secure", "Support", "Rotate", "Attack", "Contest", "Hold", "Defend"];
   return `<div class="timeline-order-editor">
-    <label>Primary objective<select data-strategy-group="${escapeHtml(order.group)}" data-strategy-field="primaryObjective">${optionHtml(objectives, order.primaryObjective)}</select></label>
-    <label>Primary action<select data-strategy-group="${escapeHtml(order.group)}" data-strategy-field="primaryAction">${optionHtml(actions, order.primaryAction)}</select></label>
-    <label>Secondary objective<select data-strategy-group="${escapeHtml(order.group)}" data-strategy-field="secondaryObjective">${optionHtml(objectives, order.secondaryObjective)}</select></label>
-    <label>Secondary action<select data-strategy-group="${escapeHtml(order.group)}" data-strategy-field="secondaryAction">${optionHtml(actions, order.secondaryAction)}</select></label>
+    <fieldset class="command-edit-group primary"><legend>Primary command</legend>
+      <label>Action<select data-strategy-group="${escapeHtml(order.group)}" data-strategy-field="primaryAction">${optionHtml(actions, order.primaryAction)}</select></label>
+      <label>Objective<select data-strategy-group="${escapeHtml(order.group)}" data-strategy-field="primaryObjective">${optionHtml(objectives, order.primaryObjective)}</select></label>
+    </fieldset>
+    <fieldset class="command-edit-group secondary"><legend>Secondary command</legend>
+      <label>Action<select data-strategy-group="${escapeHtml(order.group)}" data-strategy-field="secondaryAction">${optionHtml(actions, order.secondaryAction)}</select></label>
+      <label>Objective<select data-strategy-group="${escapeHtml(order.group)}" data-strategy-field="secondaryObjective">${optionHtml(objectives, order.secondaryObjective)}</select></label>
+    </fieldset>
     <label class="timeline-goal-editor">Group goal<input data-strategy-group="${escapeHtml(order.group)}" data-strategy-field="goal" maxlength="240" value="${escapeHtml(order.goal)}"></label>
+    <small class="timeline-save-note">Changes save automatically to this team, unit, and battle phase.</small>
   </div>`;
 }
 
@@ -1652,12 +1685,25 @@ function timelineGroupMarkers(orders) {
     const position = objectivePositions[order.primaryObjective];
     if (!position) return "";
     const offset = (index % 3 - 1) * 2.3;
-    return `<span class="strategy-group-marker" style="left:${position[0] + offset}%;top:${position[1] + offset}%" title="${escapeHtml(order.group)}: ${escapeHtml(order.members.map((member) => member.playerName).join(", ") || "No assigned members")}">${escapeHtml(tacticalGroupInitial(order.group))}</span>`;
+    return `<button type="button" class="strategy-group-marker ${timelineSelectedGroup === order.group ? "selected" : ""}" style="left:${position[0] + offset}%;top:${position[1] + offset}%;--squad-color:${tacticalGroupColor(order.group)}" data-map-group="${escapeHtml(order.group)}" title="${escapeHtml(order.group)}: ${escapeHtml(order.members.map((member) => member.playerName).join(", ") || "No assigned members")}">${escapeHtml(tacticalGroupInitial(order.group))}</button>`;
   }).join("");
 }
 
 function tacticalGroupInitial(group) {
   return { "Unit A": "A", "Unit B": "B", "Unit C": "C", "Unit D": "D", "Strike Team": "ST", "Scout + Support": "SS", "Disrupters": "DI", "Reserve": "R" }[group] || "?";
+}
+
+function tacticalGroupColor(group) {
+  return {
+    "Unit A": "#53c8ff",
+    "Unit B": "#72e2a5",
+    "Unit C": "#f0c75e",
+    "Unit D": "#d58cff",
+    "Strike Team": "#ff6f6f",
+    "Scout + Support": "#ff9d52",
+    "Disrupters": "#f06fc2",
+    "Reserve": "#a6b2c1"
+  }[group] || "#d7a84d";
 }
 
 function timelineRoutes(orders) {
@@ -1669,7 +1715,7 @@ function timelineRoutes(orders) {
     if (!from || !to || fromObjective === toObjective) return "";
     const dx = to[0] - from[0];
     const dy = to[1] - from[1];
-    return `<span class="strategy-route" style="left:${from[0]}%;top:${from[1]}%;width:${Math.hypot(dx, dy)}%;transform:rotate(${Math.atan2(dy, dx) * 180 / Math.PI}deg)"></span>`;
+    return `<span class="strategy-route team-${timelineTeam}" style="left:${from[0]}%;top:${from[1]}%;width:${Math.hypot(dx, dy)}%;transform:rotate(${Math.atan2(dy, dx) * 180 / Math.PI}deg);--route-color:${tacticalGroupColor(order.group)}" title="${escapeHtml(order.group)} movement"></span>`;
   }).join("");
 }
 
@@ -1678,17 +1724,23 @@ function handleTimelineClick(event) {
   const phaseButton = event.target.closest("[data-timeline-phase]");
   const playButton = event.target.closest("[data-timeline-play]");
   const objectiveButton = event.target.closest("[data-map-objective]");
+  const groupButton = event.target.closest("[data-map-group]");
   if (teamButton) {
     stopTimelinePlayback();
     timelineTeam = teamButton.dataset.timelineTeam;
     timelinePhaseIndex = 0;
+    timelineSelectedGroup = "";
     renderStrategyTimeline();
   } else if (phaseButton) {
     stopTimelinePlayback();
     timelinePhaseIndex = Number(phaseButton.dataset.timelinePhase);
+    timelineSelectedGroup = "";
     renderStrategyTimeline();
   } else if (playButton) {
     toggleTimelinePlayback();
+  } else if (groupButton) {
+    timelineSelectedGroup = groupButton.dataset.mapGroup;
+    renderStrategyTimeline();
   } else if (objectiveButton) {
     const objective = objectiveButton.dataset.mapObjective;
     elements.strategyTimelineContent.querySelectorAll(".strategy-unit-order").forEach((card) => {
