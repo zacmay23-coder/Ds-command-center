@@ -32,6 +32,7 @@ export function saveSession(session) {
     idToken: session.idToken,
     refreshToken: session.refreshToken,
     uid: session.localId,
+    expiresAt: Date.now() + Number(session.expiresIn || 3600) * 1000,
     savedAt: new Date().toISOString()
   }));
 }
@@ -41,8 +42,11 @@ export function clearSession() {
 }
 
 export async function authFetch(url, options = {}) {
-  const session = requireSession();
+  let session = requireSession();
   if (!session) throw new Error("Not signed in");
+  if (!session.expiresAt || Date.now() > session.expiresAt - 60_000) {
+    session = await refreshSession(session);
+  }
 
   const headers = {
     Authorization: `Bearer ${session.idToken}`,
@@ -58,13 +62,46 @@ export async function authFetch(url, options = {}) {
     headers
   });
 
-  if (response.status === 401) {
-    clearSession();
-    window.location.href = "/login.html";
-    throw new Error("Please sign in again");
+  if (response.status === 401 && !options._retried) {
+    try {
+      await refreshSession(session);
+      return authFetch(url, { ...options, _retried: true });
+    } catch {
+      clearSession();
+      window.location.href = "/login.html";
+      throw new Error("Your session expired. Please sign in again.");
+    }
   }
 
   return response;
+}
+
+export function liveUpdatesUrl() {
+  const session = getSession();
+  return session?.idToken ? `/api/live?token=${encodeURIComponent(session.idToken)}` : null;
+}
+
+async function refreshSession(session) {
+  if (!session?.refreshToken) throw new Error("No refresh token is available");
+  const response = await fetch(
+    `https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(firebaseConfig.apiKey)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: session.refreshToken })
+    }
+  );
+  const payload = await response.json();
+  if (!response.ok) throw new Error("Your session could not be refreshed");
+  const refreshed = {
+    email: session.email,
+    idToken: payload.id_token,
+    refreshToken: payload.refresh_token,
+    localId: payload.user_id,
+    expiresIn: payload.expires_in
+  };
+  saveSession(refreshed);
+  return getSession();
 }
 
 export async function signIn(email, password) {

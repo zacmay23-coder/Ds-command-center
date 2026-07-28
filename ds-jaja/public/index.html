@@ -14,24 +14,40 @@
       </div>
       <div class="header-actions">
         <span id="saveStatus" class="status-pill">Connecting...</span>
+        <span id="connectionStatus" class="status-pill">Live: connecting</span>
         <button id="refreshButton" class="secondary-button">Refresh</button>
         <button id="logoutButton" class="secondary-button">Sign Out</button>
-        <button id="resetButton" class="danger-button">Reset Week</button>
       </div>
     </header>
 
     <div class="app-shell">
       <nav class="sidebar" aria-label="Command Center views">
+        <button data-view="myAssignment">My Assignment</button>
         <button class="active" data-view="dashboard">Dashboard</button>
+        <button data-view="events" data-role="officer">Events</button>
         <button data-view="directory">Directory</button>
         <button data-view="teams">Teams</button>
         <button data-view="assignmentsA">Team A Assignments</button>
         <button data-view="assignmentsB">Team B Assignments</button>
         <button data-view="results">Results</button>
+        <button data-view="participation" data-role="officer">Participation</button>
+        <button data-view="strategyTimeline">Strategy Timeline</button>
         <button data-view="history">History</button>
+        <button data-view="audit" data-role="officer">Audit Log</button>
+        <button data-view="administration" data-role="administrator">Administration</button>
       </nav>
 
       <main>
+        <div id="eventBanner" class="event-banner"></div>
+
+        <section id="myAssignment" class="view">
+          <div class="section-title">
+            <h2>My Assignment</h2>
+            <p>Your current published Desert Storm plan.</p>
+          </div>
+          <div id="myAssignmentContent"></div>
+        </section>
+
         <section id="dashboard" class="view active">
           <div class="section-title">
             <h2>Dashboard</h2>
@@ -39,6 +55,19 @@
           </div>
           <div id="summaryCards" class="summary-grid"></div>
           <div id="readinessPanels" class="readiness-grid"></div>
+        </section>
+
+        <section id="events" class="view">
+          <div class="section-title section-title-with-action">
+            <div>
+              <h2>Events</h2>
+              <p>Create, prepare, publish, run, and archive battles without resetting historical data.</p>
+            </div>
+            <button id="createEventButton" class="primary-button" type="button">Create Next Battle</button>
+          </div>
+          <div id="eventActions" class="event-actions panel"></div>
+          <div id="publishReadiness" class="readiness-grid"></div>
+          <div id="eventList" class="history-list"></div>
         </section>
 
         <section id="directory" class="view">
@@ -188,12 +217,54 @@
           </div>
         </section>
 
-        <section id="history" class="view">
+        <section id="participation" class="view">
           <div class="section-title">
-            <h2>History</h2>
-            <p>Archived battles saved on the server.</p>
+            <h2>Participation</h2>
+            <p>Transparent attendance, confirmation, roster, and score history calculated from archived events.</p>
+          </div>
+          <div class="toolbar">
+            <label>Team<select id="participationTeam"><option value="">All teams</option><option>A</option><option>B</option></select></label>
+            <label>Unit<select id="participationUnit"><option value="">All units</option></select></label>
+          </div>
+          <div id="participationSummary" class="summary-grid"></div>
+          <div id="participationRows" class="member-card-grid"></div>
+        </section>
+
+        <section id="strategyTimeline" class="view">
+          <div class="section-title">
+            <h2>Strategy Timeline</h2>
+            <p>Battle phases, responsibilities, rotations, triggers, and fallback plans.</p>
+          </div>
+          <div id="strategyControls" class="toolbar" data-role="officer"></div>
+          <div id="strategyTimelineContent" class="timeline-grid"></div>
+        </section>
+
+        <section id="history" class="view">
+          <div class="section-title section-title-with-action">
+            <div>
+              <h2>History</h2>
+              <p>Archived battles saved on the server.</p>
+            </div>
+            <button id="clearHistoryButton" class="danger-button" type="button">Clear History</button>
           </div>
           <div id="historyList" class="history-list"></div>
+        </section>
+
+        <section id="audit" class="view">
+          <div class="section-title">
+            <h2>Audit Log</h2>
+            <p>Important event, roster, availability, result, and strategy changes.</p>
+          </div>
+          <div id="auditList" class="history-list"></div>
+        </section>
+
+        <section id="administration" class="view">
+          <div class="section-title">
+            <h2>Administration</h2>
+            <p>User access, player links, and data-quality review.</p>
+          </div>
+          <div id="dataQuality" class="readiness-grid"></div>
+          <div id="userList" class="history-list"></div>
         </section>
       </main>
     </div>

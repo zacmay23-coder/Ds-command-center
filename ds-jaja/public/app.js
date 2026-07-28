@@ -1,8 +1,47 @@
-import { authFetch, clearSession, requireSession } from "./auth.js";
+import { authFetch, clearSession, liveUpdatesUrl, requireSession } from "./auth.js";
 
 const api = {
   async getState() {
     return request("/api/state");
+  },
+  async createEvent(payload = {}) {
+    return request("/api/events", { method: "POST", body: JSON.stringify(payload) });
+  },
+  async updateEvent(id, patch) {
+    return request(`/api/events/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
+  },
+  async transitionEvent(id, action, payload = {}) {
+    return request(`/api/events/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(payload) });
+  },
+  async updateParticipant(eventId, playerId, patch) {
+    return request(`/api/events/${encodeURIComponent(eventId)}/participants/${encodeURIComponent(playerId)}`, {
+      method: "PATCH", body: JSON.stringify(patch)
+    });
+  },
+  async updateAvailability(eventId, payload) {
+    return request(`/api/events/${encodeURIComponent(eventId)}/availability`, {
+      method: "POST", body: JSON.stringify(payload)
+    });
+  },
+  async getParticipation(query = "") {
+    return request(`/api/participation${query}`);
+  },
+  async getAudit(eventId) {
+    return request(`/api/events/${encodeURIComponent(eventId)}/audit`);
+  },
+  async getUsers() {
+    return request("/api/users");
+  },
+  async updateUser(id, patch) {
+    return request(`/api/users/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
+  },
+  async getDataQuality() {
+    return request("/api/data-quality");
+  },
+  async applyStrategy(eventId, payload) {
+    return request(`/api/events/${encodeURIComponent(eventId)}/apply-strategy`, {
+      method: "POST", body: JSON.stringify(payload)
+    });
   },
   async updateMember(id, patch) {
     return request(`/api/members/${encodeURIComponent(id)}`, {
@@ -21,6 +60,14 @@ const api = {
       method: "POST",
       body: JSON.stringify(payload)
     });
+  },
+  async deleteBattle(id) {
+    return request(`/api/battles/${encodeURIComponent(id)}`, {
+      method: "DELETE"
+    });
+  },
+  async clearHistory() {
+    return request("/api/battles", { method: "DELETE" });
   },
   async importResultsScreenshot(file, team) {
     const formData = new FormData();
@@ -49,7 +96,7 @@ const strategies = [
   "Late-Game Strike"
 ];
 
-const serverTimes = ["09:00", "18:00", "23:00"];
+const serverTimes = ["9:00", "18:00", "23:00"];
 
 const units = [
   "Unassigned",
@@ -85,6 +132,22 @@ let state = null;
 
 const elements = {
   saveStatus: document.querySelector("#saveStatus"),
+  connectionStatus: document.querySelector("#connectionStatus"),
+  eventBanner: document.querySelector("#eventBanner"),
+  myAssignmentContent: document.querySelector("#myAssignmentContent"),
+  eventActions: document.querySelector("#eventActions"),
+  publishReadiness: document.querySelector("#publishReadiness"),
+  eventList: document.querySelector("#eventList"),
+  createEventButton: document.querySelector("#createEventButton"),
+  participationTeam: document.querySelector("#participationTeam"),
+  participationUnit: document.querySelector("#participationUnit"),
+  participationSummary: document.querySelector("#participationSummary"),
+  participationRows: document.querySelector("#participationRows"),
+  strategyControls: document.querySelector("#strategyControls"),
+  strategyTimelineContent: document.querySelector("#strategyTimelineContent"),
+  auditList: document.querySelector("#auditList"),
+  dataQuality: document.querySelector("#dataQuality"),
+  userList: document.querySelector("#userList"),
   summaryCards: document.querySelector("#summaryCards"),
   readinessPanels: document.querySelector("#readinessPanels"),
   directoryRows: document.querySelector("#directoryRows"),
@@ -106,9 +169,11 @@ const elements = {
   importScreenshotButton: document.querySelector("#importScreenshotButton"),
   screenshotTeam: document.querySelector("#screenshotTeam"),
   importStatus: document.querySelector("#importStatus"),
-  importMatches: document.querySelector("#importMatches")
+  importMatches: document.querySelector("#importMatches"),
+  clearHistoryButton: document.querySelector("#clearHistoryButton")
 };
 const expandedPlayers = new Set();
+let liveSource = null;
 
 document.addEventListener("DOMContentLoaded", initialize);
 
@@ -118,6 +183,7 @@ async function initialize() {
   bindControls();
   fillStrategySelects();
   await refreshState();
+  connectLiveUpdates();
 }
 
 async function request(url, options = {}) {
@@ -125,7 +191,11 @@ async function request(url, options = {}) {
   const payload = await response.json();
 
   if (!response.ok) {
-    throw new Error(payload.error || "Request failed");
+    const error = new Error(payload.error || "Request failed");
+    error.details = payload.details;
+    error.latest = payload.latest;
+    error.status = response.status;
+    throw error;
   }
 
   return payload;
@@ -157,7 +227,6 @@ function bindNavigation() {
 function bindControls() {
   document.querySelector("#refreshButton").addEventListener("click", refreshState);
   document.querySelector("#logoutButton").addEventListener("click", logout);
-  document.querySelector("#resetButton").addEventListener("click", resetWeek);
   elements.searchInput.addEventListener("input", renderDirectory);
   elements.filterInput.addEventListener("change", renderDirectory);
   elements.directoryRows.addEventListener("change", handleMemberChange);
@@ -170,6 +239,17 @@ function bindControls() {
   elements.battleForm.addEventListener("submit", archiveBattle);
   elements.importScreenshotButton.addEventListener("click", importResultsScreenshot);
   elements.importMatches.addEventListener("click", handleMatchFixClick);
+  elements.historyList.addEventListener("click", handleHistoryClick);
+  elements.clearHistoryButton.addEventListener("click", clearHistory);
+  elements.createEventButton.addEventListener("click", createNextEvent);
+  elements.eventActions.addEventListener("click", handleEventAction);
+  elements.eventActions.addEventListener("change", handleEventFieldChange);
+  elements.participationTeam.addEventListener("change", renderParticipation);
+  elements.participationUnit.addEventListener("change", renderParticipation);
+  elements.myAssignmentContent.addEventListener("click", handleAvailabilityClick);
+  elements.myAssignmentContent.addEventListener("change", handleAvailabilityNote);
+  elements.strategyControls.addEventListener("change", handleStrategyApply);
+  elements.userList.addEventListener("change", handleUserChange);
 }
 
 function logout() {
@@ -182,21 +262,271 @@ function fillStrategySelects() {
   elements.strategyB.innerHTML = optionHtml(strategies);
   elements.battleTimeA.innerHTML = optionHtml(serverTimes);
   elements.battleTimeB.innerHTML = optionHtml(serverTimes);
+  elements.participationUnit.innerHTML = `<option value="">All units</option>${units.slice(1).map((unit) => `<option>${escapeHtml(unit)}</option>`).join("")}`;
 }
 
 function render() {
+  applyRoleVisibility();
+  renderEventBanner();
+  renderMyAssignment();
+  renderEvents();
   renderDashboard();
   renderDirectory();
   renderTeams();
   renderAssignments();
   renderResults();
   renderHistory();
+  renderStrategyTimeline();
+  if (state.permissions.isOfficer) {
+    renderParticipation();
+    renderAudit();
+  }
+  if (state.permissions.isAdministrator) renderAdministration();
   elements.strategyA.value = state.settings.strategyA;
   elements.strategyB.value = state.settings.strategyB;
   elements.battleTimeA.value = state.settings.battleTimeA;
   elements.battleTimeB.value = state.settings.battleTimeB;
   elements.assignmentTimeA.textContent = `${state.settings.battleTimeA} Server Time`;
   elements.assignmentTimeB.textContent = `${state.settings.battleTimeB} Server Time`;
+}
+
+function applyRoleVisibility() {
+  document.querySelectorAll("[data-role='officer']").forEach((element) => {
+    element.hidden = !state.permissions.isOfficer;
+  });
+  document.querySelectorAll("[data-role='administrator']").forEach((element) => {
+    element.hidden = !state.permissions.isAdministrator;
+  });
+  elements.clearHistoryButton.hidden = !state.permissions.isAdministrator;
+  const officerOnlyViews = ["directory", "teams", "assignmentsA", "assignmentsB", "results"];
+  document.querySelectorAll(".sidebar button").forEach((button) => {
+    if (officerOnlyViews.includes(button.dataset.view)) button.hidden = !state.permissions.isOfficer;
+  });
+  if (state.permissions.isMember) {
+    document.querySelectorAll(".sidebar button, .view").forEach((item) => item.classList.remove("active"));
+    document.querySelector("[data-view='myAssignment']").classList.add("active");
+    document.querySelector("#myAssignment").classList.add("active");
+  }
+}
+
+async function renderAdministration() {
+  try {
+    const [users, quality] = await Promise.all([api.getUsers(), api.getDataQuality()]);
+    const qualityGroups = [
+      ["Duplicate names", quality.duplicatePlayerNames],
+      ["Unlinked users", quality.unlinkedUsers],
+      ["Missing attendance", quality.missingHistoricalAttendance],
+      ["Invalid teams", quality.invalidTeams],
+      ["Invalid units", quality.invalidUnits],
+      ["Events missing results", quality.eventsMissingResults],
+      ["Inactive assignments", quality.inactiveAssignedPlayers],
+      ["Unmatched screenshots", quality.unmatchedScreenshotResults]
+    ];
+    elements.dataQuality.innerHTML = qualityGroups.map(([label, records]) =>
+      validationPanel(label, records, records.length ? "warning" : "passed")
+    ).join("");
+    elements.userList.innerHTML = users.map((user) => `
+      <article class="panel user-card" data-user-id="${escapeHtml(user.uid)}">
+        <div><strong>${escapeHtml(user.displayName)}</strong><span>${escapeHtml(user.email)}</span></div>
+        <label>Role<select data-user-field="role">${optionHtml(["member", "officer", "administrator"], user.role)}</select></label>
+        <label>Linked player<select data-user-field="playerId"><option value="">Not linked</option>${state.players.map((player) => `<option value="${escapeHtml(player.id)}" ${player.id === user.playerId ? "selected" : ""}>${escapeHtml(player.gameName)}</option>`).join("")}</select></label>
+        <label>Active<input data-user-field="active" type="checkbox" ${user.active ? "checked" : ""}></label>
+      </article>
+    `).join("") || emptyState("No application users have signed in yet.");
+  } catch (error) {
+    elements.userList.innerHTML = emptyState(error.message);
+  }
+}
+
+async function handleUserChange(event) {
+  const card = event.target.closest("[data-user-id]");
+  const field = event.target.dataset.userField;
+  if (!card || !field) return;
+  const value = event.target.type === "checkbox" ? event.target.checked : event.target.value;
+  try {
+    await api.updateUser(card.dataset.userId, { [field]: value });
+    await renderAdministration();
+    setStatus("User access updated");
+  } catch (error) {
+    setStatus(error.message, true);
+    await renderAdministration();
+  }
+}
+
+function renderEventBanner() {
+  const event = state.activeEvent;
+  if (!event) {
+    elements.eventBanner.innerHTML = `<strong>No active battle</strong><span>Officers can create the next battle plan.</span>`;
+    elements.eventBanner.dataset.status = "empty";
+    return;
+  }
+  elements.eventBanner.dataset.status = event.status;
+  elements.eventBanner.innerHTML = `
+    <strong>${eventStatusLabel(event.status)}</strong>
+    <span>${escapeHtml(event.date)}${event.opponent ? ` · vs ${escapeHtml(event.opponent)}` : ""}</span>
+    <small>Updated ${escapeHtml(formatDateTime(event.updatedAt))}</small>
+  `;
+}
+
+function renderMyAssignment() {
+  const event = state.activeEvent;
+  const playerId = state.me.playerId;
+  const participant = state.participants.find((item) => item.playerId === playerId);
+  if (!event) {
+    elements.myAssignmentContent.innerHTML = emptyState("No published battle is available.");
+    return;
+  }
+  if (!playerId || !participant) {
+    elements.myAssignmentContent.innerHTML = emptyState("Your account is not linked to a roster player yet. Ask an administrator to link it.");
+    return;
+  }
+  const strategy = state.eventStrategy?.[participant.team];
+  const battleTime = event[`battleTime${participant.team}`] || "Not set";
+  elements.myAssignmentContent.innerHTML = `
+    <article class="assignment-profile panel">
+      <div class="assignment-profile-heading">
+        <div><p class="eyebrow">Team ${escapeHtml(participant.team)}</p><h3>${escapeHtml(participant.playerName)}</h3></div>
+        ${statusBadge(participant.availability)}
+      </div>
+      <div class="assignment-details">
+        ${detail("Battle", `${event.date} · ${event.opponent || "Opponent pending"}`)}
+        ${detail("Roster", participant.rosterStatus)}
+        ${detail("Server time", battleTime)}
+        ${detail("Role", participant.role || "Not assigned")}
+        ${detail("Unit", participant.unit || "Not assigned")}
+        ${detail("Primary", participant.primaryAssignment || "Not assigned")}
+        ${detail("Backup", participant.backupAssignment || "Not assigned")}
+        ${detail("Strategy", strategy?.name || event[`strategy${participant.team}`] || "Not selected")}
+      </div>
+      <div class="important-instructions"><strong>Important instructions</strong><p>${escapeHtml(event.importantInstructions || strategy?.description || "No additional instructions.")}</p></div>
+      <div class="availability-controls">
+        <strong>My availability</strong>
+        <div>
+          ${["Confirmed", "Tentative", "Unavailable"].map((value) => `<button class="${participant.availability === value ? "primary-button" : "secondary-button"}" type="button" data-availability="${value}">${value}</button>`).join("")}
+        </div>
+        <label>Availability note<input id="availabilityNote" value="${escapeHtml(participant.availabilityNote || "")}" maxlength="180" placeholder="Optional short note"></label>
+      </div>
+      <p class="muted">Assignment updated ${escapeHtml(formatDateTime(participant.updatedAt))}</p>
+    </article>
+  `;
+}
+
+function renderEvents() {
+  if (!state.permissions.isOfficer) return;
+  const event = state.activeEvent;
+  const validation = event ? validatePublishReadiness(event, state.participants) : { errors: [], warnings: [], passed: [] };
+  elements.eventActions.innerHTML = event ? `
+    <div class="event-action-heading"><div><h3>${escapeHtml(event.date)} · ${escapeHtml(event.opponent || "Opponent pending")}</h3><p class="muted">${eventStatusLabel(event.status)} · version ${event.version}</p></div>${statusBadge(event.status)}</div>
+    <div class="event-editor">
+      <label>Battle date<input data-event-field="date" type="date" value="${escapeHtml(event.date)}" ${event.status !== "draft" ? "disabled" : ""}></label>
+      <label>Opponent<input data-event-field="opponent" value="${escapeHtml(event.opponent)}" placeholder="Opponent alliance" ${event.status !== "draft" ? "disabled" : ""}></label>
+      <label class="event-instructions">Important instructions<textarea data-event-field="importantInstructions" ${event.status === "archived" ? "disabled" : ""}>${escapeHtml(event.importantInstructions || "")}</textarea></label>
+    </div>
+    <div class="event-action-buttons">
+      <button class="secondary-button" data-event-action="duplicate" type="button">Duplicate Previous Battle</button>
+      ${event.status === "draft" ? `<button class="primary-button" data-event-action="publish" type="button">Publish Battle Plan</button>` : ""}
+      ${event.status === "published" ? `<button class="primary-button" data-event-action="start" type="button">Start Battle</button>` : ""}
+      ${event.status === "in_progress" ? `<button class="primary-button" data-event-action="complete" type="button">Complete Battle</button>` : ""}
+      ${event.status === "completed" ? `<button class="primary-button" data-event-action="archive" type="button">Archive Battle</button>` : ""}
+    </div>
+  ` : `<p>No event exists yet.</p>`;
+  elements.publishReadiness.innerHTML = event ? [
+    validationPanel("Errors", validation.errors, "error"),
+    validationPanel("Warnings", validation.warnings, "warning"),
+    validationPanel("Passed", validation.passed, "passed")
+  ].join("") : "";
+  elements.eventList.innerHTML = state.events.map((item) => `
+    <article class="history-card event-list-card">
+      <div><h3>${escapeHtml(item.date)} · ${escapeHtml(item.opponent || "Opponent pending")}</h3><p class="muted">Team A ${escapeHtml(item.battleTimeA)} · Team B ${escapeHtml(item.battleTimeB)}</p></div>
+      ${statusBadge(item.status)}
+    </article>
+  `).join("");
+}
+
+async function handleEventFieldChange(event) {
+  const field = event.target.dataset.eventField;
+  if (!field || !state.activeEvent) return;
+  try {
+    await api.updateEvent(state.activeEvent.id, {
+      [field]: event.target.value,
+      version: state.activeEvent.version
+    });
+    await refreshState();
+    setStatus("Event details saved");
+  } catch (error) {
+    setStatus(error.message, true);
+    await refreshState();
+  }
+}
+
+async function createNextEvent() {
+  try {
+    setStatus("Creating battle...");
+    const date = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+    await api.createEvent({ date });
+    await refreshState();
+    setStatus("Draft battle created");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+async function handleEventAction(event) {
+  const button = event.target.closest("[data-event-action]");
+  if (!button || !state.activeEvent) return;
+  try {
+    button.disabled = true;
+    setStatus("Updating event...");
+    const action = button.dataset.eventAction;
+    const payload = action === "duplicate"
+      ? { date: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10) }
+      : {};
+    await api.transitionEvent(state.activeEvent.id, action, payload);
+    await refreshState();
+    setStatus(`Event ${action} complete`);
+  } catch (error) {
+    setStatus(error.message, true);
+    if (error.details) renderServerValidation(error.details);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function handleAvailabilityClick(event) {
+  const button = event.target.closest("[data-availability]");
+  if (!button || !state.me.playerId || !state.activeEvent) return;
+  const participant = state.participants.find((item) => item.playerId === state.me.playerId);
+  try {
+    setStatus("Saving availability...");
+    await api.updateAvailability(state.activeEvent.id, {
+      playerId: state.me.playerId,
+      availability: button.dataset.availability,
+      availabilityNote: document.querySelector("#availabilityNote")?.value || "",
+      version: participant.version
+    });
+    await refreshState();
+    setStatus("Availability saved");
+  } catch (error) {
+    setStatus(error.message, true);
+    await refreshState();
+  }
+}
+
+async function handleAvailabilityNote(event) {
+  if (event.target.id !== "availabilityNote") return;
+  const participant = state.participants.find((item) => item.playerId === state.me.playerId);
+  if (!participant) return;
+  try {
+    await api.updateAvailability(state.activeEvent.id, {
+      playerId: state.me.playerId,
+      availability: participant.availability,
+      availabilityNote: event.target.value,
+      version: participant.version
+    });
+    await refreshState();
+  } catch (error) {
+    setStatus(error.message, true);
+  }
 }
 
 function renderDashboard() {
@@ -257,14 +587,27 @@ function renderAssignments() {
 }
 
 function renderTeamAssignments(team, board) {
-  const groups = selected(team).reduce((byUnit, member) => {
+  const members = selected(team).sort((left, right) =>
+    roleOrder(left.type) - roleOrder(right.type) || left.name.localeCompare(right.name)
+  );
+  const groups = members.reduce((byUnit, member) => {
     const unit = assignedUnit(member);
     if (!byUnit.has(unit)) byUnit.set(unit, []);
     byUnit.get(unit).push(member);
     return byUnit;
   }, new Map());
 
-  board.innerHTML = units
+  const assignedCount = members.filter((member) => assignedUnit(member) !== "Unassigned").length;
+  const confirmedCount = members.filter((member) => member.availability === "Confirmed").length;
+  const summary = `
+    <article class="assignment-summary panel">
+      <div><span>Battle time</span><strong>${escapeHtml(state.settings[`battleTime${team}`])}</strong></div>
+      <div><span>Roster</span><strong>${members.length}/30</strong></div>
+      <div><span>Assigned</span><strong>${assignedCount}/${members.length}</strong></div>
+      <div><span>Confirmed</span><strong>${confirmedCount}/${members.length}</strong></div>
+    </article>
+  `;
+  const cards = units
     .filter((unit) => groups.has(unit))
     .map((unit) => `
       <article class="panel">
@@ -273,14 +616,19 @@ function renderTeamAssignments(team, board) {
           <span>${groups.get(unit).length} assigned</span>
         </div>
         <p class="unit-responsibility">${escapeHtml(unitResponsibilities[unit])}</p>
-        ${(groups.get(unit) || []).map((member) => `
+        ${(groups.get(unit) || []).map((member, index) => `
           <div class="assignment-item">
+            <span class="assignment-number">${index + 1}</span>
             <strong>${escapeHtml(member.name)}</strong>
-            <span>${escapeHtml(member.type)} · ${escapeHtml(member.availability)}</span>
+            <span class="assignment-meta">${escapeHtml(member.type)} · ${escapeHtml(member.availability)}</span>
           </div>
         `).join("")}
       </article>
-    `).join("") || `<article class="panel"><p>No Team ${team} players are selected yet.</p></article>`;
+    `).join("");
+
+  board.innerHTML = members.length
+    ? `${summary}${cards}`
+    : `<article class="panel"><p>No Team ${team} players are selected yet.</p></article>`;
 }
 
 function renderResults() {
@@ -316,7 +664,10 @@ function renderResults() {
 function renderHistory() {
   elements.historyList.innerHTML = state.battles.map((battle) => `
     <article class="history-card">
-      <h3>${escapeHtml(battle.date)} · ${escapeHtml(battle.outcome)} vs ${escapeHtml(battle.opponent)}</h3>
+      <div class="history-card-heading">
+        <h3>${escapeHtml(battle.date)} · ${escapeHtml(battle.outcome)} vs ${escapeHtml(battle.opponent)}</h3>
+        <button class="danger-button history-delete-button" type="button" data-delete-battle="${escapeHtml(battle.id)}">Delete</button>
+      </div>
       <p>${Number(battle.scoreFor).toLocaleString()} - ${Number(battle.scoreAgainst).toLocaleString()}</p>
       <p class="muted">${escapeHtml(battle.players.length)} players archived · ${escapeHtml(battle.notes || "No notes")}</p>
       <div class="history-score-table">
@@ -341,6 +692,173 @@ function renderHistory() {
   `).join("") || `<article class="panel"><p>No battles have been archived yet.</p></article>`;
 }
 
+async function renderParticipation() {
+  if (!state?.permissions?.isOfficer) return;
+  const params = new URLSearchParams();
+  if (elements.participationTeam.value) params.set("team", elements.participationTeam.value);
+  if (elements.participationUnit.value) params.set("unit", elements.participationUnit.value);
+  try {
+    const statistics = await api.getParticipation(params.size ? `?${params}` : "");
+    const selected = statistics.reduce((sum, item) => sum + item.eventsSelected, 0);
+    const attended = statistics.reduce((sum, item) => sum + item.eventsAttended, 0);
+    const currentParticipants = state.participants.filter((item) => item.selected);
+    const confirmed = currentParticipants.filter((item) => item.availability === "Confirmed").length;
+    const starters = currentParticipants.filter((item) => item.rosterStatus === "Starter");
+    elements.participationSummary.innerHTML = [
+      summaryCard("Alliance attendance", `${selected ? Math.round((attended / selected) * 100) : 0}%`),
+      summaryCard("Current confirmation", `${currentParticipants.length ? Math.round((confirmed / currentParticipants.length) * 100) : 0}%`),
+      summaryCard("Starter confirmation", `${starters.length ? Math.round((starters.filter((item) => item.availability === "Confirmed").length / starters.length) * 100) : 0}%`),
+      summaryCard("Awaiting response", currentParticipants.filter((item) => item.availability === "Pending").length)
+    ].join("");
+    elements.participationRows.innerHTML = statistics
+      .sort((left, right) => right.attendancePercentage - left.attendancePercentage || right.eventsAttended - left.eventsAttended)
+      .map((item) => `
+        <article class="member-card panel">
+          <div class="member-card-heading"><h3>${escapeHtml(item.playerName)}</h3><strong>${item.attendancePercentage}%</strong></div>
+          <div class="metric-row"><span>Attended</span><strong>${item.eventsAttended}/${item.eventsSelected}</strong></div>
+          <div class="metric-row"><span>Confirmed</span><strong>${item.confirmationPercentage}%</strong></div>
+          <div class="metric-row"><span>Average score</span><strong>${Number(item.averageScore).toLocaleString()}</strong></div>
+          <div class="metric-row"><span>Current streak</span><strong>${item.currentAttendanceStreak}</strong></div>
+          <div class="metric-row"><span>Best streak</span><strong>${item.consecutiveAttendanceStreak}</strong></div>
+        </article>
+      `).join("") || emptyState("No archived participation records match these filters.");
+  } catch (error) {
+    elements.participationRows.innerHTML = emptyState(error.message);
+  }
+}
+
+function renderStrategyTimeline() {
+  const event = state.activeEvent;
+  if (!event) {
+    elements.strategyTimelineContent.innerHTML = emptyState("No active event strategy.");
+    return;
+  }
+  if (state.permissions.isOfficer) {
+    elements.strategyControls.innerHTML = `
+      <label>Template
+        <select id="strategyTemplateSelect">
+          <option value="">Choose template</option>
+          ${state.strategyTemplates.map((template) => `<option value="${escapeHtml(template.id)}">${escapeHtml(template.name)}</option>`).join("")}
+        </select>
+      </label>
+      <label>Apply to
+        <select id="strategyApplyTeam"><option>A</option><option>B</option></select>
+      </label>
+    `;
+  }
+  const teams = state.permissions.isMember
+    ? [state.participants.find((item) => item.playerId === state.me.playerId)?.team].filter((team) => ["A", "B"].includes(team))
+    : ["A", "B"];
+  elements.strategyTimelineContent.innerHTML = teams.map((team) => {
+    const strategy = state.eventStrategy?.[team];
+    return `
+      <article class="timeline-team panel">
+        <div class="assignment-heading"><h3>Team ${team} · ${escapeHtml(strategy?.name || event[`strategy${team}`])}</h3><span>${escapeHtml(event[`battleTime${team}`])} Server Time</span></div>
+        ${strategy?.phases?.length ? strategy.phases
+          .sort((left, right) => Number(left.startMinute) - Number(right.startMinute))
+          .map((phase) => `
+            <div class="timeline-phase">
+              <div class="timeline-time">${Number(phase.startMinute)}–${Number(phase.endMinute)} min</div>
+              <div><strong>${escapeHtml(phase.name)}</strong><p>${escapeHtml(phase.instructions || "")}</p>
+              <small>${escapeHtml(phase.fallbackPlan ? `Fallback: ${phase.fallbackPlan}` : "")}</small></div>
+            </div>
+          `).join("")
+          : `<p class="muted">Apply a reusable strategy template to add timed battle phases.</p>`}
+      </article>
+    `;
+  }).join("") || emptyState("Your account is not linked to a team assignment.");
+}
+
+async function handleStrategyApply(event) {
+  if (event.target.id !== "strategyTemplateSelect" || !event.target.value) return;
+  try {
+    await api.applyStrategy(state.activeEvent.id, {
+      templateId: event.target.value,
+      team: document.querySelector("#strategyApplyTeam").value
+    });
+    await refreshState();
+    setStatus("Strategy template applied");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+async function renderAudit() {
+  if (!state?.permissions?.isOfficer || !state.activeEvent) return;
+  try {
+    const entries = await api.getAudit(state.activeEvent.id);
+    elements.auditList.innerHTML = entries.slice(0, 200).map((entry) => `
+      <article class="audit-entry panel">
+        <div><strong>${escapeHtml(humanize(entry.action))}</strong><span>${escapeHtml(entry.userDisplayName)}</span></div>
+        <p>${escapeHtml(entry.recordType)} · ${escapeHtml(entry.field || entry.recordId || "")}</p>
+        <small>${escapeHtml(formatDateTime(entry.timestamp))}${entry.reason ? ` · ${escapeHtml(entry.reason)}` : ""}</small>
+      </article>
+    `).join("") || emptyState("No important changes recorded for this event.");
+  } catch (error) {
+    elements.auditList.innerHTML = emptyState(error.message);
+  }
+}
+
+function connectLiveUpdates() {
+  const url = liveUpdatesUrl();
+  if (!url || typeof EventSource === "undefined") return;
+  liveSource?.close();
+  liveSource = new EventSource(url);
+  liveSource.addEventListener("connected", () => {
+    elements.connectionStatus.textContent = "Live: connected";
+    elements.connectionStatus.classList.add("connected");
+  });
+  liveSource.addEventListener("update", () => refreshState());
+  liveSource.onerror = () => {
+    elements.connectionStatus.textContent = "Live: reconnecting";
+    elements.connectionStatus.classList.remove("connected");
+  };
+  window.addEventListener("beforeunload", () => liveSource?.close(), { once: true });
+}
+
+async function handleHistoryClick(event) {
+  const button = event.target.closest("[data-delete-battle]");
+  if (!button) return;
+
+  const battleId = button.dataset.deleteBattle;
+  const battle = state.battles.find((item) => item.id === battleId);
+  if (!battle) return;
+
+  const description = `${battle.date} · ${battle.outcome} vs ${battle.opponent}`;
+  if (!confirm(`Delete the archived battle "${description}"?\n\nThis cannot be undone. Its player participation totals will also be removed.`)) {
+    return;
+  }
+
+  try {
+    button.disabled = true;
+    setStatus("Deleting archived battle...");
+    state = await api.deleteBattle(battleId);
+    render();
+    setStatus("Archived battle deleted");
+  } catch (error) {
+    button.disabled = false;
+    setStatus(error.message, true);
+  }
+}
+
+async function clearHistory() {
+  if (!state.battles.length) return;
+  if (!confirm(`Delete all ${state.battles.length} archived battles?\n\nThis cannot be undone. Player participation totals will be reset.`)) return;
+
+  try {
+    elements.clearHistoryButton.disabled = true;
+    setStatus("Clearing history...");
+    state = await api.clearHistory();
+    expandedPlayers.clear();
+    render();
+    setStatus("Previous history cleared");
+  } catch (error) {
+    setStatus(error.message, true);
+  } finally {
+    elements.clearHistoryButton.disabled = false;
+  }
+}
+
 async function handleMemberChange(event) {
   const field = event.target.dataset.field;
   const memberId = event.target.dataset.memberId;
@@ -351,8 +869,19 @@ async function handleMemberChange(event) {
 
   try {
     setStatus("Saving...");
-    state = await api.updateMember(memberId, { [field]: normalizeFieldValue(field, value) });
-    render();
+    const participant = state.participants.find((item) => item.playerId === memberId);
+    if (!participant || !state.activeEvent) throw new Error("No active event participant was found");
+    const mappedField = {
+      type: "rosterStatus",
+      weekScore: "score",
+      weekAttendance: "attendance",
+      weekNotes: "notes"
+    }[field] || field;
+    await api.updateParticipant(state.activeEvent.id, memberId, {
+      [mappedField]: normalizeFieldValue(field, value),
+      version: participant.version
+    });
+    await refreshState();
     setStatus(`Saved ${formatTime(state.updatedAt)}`);
   } catch (error) {
     setStatus(error.message, true);
@@ -363,8 +892,9 @@ async function handleMemberChange(event) {
 async function saveSettings(patch) {
   try {
     setStatus("Saving settings...");
-    state = await api.updateSettings(patch);
-    render();
+    if (!state.activeEvent) throw new Error("Create an event before changing strategy settings");
+    await api.updateEvent(state.activeEvent.id, { ...patch, version: state.activeEvent.version });
+    await refreshState();
     setStatus(`Saved ${formatTime(state.updatedAt)}`);
   } catch (error) {
     setStatus(error.message, true);
@@ -480,17 +1010,17 @@ function directoryRow(member) {
   const expanded = expandedPlayers.has(member.id);
   return `
     <tr>
-      <td><input data-member-id="${member.id}" data-field="selected" type="checkbox" ${member.selected ? "checked" : ""}></td>
-      <td>
+      <td data-label="Selected"><input data-member-id="${member.id}" data-field="selected" type="checkbox" ${member.selected ? "checked" : ""}></td>
+      <td data-label="Player">
         <button class="row-expander" type="button" data-expand-player="${member.id}" aria-expanded="${expanded}">${expanded ? "Hide" : "Show"}</button>
         <strong>${escapeHtml(member.name)}</strong>
         <span class="history-count">${history.length} DS</span>
       </td>
-      <td>${escapeHtml(member.rank)}</td>
-      <td><select data-member-id="${member.id}" data-field="team">${optionHtml(["Reserve", "A", "B"], member.team)}</select></td>
-      <td><select data-member-id="${member.id}" data-field="type">${optionHtml(["Starter", "Sub"], member.type)}</select></td>
-      <td><select data-member-id="${member.id}" data-field="unit">${optionHtml(units, assignedUnit(member))}</select></td>
-      <td><select data-member-id="${member.id}" data-field="availability">${optionHtml(["Pending", "Confirmed", "Not available"], member.availability)}</select></td>
+      <td data-label="Rank">${escapeHtml(member.rank)}</td>
+      <td data-label="Team"><select data-member-id="${member.id}" data-field="team">${optionHtml(["Reserve", "A", "B"], member.team)}</select></td>
+      <td data-label="Role"><select data-member-id="${member.id}" data-field="type">${optionHtml(["Starter", "Sub"], member.type)}</select></td>
+      <td data-label="Unit"><select data-member-id="${member.id}" data-field="unit">${optionHtml(units, assignedUnit(member))}</select></td>
+      <td data-label="Availability"><select data-member-id="${member.id}" data-field="availability">${optionHtml(["Pending", "Confirmed", "Tentative", "Not available"], member.availability)}</select></td>
     </tr>
     ${expanded ? playerHistoryRow(member, history) : ""}
   `;
@@ -558,6 +1088,10 @@ function readiness(team) {
   return { members, confirmed, assigned, starters, subs, score };
 }
 
+function roleOrder(type) {
+  return type === "Starter" ? 0 : 1;
+}
+
 function readinessPanel(team, data) {
   return `
     <article class="panel">
@@ -585,6 +1119,84 @@ function summaryCard(label, value) {
   return `<article class="summary-card"><span>${label}</span><strong>${value}</strong></article>`;
 }
 
+function detail(label, value) {
+  return `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+}
+
+function statusBadge(value) {
+  const normalized = String(value || "").toLowerCase().replaceAll("_", "-");
+  return `<span class="status-badge status-${escapeHtml(normalized)}">${escapeHtml(humanize(value))}</span>`;
+}
+
+function eventStatusLabel(status) {
+  return {
+    draft: "Draft plan",
+    published: "Published plan",
+    in_progress: "Battle in progress",
+    completed: "Battle completed",
+    archived: "Archived"
+  }[status] || humanize(status);
+}
+
+function validationPanel(title, messages, tone) {
+  return `
+    <article class="validation-panel panel validation-${tone}">
+      <h3>${escapeHtml(title)} <span>${messages.length}</span></h3>
+      ${messages.map((message) => `<p>${escapeHtml(message)}</p>`).join("") || `<p class="muted">None</p>`}
+    </article>
+  `;
+}
+
+function validatePublishReadiness(event, participants) {
+  const errors = [];
+  const warnings = [];
+  const passed = [];
+  const selected = participants.filter((participant) => participant.selected);
+  if (!event.date) errors.push("Battle date is required");
+  else passed.push("Battle date is configured");
+  if (!event.strategyA || !event.strategyB) errors.push("Both strategies are required");
+  else passed.push("Strategies are selected");
+  if (!serverTimes.includes(event.battleTimeA) || !serverTimes.includes(event.battleTimeB)) errors.push("Both battle times are required");
+  else passed.push("Battle times are configured");
+  if (!selected.length) errors.push("Select at least one participant");
+  for (const participant of selected) {
+    if (!["A", "B"].includes(participant.team)) errors.push(`${participant.playerName} needs a team`);
+    if (participant.rosterStatus === "Starter" && (!participant.unit || participant.unit === "Unassigned")) {
+      errors.push(`${participant.playerName} is a starter without a unit`);
+    }
+    if (participant.rosterStatus === "Starter" && participant.availability === "Unavailable" && !participant.availabilityOverride) {
+      errors.push(`${participant.playerName} is unavailable but assigned as a starter`);
+    }
+  }
+  for (const team of ["A", "B"]) {
+    const roster = selected.filter((participant) => participant.team === team);
+    if (roster.length > 30) errors.push(`Team ${team} exceeds 30 players`);
+    if (!roster.length) warnings.push(`Team ${team} has no selected players`);
+  }
+  if (!errors.length) passed.push("No blocking roster conflicts");
+  return { errors, warnings, passed };
+}
+
+function renderServerValidation(validation) {
+  elements.publishReadiness.innerHTML = [
+    validationPanel("Errors", validation.errors || [], "error"),
+    validationPanel("Warnings", validation.warnings || [], "warning"),
+    validationPanel("Passed", validation.passed || [], "passed")
+  ].join("");
+}
+
+function emptyState(message) {
+  return `<article class="panel empty-state"><p>${escapeHtml(message)}</p></article>`;
+}
+
+function humanize(value) {
+  return String(value || "").replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatDateTime(value) {
+  return value ? new Date(value).toLocaleString() : "not yet";
+}
+
 function optionHtml(items, current = "") {
   return items.map((item) => `<option ${item === current ? "selected" : ""}>${escapeHtml(item)}</option>`).join("");
 }
@@ -595,6 +1207,7 @@ function assignedUnit(member) {
 
 function normalizeFieldValue(field, value) {
   if (field === "weekScore") return Number(value || 0);
+  if (field === "availability" && value === "Not available") return "Unavailable";
   return value;
 }
 

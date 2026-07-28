@@ -17,7 +17,7 @@ form.addEventListener("submit", async (event) => {
   try {
     message.textContent = "Creating account...";
     const user = await register(data.get("email"), password);
-    message.textContent = `Account created. UID: ${user.localId}`;
+    message.textContent = "Member account created. An administrator can link it to your player record.";
     window.setTimeout(() => {
       window.location.href = "/";
     }, 900);

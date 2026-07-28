@@ -51,6 +51,14 @@ The project's labels **Team A** and **Team B** mean the game's **Task Force A**
 and **Task Force B**. They fight separate matches, so assignments, results,
 strategies, readiness, and histories must remain team-specific.
 
+For this alliance, the selectable in-game Server Time battle slots are:
+
+- 9:00
+- 18:00
+- 23:00
+
+Team A and Team B select and store their time independently.
+
 ## How points are earned
 
 ### Battlefield Points
@@ -319,7 +327,8 @@ These are informed strategy implications, not guaranteed rules:
 
 Verify these in the live event before implementing exact rules:
 
-- Current registration days and available battle time slots
+- Whether future game updates change the currently configured 9:00, 18:00, and
+  23:00 Server Time battle slots
 - Eligibility requirements and matchmaking formula
 - Current reward tiers and minimum Individual Points
 - Exact point output for every structure

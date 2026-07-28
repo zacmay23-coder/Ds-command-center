@@ -2,6 +2,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { migrateLegacyState } from "../src/domain.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.join(__dirname, "..");
@@ -16,7 +17,7 @@ if (!seedMatch) {
 }
 
 const seed = vm.runInNewContext(seedMatch[1]);
-const state = {
+const legacyState = {
   schema: "dscc-readable-v1",
   updatedAt: new Date().toISOString(),
   settings: {
@@ -29,10 +30,12 @@ const state = {
     weekAttendance: "",
     weekNotes: ""
   })),
+  pendingResults: [],
   battles: []
 };
+const { state } = migrateLegacyState(legacyState, { uid: "seed-script" });
 
 await mkdir(path.dirname(statePath), { recursive: true });
 await writeFile(statePath, JSON.stringify(state, null, 2), "utf8");
 
-console.log(`Seeded ${state.members.length} members into ${statePath}`);
+console.log(`Seeded ${Object.keys(state.players).length} players into ${statePath}`);

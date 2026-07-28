@@ -13,19 +13,27 @@ patch-sensitive uncertainties.
 Implementation priorities and release milestones are maintained in
 [`ROADMAP.md`](ROADMAP.md).
 
-## What changed
+## V1–V3 event architecture
 
-- The server is now the source of truth.
-- Every device reads and writes through `/api/state`.
-- Firebase Email/Password login protects access.
-- Data is saved to `data/state.json`.
-- The client is split into small, readable files.
-- No build step or framework is required.
+- Weekly reset has been replaced by immutable event records and participants.
+- Events move through draft, published, in-progress, completed, and archived.
+- Member, officer, and administrator roles are enforced on the server.
+- New accounts default to member and must be linked to a player by an admin.
+- Assignment writes are targeted and use record versions to detect conflicts.
+- Important changes create audit entries.
+- Connected clients receive lightweight live-update notifications.
+- Participation metrics are calculated from archived event participants.
+- Reusable timed strategy templates are copied into events and versioned.
+- The source of truth remains `data/state.json`, using a Firebase-shaped schema.
+
+See [`ARCHITECTURE_V1_3.md`](ARCHITECTURE_V1_3.md) for the assessment and target
+schema, and [`MANUAL_TESTING.md`](MANUAL_TESTING.md) for deployment checks.
 
 ## Run locally
 
 ```powershell
 npm run seed
+npm run migrate:v1
 npm run dev
 ```
 
@@ -58,11 +66,31 @@ src/resultScreenshotReader.js OCR parser for game result screenshots
 data/state.json            Shared app data, created by npm run seed
 ```
 
-## Sync model
+## Roles and first administrator
 
-Sync works because everyone uses the same server. When one officer saves a
-change, the next refresh or update on another device pulls the same shared JSON
-state from the server.
+Set `DSCC_ADMIN_UIDS` before the first administrator signs in:
+
+```bash
+DSCC_ADMIN_UIDS="firebase-auth-uid" npm start
+```
+
+Unrecognized authenticated users are created as active members with no player
+link. This preserves self-registration without granting officer access.
+
+## Persistence and live updates
+
+Every mutation goes through a targeted API and rewrites the local JSON document
+atomically at the process level. Server-sent events notify connected browsers
+to fetch the changed active-event data. This provides live behavior for one
+server instance. A multi-instance deployment should move the documented paths
+to Firebase Realtime Database and use native transactions/subscriptions.
+
+The first event-schema load creates:
+
+- `data/state.pre-events-v1.json` — pre-migration backup
+- `MIGRATION_REPORT.md` — migration totals and review items
+
+Migration is idempotent.
 
 ## Results screenshot import
 

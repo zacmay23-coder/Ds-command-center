@@ -11,7 +11,9 @@
     "start": "node server.js",
     "dev": "node server.js",
     "seed": "node scripts/seed-from-legacy.js",
-    "check": "node --check server.js && node --check src/dataStore.js && node --check src/resultScreenshotReader.js && node --check scripts/seed-from-legacy.js && node --check public/app.js && node --check public/auth.js && node --check public/login.js && node --check public/register.js"
+    "migrate:v1": "node scripts/migrate-v1-events.js",
+    "test": "node --test",
+    "check": "node --check server.js && node --check src/dataStore.js && node --check src/domain.js && node --check src/permissions.js && node --check src/validation.js && node --check src/resultScreenshotReader.js && node --check scripts/seed-from-legacy.js && node --check scripts/migrate-v1-events.js && node --check public/app.js && node --check public/auth.js && node --check public/login.js && node --check public/register.js"
   },
   "engines": {
     "node": ">=18"
