@@ -770,6 +770,253 @@ th {
   font-weight: 700;
 }
 
+.timeline-map-controls,
+.timeline-team-switch,
+.timeline-phase-buttons {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.timeline-map-controls {
+  justify-content: space-between;
+}
+
+.timeline-map-controls > div:last-child {
+  display: grid;
+  gap: 3px;
+  text-align: right;
+}
+
+.timeline-map-controls span,
+.timeline-phase-summary span {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.timeline-team-switch button,
+.timeline-phase-buttons button {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  padding: 9px 13px;
+}
+
+.timeline-team-switch button.active,
+.timeline-phase-buttons button.active {
+  background: var(--accent);
+  color: #15100a;
+}
+
+.timeline-phase-buttons {
+  margin: 12px 0;
+}
+
+.timeline-playback-bar {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto minmax(160px, 1fr) auto;
+  margin-top: 12px;
+}
+
+.timeline-playback-bar input {
+  accent-color: var(--accent);
+  width: 100%;
+}
+
+.timeline-phase-summary {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.timeline-phase-summary p {
+  margin: 0;
+}
+
+.strategy-map-layout {
+  align-items: start;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(420px, 1.35fr) minmax(300px, 1fr);
+}
+
+.strategy-tactical-map {
+  aspect-ratio: 1;
+  background: #120c08;
+  border: 1px solid var(--line);
+  overflow: hidden;
+  position: sticky;
+  top: 12px;
+}
+
+.strategy-tactical-map > img {
+  height: 100%;
+  object-fit: fill;
+  width: 100%;
+}
+
+.strategy-objective-layer,
+.strategy-route-layer,
+.strategy-group-layer {
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.strategy-objective-layer {
+  z-index: 2;
+}
+
+.strategy-group-layer {
+  z-index: 3;
+}
+
+.strategy-objective {
+  background: #17212b;
+  border: 2px solid #8da1b4;
+  border-radius: 50%;
+  height: 15px;
+  pointer-events: auto;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 15px;
+}
+
+.strategy-objective.active {
+  background: var(--accent);
+  box-shadow: 0 0 0 6px rgba(224, 175, 85, 0.25);
+}
+
+.strategy-objective span {
+  background: rgba(5, 12, 18, 0.88);
+  color: #fff;
+  font-size: 9px;
+  left: 50%;
+  padding: 2px 4px;
+  position: absolute;
+  top: 15px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.strategy-route {
+  background: linear-gradient(90deg, transparent, var(--accent));
+  height: 3px;
+  position: absolute;
+  transform-origin: left center;
+}
+
+.strategy-group-marker {
+  align-items: center;
+  background: #07111a;
+  border: 2px solid var(--accent-strong);
+  border-radius: 50%;
+  box-shadow: 0 0 12px rgba(224, 175, 85, 0.7);
+  color: var(--accent-strong);
+  display: flex;
+  font-size: 9px;
+  font-weight: 800;
+  height: 28px;
+  justify-content: center;
+  pointer-events: auto;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  transition: left 0.8s ease, top 0.8s ease;
+  width: 28px;
+  animation: strategy-group-arrive 0.8s ease both;
+}
+
+@keyframes strategy-group-arrive {
+  from { opacity: 0.25; transform: translate(-50%, -50%) scale(0.65); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+.strategy-route::after {
+  border-bottom: 5px solid transparent;
+  border-left: 9px solid var(--accent);
+  border-top: 5px solid transparent;
+  content: "";
+  position: absolute;
+  right: -2px;
+  top: -4px;
+}
+
+.strategy-unit-orders {
+  display: grid;
+  gap: 10px;
+}
+
+.strategy-unit-order {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: 12px;
+}
+
+.strategy-unit-order.highlighted {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(224, 175, 85, 0.25);
+}
+
+.strategy-unit-order dl {
+  display: grid;
+  gap: 7px;
+  margin: 10px 0;
+}
+
+.strategy-unit-order dl div {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 120px 1fr;
+}
+
+.strategy-unit-order dt {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.strategy-unit-order dd {
+  margin: 0;
+}
+
+.timeline-order-editor {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+.timeline-order-editor label {
+  font-size: 9px;
+}
+
+.timeline-order-editor select {
+  font-size: 11px;
+  min-width: 0;
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .strategy-map-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .strategy-tactical-map {
+    position: relative;
+    top: auto;
+  }
+
+  .timeline-order-editor {
+    grid-template-columns: 1fr;
+  }
+}
+
 .audit-entry p {
   margin: 8px 0;
 }

@@ -1,4 +1,5 @@
 import { authFetch, clearSession, liveUpdatesUrl, requireSession } from "./auth.js";
+import { battlePhases, objectivePositions, strategyPlans, tacticalGroups } from "./battle-plan.js";
 
 const api = {
   async getState() {
@@ -41,6 +42,11 @@ const api = {
   async applyStrategy(eventId, payload) {
     return request(`/api/events/${encodeURIComponent(eventId)}/apply-strategy`, {
       method: "POST", body: JSON.stringify(payload)
+    });
+  },
+  async updateStrategyOrder(eventId, team, payload) {
+    return request(`/api/events/${encodeURIComponent(eventId)}/strategy/${team}`, {
+      method: "PATCH", body: JSON.stringify(payload)
     });
   },
   async updateMember(id, patch) {
@@ -129,6 +135,9 @@ const unitResponsibilities = {
 };
 
 let state = null;
+let timelineTeam = "A";
+let timelinePhaseIndex = 0;
+let timelinePlaybackTimer = null;
 
 const elements = {
   saveStatus: document.querySelector("#saveStatus"),
@@ -249,6 +258,8 @@ function bindControls() {
   elements.myAssignmentContent.addEventListener("click", handleAvailabilityClick);
   elements.myAssignmentContent.addEventListener("change", handleAvailabilityNote);
   elements.strategyControls.addEventListener("change", handleStrategyApply);
+  elements.strategyTimelineContent.addEventListener("click", handleTimelineClick);
+  elements.strategyTimelineContent.addEventListener("change", handleTimelineChange);
   elements.userList.addEventListener("change", handleUserChange);
 }
 
@@ -749,24 +760,207 @@ function renderStrategyTimeline() {
   const teams = state.permissions.isMember
     ? [state.participants.find((item) => item.playerId === state.me.playerId)?.team].filter((team) => ["A", "B"].includes(team))
     : ["A", "B"];
-  elements.strategyTimelineContent.innerHTML = teams.map((team) => {
-    const strategy = state.eventStrategy?.[team];
-    return `
-      <article class="timeline-team panel">
-        <div class="assignment-heading"><h3>Team ${team} · ${escapeHtml(strategy?.name || event[`strategy${team}`])}</h3><span>${escapeHtml(event[`battleTime${team}`])} Server Time</span></div>
-        ${strategy?.phases?.length ? strategy.phases
-          .sort((left, right) => Number(left.startMinute) - Number(right.startMinute))
-          .map((phase) => `
-            <div class="timeline-phase">
-              <div class="timeline-time">${Number(phase.startMinute)}–${Number(phase.endMinute)} min</div>
-              <div><strong>${escapeHtml(phase.name)}</strong><p>${escapeHtml(phase.instructions || "")}</p>
-              <small>${escapeHtml(phase.fallbackPlan ? `Fallback: ${phase.fallbackPlan}` : "")}</small></div>
-            </div>
-          `).join("")
-          : `<p class="muted">Apply a reusable strategy template to add timed battle phases.</p>`}
+  if (!teams.includes(timelineTeam)) timelineTeam = teams[0];
+  if (!timelineTeam) {
+    elements.strategyTimelineContent.innerHTML = emptyState("Your account is not linked to a team assignment.");
+    return;
+  }
+  const strategy = state.eventStrategy?.[timelineTeam];
+  const phases = battlePhases.map((key, index) => {
+    const [startMinute, endMinute] = key.split("-").map(Number);
+    const saved = strategy?.phases?.find((item) => Number(item.startMinute) === startMinute) || {};
+    return { name: saved.name || `Battle phase ${index + 1}`, startMinute, endMinute, instructions: saved.instructions || "Execute the defined group orders.", fallbackPlan: saved.fallbackPlan || "Shift to the secondary objective on command.", groupOrders: saved.groupOrders || {} };
+  });
+  timelinePhaseIndex = Math.min(timelinePhaseIndex, Math.max(phases.length - 1, 0));
+  const phase = phases[timelinePhaseIndex];
+  const orders = timelineGroupOrders(timelineTeam, phase, timelinePhaseIndex);
+  const activeObjectives = new Set(orders.flatMap((order) => [order.primaryObjective, order.secondaryObjective]).filter(Boolean));
+
+  elements.strategyTimelineContent.innerHTML = `
+    <div class="timeline-map-controls panel">
+      <div class="timeline-team-switch">${teams.map((team) => `<button type="button" data-timeline-team="${team}" class="${team === timelineTeam ? "active" : ""}">Team ${team}</button>`).join("")}</div>
+      <div><strong>${escapeHtml(strategy?.name || event[`strategy${timelineTeam}`])}</strong><span>Team ${timelineTeam} · ${escapeHtml(event[`battleTime${timelineTeam}`])} Server Time</span></div>
+    </div>
+    ${phases.length ? `
+      <div class="timeline-playback-bar">
+        <button class="primary-button" type="button" data-timeline-play>${timelinePlaybackTimer ? "Pause playback" : "Play strategy"}</button>
+        <input aria-label="Battle timeline" data-timeline-scrubber type="range" min="0" max="5" step="1" value="${timelinePhaseIndex}">
+        <strong>${Number(phase.startMinute)}–${Number(phase.endMinute)} min</strong>
+      </div>
+      <div class="timeline-phase-buttons">${phases.map((item, index) => `<button type="button" data-timeline-phase="${index}" class="${index === timelinePhaseIndex ? "active" : ""}">${Number(item.startMinute)}–${Number(item.endMinute)} min</button>`).join("")}</div>
+      <article class="timeline-phase-summary panel">
+        <div><span>Current phase</span><strong>${escapeHtml(phase.name)}</strong></div>
+        <p>${escapeHtml(phase.instructions || "")}</p>
+        <small>${escapeHtml(phase.fallbackPlan ? `Secondary command: ${phase.fallbackPlan}` : "Follow the primary command until an officer calls the fallback.")}</small>
       </article>
-    `;
-  }).join("") || emptyState("Your account is not linked to a team assignment.");
+      <div class="strategy-map-layout">
+        <div class="strategy-tactical-map" aria-label="Interactive Desert Storm objective map">
+          <img src="/assets/desert-storm-map-clean.png" alt="Desert Storm battle map">
+          <div class="strategy-route-layer">${timelineRoutes(orders)}</div>
+          <div class="strategy-group-layer">${timelineGroupMarkers(orders)}</div>
+          <div class="strategy-objective-layer">${Object.entries(objectivePositions).map(([objective, [x, y]]) => `
+            <button type="button" class="strategy-objective ${activeObjectives.has(objective) ? "active" : ""}" style="left:${x}%;top:${y}%" data-map-objective="${escapeHtml(objective)}"><span>${escapeHtml(objective)}</span></button>
+          `).join("")}</div>
+        </div>
+        <div class="strategy-unit-orders">${orders.map(timelineOrderCard).join("") || `<p class="muted">No Team ${timelineTeam} units are assigned for this battle.</p>`}</div>
+      </div>
+    ` : `<article class="panel"><p class="muted">Apply a reusable strategy template to add timed battle phases and map commands.</p></article>`}
+  `;
+}
+
+function timelineGroupOrders(team, phase, phaseIndex) {
+  const fallbackPlan = strategyPlans[team]?.phases?.[battlePhases[phaseIndex]] || {};
+  const previousFallbackPlan = phaseIndex > 0 ? strategyPlans[team]?.phases?.[battlePhases[phaseIndex - 1]] || {} : {};
+  const strategy = state.eventStrategy?.[team];
+  const previousSavedPhase = phaseIndex > 0
+    ? strategy?.phases?.find((item) => Number(item.startMinute) === Number(battlePhases[phaseIndex - 1].split("-")[0]))
+    : null;
+  return tacticalGroups.map((group) => {
+    const saved = phase.groupOrders?.[group] || {};
+    const fallback = fallbackPlan[group] || {};
+    const members = state.participants.filter((item) =>
+      item.selected && item.team === team && participantTacticalGroup(item) === group
+    );
+    return {
+      group,
+      members,
+      previousObjective: previousSavedPhase?.groupOrders?.[group]?.primaryObjective || previousSavedPhase?.groupOrders?.[group]?.objective || previousFallbackPlan[group]?.objective || "",
+      primaryObjective: saved.primaryObjective || saved.objective || fallback.objective || "",
+      secondaryObjective: saved.secondaryObjective || fallback.secondaryObjective || "",
+      primaryAction: saved.primaryAction || saved.action || fallback.action || "Hold",
+      secondaryAction: saved.secondaryAction || "Support"
+    };
+  });
+}
+
+function timelineOrderCard(order) {
+  return `<article class="strategy-unit-order">
+    <div class="assignment-heading"><h3>${escapeHtml(order.group)}</h3><span>${order.members.length} players</span></div>
+    <dl>
+      <div><dt>Primary objective</dt><dd>${escapeHtml(order.primaryObjective || "Officer call")}</dd></div>
+      <div><dt>Secondary objective</dt><dd>${escapeHtml(order.secondaryObjective || "Officer call")}</dd></div>
+      <div><dt>Primary action</dt><dd>${escapeHtml(order.primaryAction)}</dd></div>
+      <div><dt>Secondary action</dt><dd>${escapeHtml(order.secondaryAction)}</dd></div>
+    </dl>
+    <small>${order.members.length ? order.members.map((member) => escapeHtml(member.playerName)).join(" · ") : "No assigned members"}</small>
+    ${state.permissions.isOfficer && state.eventStrategy?.[timelineTeam] ? timelineOrderEditor(order) : ""}
+  </article>`;
+}
+
+function timelineOrderEditor(order) {
+  const objectives = ["", ...Object.keys(objectivePositions)];
+  const actions = ["Secure", "Support", "Rotate", "Attack", "Contest", "Hold", "Defend"];
+  return `<div class="timeline-order-editor">
+    <label>Primary objective<select data-strategy-group="${escapeHtml(order.group)}" data-strategy-field="primaryObjective">${optionHtml(objectives, order.primaryObjective)}</select></label>
+    <label>Primary action<select data-strategy-group="${escapeHtml(order.group)}" data-strategy-field="primaryAction">${optionHtml(actions, order.primaryAction)}</select></label>
+    <label>Secondary objective<select data-strategy-group="${escapeHtml(order.group)}" data-strategy-field="secondaryObjective">${optionHtml(objectives, order.secondaryObjective)}</select></label>
+    <label>Secondary action<select data-strategy-group="${escapeHtml(order.group)}" data-strategy-field="secondaryAction">${optionHtml(actions, order.secondaryAction)}</select></label>
+  </div>`;
+}
+
+function participantTacticalGroup(participant) {
+  if (tacticalGroups.includes(participant.tacticalGroup)) return participant.tacticalGroup;
+  if (tacticalGroups.includes(participant.unit)) return participant.unit;
+  return "Reserve";
+}
+
+function timelineGroupMarkers(orders) {
+  return orders.map((order, index) => {
+    const position = objectivePositions[order.primaryObjective];
+    if (!position) return "";
+    const offset = (index % 3 - 1) * 2.3;
+    return `<span class="strategy-group-marker" style="left:${position[0] + offset}%;top:${position[1] + offset}%" title="${escapeHtml(order.group)}: ${escapeHtml(order.members.map((member) => member.playerName).join(", ") || "No assigned members")}">${escapeHtml(tacticalGroupInitial(order.group))}</span>`;
+  }).join("");
+}
+
+function tacticalGroupInitial(group) {
+  return { "Unit A": "A", "Unit B": "B", "Unit C": "C", "Unit D": "D", "Strike Team": "ST", "Scout + Support": "SS", "Reserve": "R" }[group] || "?";
+}
+
+function timelineRoutes(orders) {
+  return orders.map((order) => {
+    const fromObjective = order.previousObjective || order.primaryObjective;
+    const toObjective = order.previousObjective ? order.primaryObjective : order.secondaryObjective;
+    const from = objectivePositions[fromObjective];
+    const to = objectivePositions[toObjective];
+    if (!from || !to || fromObjective === toObjective) return "";
+    const dx = to[0] - from[0];
+    const dy = to[1] - from[1];
+    return `<span class="strategy-route" style="left:${from[0]}%;top:${from[1]}%;width:${Math.hypot(dx, dy)}%;transform:rotate(${Math.atan2(dy, dx) * 180 / Math.PI}deg)"></span>`;
+  }).join("");
+}
+
+function handleTimelineClick(event) {
+  const teamButton = event.target.closest("[data-timeline-team]");
+  const phaseButton = event.target.closest("[data-timeline-phase]");
+  const playButton = event.target.closest("[data-timeline-play]");
+  const objectiveButton = event.target.closest("[data-map-objective]");
+  if (teamButton) {
+    stopTimelinePlayback();
+    timelineTeam = teamButton.dataset.timelineTeam;
+    timelinePhaseIndex = 0;
+    renderStrategyTimeline();
+  } else if (phaseButton) {
+    stopTimelinePlayback();
+    timelinePhaseIndex = Number(phaseButton.dataset.timelinePhase);
+    renderStrategyTimeline();
+  } else if (playButton) {
+    toggleTimelinePlayback();
+  } else if (objectiveButton) {
+    const objective = objectiveButton.dataset.mapObjective;
+    elements.strategyTimelineContent.querySelectorAll(".strategy-unit-order").forEach((card) => {
+      card.classList.toggle("highlighted", card.textContent.includes(objective));
+    });
+  }
+}
+
+async function handleTimelineChange(event) {
+  if (event.target.matches("[data-timeline-scrubber]")) {
+    stopTimelinePlayback();
+    timelinePhaseIndex = Number(event.target.value);
+    renderStrategyTimeline();
+    return;
+  }
+  const group = event.target.dataset.strategyGroup;
+  const field = event.target.dataset.strategyField;
+  if (!group || !field) return;
+  try {
+    setStatus("Saving strategy adjustment...");
+    state = await api.updateStrategyOrder(state.activeEvent.id, timelineTeam, {
+      phase: battlePhases[timelinePhaseIndex],
+      group,
+      patch: { [field]: event.target.value }
+    });
+    render();
+    setStatus("Strategy adjustment saved");
+  } catch (error) {
+    setStatus(error.message, true);
+    await refreshState();
+  }
+}
+
+function toggleTimelinePlayback() {
+  if (timelinePlaybackTimer) {
+    stopTimelinePlayback();
+    renderStrategyTimeline();
+    return;
+  }
+  if (timelinePhaseIndex >= battlePhases.length - 1) timelinePhaseIndex = 0;
+  timelinePlaybackTimer = window.setInterval(() => {
+    if (timelinePhaseIndex >= battlePhases.length - 1) {
+      stopTimelinePlayback();
+      renderStrategyTimeline();
+      return;
+    }
+    timelinePhaseIndex += 1;
+    renderStrategyTimeline();
+  }, 2200);
+  renderStrategyTimeline();
+}
+
+function stopTimelinePlayback() {
+  if (timelinePlaybackTimer) window.clearInterval(timelinePlaybackTimer);
+  timelinePlaybackTimer = null;
 }
 
 async function handleStrategyApply(event) {
@@ -1019,6 +1213,7 @@ function directoryRow(member) {
       <td data-label="Rank">${escapeHtml(member.rank)}</td>
       <td data-label="Team"><select data-member-id="${member.id}" data-field="team">${optionHtml(["Reserve", "A", "B"], member.team)}</select></td>
       <td data-label="Role"><select data-member-id="${member.id}" data-field="type">${optionHtml(["Starter", "Sub"], member.type)}</select></td>
+      <td data-label="Battle group"><select data-member-id="${member.id}" data-field="tacticalGroup">${optionHtml(tacticalGroups, member.tacticalGroup || "Reserve")}</select></td>
       <td data-label="Unit"><select data-member-id="${member.id}" data-field="unit">${optionHtml(units, assignedUnit(member))}</select></td>
       <td data-label="Availability"><select data-member-id="${member.id}" data-field="availability">${optionHtml(["Pending", "Confirmed", "Tentative", "Not available"], member.availability)}</select></td>
     </tr>

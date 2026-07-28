@@ -1,6 +1,7 @@
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { battlePhases, strategyPlans } from "../public/battle-plan.js";
 import {
   addAudit,
   applyStrategyTemplate,
@@ -27,8 +28,49 @@ let cachedState;
 const subscribers = new Set();
 
 export async function getState() {
-  if (!cachedState) cachedState = await loadAndMigrateState();
+  if (!cachedState) {
+    cachedState = await loadAndMigrateState();
+    ensureInteractiveStrategyTemplates(cachedState);
+  }
   return cachedState;
+}
+
+function ensureInteractiveStrategyTemplates(state) {
+  const phaseCopies = (plan) => battlePhases.map((phaseKey) => {
+    const [startMinute, endMinute] = phaseKey.split("-").map(Number);
+    const groupOrders = Object.fromEntries(Object.entries(plan.phases[phaseKey]).map(([group, order]) => [group, {
+      primaryObjective: order.objective || "",
+      secondaryObjective: order.secondaryObjective || "",
+      primaryAction: normalizeStrategyAction(order.action),
+      secondaryAction: order.secondaryObjective ? "Support" : "Hold"
+    }]));
+    return { id: `phase-${phaseKey}`, name: `Battle phase ${startMinute}–${endMinute}`, startMinute, endMinute, priority: "High", instructions: "Execute the defined group orders.", fallbackPlan: "Shift to the secondary objective on command.", groupOrders };
+  });
+  const plans = {
+    "strategy-standard-control": { name: "Standard Control & Rotation", A: strategyPlans.A, B: strategyPlans.B },
+    "strategy-aggressive-center-control": { name: "Aggressive Center Control", A: strategyPlans.A, B: strategyPlans.A },
+    "strategy-balanced-east-control": { name: "Balanced East Control", A: strategyPlans.B, B: strategyPlans.B }
+  };
+  for (const [id, definition] of Object.entries(plans)) {
+    const template = state.strategyTemplates[id] ||= {
+      id, name: definition.name, description: "Six-stage interactive battle strategy.", team: "Both",
+      active: true, objectives: [], phases: [], structureResponsibilities: {}, defaultAssignments: {},
+      notes: "", createdAt: now(), createdBy: "", updatedAt: now(), version: 1
+    };
+    template.groupOrdersByTeam = { A: phaseCopies(definition.A), B: phaseCopies(definition.B) };
+    if (!template.phases?.length || template.phases.length !== 6) template.phases = phaseCopies(definition.A);
+  }
+}
+
+function normalizeStrategyAction(action) {
+  const value = String(action || "").toLowerCase();
+  if (value.includes("secure") || value.includes("capture")) return "Secure";
+  if (value.includes("rotate")) return "Rotate";
+  if (value.includes("attack") || value.includes("counter")) return "Attack";
+  if (value.includes("contest") || value.includes("pressure")) return "Contest";
+  if (value.includes("defend") || value.includes("defense")) return "Defend";
+  if (value.includes("support") || value.includes("reinforce")) return "Support";
+  return "Hold";
 }
 
 export async function saveState() {
@@ -184,7 +226,7 @@ export async function updateEventParticipant(eventId, playerId, patch, actor, se
   const ownFields = ["availability", "availabilityNote"];
   const officerFields = [
     "selected", "team", "rosterStatus", "availability", "availabilityNote",
-    "availabilityOverride", "role", "unit", "mapPosition", "primaryAssignment",
+    "availabilityOverride", "role", "unit", "tacticalGroup", "mapPosition", "primaryAssignment",
     "backupAssignment", "primaryUnit", "rotationUnit", "openingObjective",
     "midBattleObjective", "finalObjective", "attendance", "score", "notes", "officerNotes"
   ];
@@ -210,6 +252,32 @@ export async function listPlayers(user) {
 
 export async function listUsers() {
   return Object.values((await getState()).users);
+}
+
+export async function listAvailablePlayerProfiles() {
+  const state = await getState();
+  const linkedIds = new Set(Object.values(state.users).map((user) => user.playerId).filter(Boolean));
+  return Object.values(state.players)
+    .filter((player) => player.active && !linkedIds.has(player.id))
+    .map((player) => ({ id: player.id, name: player.gameName }));
+}
+
+export async function linkOwnPlayer(userId, playerId) {
+  const state = await getState();
+  const user = state.users[userId];
+  const player = state.players[playerId];
+  if (!user || !player) throw statusError(404, "Account or player profile was not found");
+  if (user.playerId) throw statusError(409, "This account is already linked to a player");
+  if (Object.values(state.users).some((item) => item.uid !== userId && item.playerId === playerId)) {
+    throw statusError(409, "That player is already linked to another account");
+  }
+  user.playerId = playerId;
+  user.version += 1;
+  player.userId = userId;
+  player.version += 1;
+  player.updatedAt = now();
+  await saveState();
+  return user;
 }
 
 export async function getDataQuality() {
@@ -331,6 +399,37 @@ export async function applyTemplate(eventId, templateId, team, actor) {
   return result;
 }
 
+export async function updateAppliedStrategyOrder(eventId, team, input, actor) {
+  const state = await getState();
+  const strategy = state.eventStrategies[eventId]?.[team];
+  if (!strategy) throw statusError(404, "Apply a strategy template before adjusting group orders");
+  const [startMinute, endMinute] = String(input.phase || "").split("-").map(Number);
+  if (!Number.isFinite(startMinute) || !Number.isFinite(endMinute)) throw statusError(422, "Choose a valid battle phase");
+  const group = String(input.group || "");
+  const allowedGroups = ["Unit A", "Unit B", "Unit C", "Unit D", "Strike Team", "Scout + Support", "Reserve"];
+  if (!allowedGroups.includes(group)) throw statusError(422, "Choose a valid tactical group");
+  const allowedFields = ["primaryObjective", "secondaryObjective", "primaryAction", "secondaryAction"];
+  const patch = Object.fromEntries(Object.entries(input.patch || {}).filter(([field]) => allowedFields.includes(field)));
+  const objectives = ["", "Info Center", "Field Hospital 4", "Arsenal", "Oil Refinery 1", "Field Hospital 2", "Nuclear Silo", "Field Hospital 1", "Oil Refinery 2", "Mercenary Factory", "Field Hospital 3", "Science Hub"];
+  const actions = ["Secure", "Support", "Rotate", "Attack", "Contest", "Hold", "Defend"];
+  for (const [field, value] of Object.entries(patch)) {
+    if (field.endsWith("Objective") && !objectives.includes(value)) throw statusError(422, "Choose an objective from the battle map");
+    if (field.endsWith("Action") && !actions.includes(value)) throw statusError(422, "Choose a supported strategy action");
+  }
+  let phase = strategy.phases.find((item) => Number(item.startMinute) === startMinute);
+  if (!phase) {
+    phase = { id: `phase-${startMinute}-${endMinute}`, name: `Battle phase ${startMinute}–${endMinute}`, startMinute, endMinute, instructions: "", fallbackPlan: "", groupOrders: {} };
+    strategy.phases.push(phase);
+  }
+  phase.groupOrders ||= {};
+  phase.groupOrders[group] = { ...(phase.groupOrders[group] || {}), ...patch };
+  strategy.updatedAt = now();
+  strategy.updatedBy = actor.uid;
+  addAudit(state, actor, { eventId, action: "strategy_order_updated", recordType: "eventStrategy", recordId: team, field: `${input.phase}.${group}`, after: patch });
+  await saveState();
+  return strategy;
+}
+
 export async function getAudit(eventId) {
   const state = await getState();
   const entries = eventId
@@ -345,7 +444,19 @@ export async function updateUser(userId, patch, actor) {
   if (!user) throw statusError(404, "User was not found");
   const before = structuredClone(user);
   if (Object.hasOwn(patch, "role")) user.role = patch.role;
-  if (Object.hasOwn(patch, "playerId")) user.playerId = patch.playerId || null;
+  if (Object.hasOwn(patch, "playerId")) {
+    const nextPlayerId = patch.playerId || null;
+    if (nextPlayerId && !state.players[nextPlayerId]) throw statusError(404, "Player was not found");
+    if (nextPlayerId) {
+      const linkedUser = Object.values(state.users).find((item) => item.uid !== userId && item.playerId === nextPlayerId);
+      if (linkedUser) throw statusError(409, "That player is already linked to another account");
+    }
+    if (user.playerId && state.players[user.playerId]?.userId === userId) {
+      state.players[user.playerId].userId = null;
+    }
+    user.playerId = nextPlayerId;
+    if (nextPlayerId) state.players[nextPlayerId].userId = userId;
+  }
   if (Object.hasOwn(patch, "active")) user.active = Boolean(patch.active);
   user.version += 1;
   addAudit(state, actor, { action: "user_role_changed", recordType: "user", recordId: userId, before, after: user });
@@ -469,6 +580,7 @@ function legacyMemberProjection(player, participant) {
     team: participant?.team || "Reserve",
     type: participant?.rosterStatus || player.defaultRole || "Sub",
     unit: participant?.unit || player.defaultUnit || "Unassigned",
+    tacticalGroup: participant?.tacticalGroup || player.defaultTacticalGroup || "Reserve",
     availability: participant?.availability === "Unavailable" ? "Not available" : participant?.availability || "Pending",
     aliases: player.aliases,
     weekScore: Number(participant?.score || 0),

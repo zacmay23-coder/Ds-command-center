@@ -23,15 +23,18 @@ import {
   getPlayerHistory,
   getState,
   listEvents,
+  listAvailablePlayerProfiles,
   listPlayers,
   listStrategyTemplates,
   listUsers,
+  linkOwnPlayer,
   replaceState,
   resetWeek,
   saveState,
   subscribe,
   updateEvent,
   updateEventParticipant,
+  updateAppliedStrategyOrder,
   updateMember,
   updatePlayer,
   updateSettings,
@@ -190,6 +193,15 @@ async function handleApi(request, response, url) {
     sendJson(response, 200, await listUsers());
     return;
   }
+  if (request.method === "GET" && url.pathname === "/api/available-player-profiles") {
+    sendJson(response, 200, await listAvailablePlayerProfiles());
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/link-player") {
+    const body = await readJsonBody(request);
+    sendJson(response, 200, await linkOwnPlayer(user.uid, body.playerId));
+    return;
+  }
 
   if (request.method === "GET" && url.pathname === "/api/data-quality") {
     requireRole(user, ROLES.OFFICER);
@@ -245,6 +257,18 @@ async function handleApi(request, response, url) {
     requireRole(user, ROLES.OFFICER);
     const body = await readJsonBody(request);
     sendJson(response, 200, await applyTemplate(decodeURIComponent(applyStrategyRoute[1]), body.templateId, body.team, user));
+    return;
+  }
+  const strategyOrderRoute = url.pathname.match(/^\/api\/events\/([^/]+)\/strategy\/(A|B)$/);
+  if (strategyOrderRoute && request.method === "PATCH") {
+    requireRole(user, ROLES.OFFICER);
+    await updateAppliedStrategyOrder(
+      decodeURIComponent(strategyOrderRoute[1]),
+      strategyOrderRoute[2],
+      await readJsonBody(request),
+      user
+    );
+    sendJson(response, 200, await getClientState(user));
     return;
   }
   const auditRoute = url.pathname.match(/^\/api\/events\/([^/]+)\/audit$/);

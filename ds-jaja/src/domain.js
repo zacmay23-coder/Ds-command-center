@@ -4,6 +4,7 @@ import { EVENT_STATUSES, SERVER_TIMES, UNITS, validateEventForPublish, validateP
 
 export const CURRENT_SCHEMA = "dscc-events-v3";
 export const MIGRATION_ID = "legacy-weekly-to-events-v1";
+const TACTICAL_GROUPS = ["Unit A", "Unit B", "Unit C", "Unit D", "Strike Team", "Scout + Support", "Reserve"];
 
 export function newId(prefix) {
   return `${prefix}-${randomUUID()}`;
@@ -24,6 +25,7 @@ export function migrateLegacyState(input, actor = {}) {
     rank: String(member.rank || ""),
     defaultRole: member.type || "Sub",
     defaultUnit: UNITS.includes(member.unit) ? member.unit : "Unassigned",
+    defaultTacticalGroup: TACTICAL_GROUPS.includes(member.unit) ? member.unit : "Reserve",
     active: true,
     userId: null,
     notes: "",
@@ -90,6 +92,7 @@ export function migrateLegacyState(input, actor = {}) {
       availability: normalizeAvailability(member.availability),
       role: member.type,
       unit: member.unit,
+      tacticalGroup: TACTICAL_GROUPS.includes(member.unit) ? member.unit : "Reserve",
       primaryAssignment: member.unit,
       attendance: member.weekAttendance,
       score: member.weekScore,
@@ -172,6 +175,7 @@ export function normalizePlayer(player = {}) {
     rank: String(player.rank || ""),
     defaultRole: player.defaultRole || "Sub",
     defaultUnit: UNITS.includes(player.defaultUnit) ? player.defaultUnit : "Unassigned",
+    defaultTacticalGroup: TACTICAL_GROUPS.includes(player.defaultTacticalGroup) ? player.defaultTacticalGroup : "Reserve",
     active: player.active !== false,
     userId: player.userId || null,
     notes: player.notes || "",
@@ -223,6 +227,7 @@ export function normalizeParticipant(participant = {}) {
     availabilityOverride: Boolean(participant.availabilityOverride),
     role: participant.role || participant.type || "",
     unit: UNITS.includes(participant.unit) ? participant.unit : "Unassigned",
+    tacticalGroup: TACTICAL_GROUPS.includes(participant.tacticalGroup) ? participant.tacticalGroup : "Reserve",
     mapPosition: participant.mapPosition || "",
     primaryAssignment: participant.primaryAssignment || participant.unit || "",
     backupAssignment: participant.backupAssignment || "",
@@ -253,6 +258,7 @@ export function normalizeTemplate(template = {}) {
     phases: Array.isArray(template.phases) ? template.phases : [],
     structureResponsibilities: template.structureResponsibilities || {},
     defaultAssignments: template.defaultAssignments || {},
+    groupOrdersByTeam: template.groupOrdersByTeam || {},
     notes: template.notes || "",
     createdAt: template.createdAt || now(),
     createdBy: template.createdBy || "",
@@ -394,6 +400,9 @@ export function applyStrategyTemplate(state, eventId, templateId, team, actor) {
   if (phaseErrors.length) throw Object.assign(statusError(422, "Strategy phases are invalid"), { details: phaseErrors });
   const timestamp = now();
   const copy = structuredClone({ ...template, templateId, eventId, team, updatedAt: timestamp, updatedBy: actor.uid });
+  if (copy.groupOrdersByTeam?.[team]) {
+    copy.phases = copy.groupOrdersByTeam[team].map((phase) => structuredClone(phase));
+  }
   state.eventStrategies[eventId] ||= {};
   const before = state.eventStrategies[eventId][team] || null;
   state.eventStrategies[eventId][team] = copy;
