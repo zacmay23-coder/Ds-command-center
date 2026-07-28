@@ -1,4 +1,4 @@
-import { register } from "./auth.js";
+import { authFetch, register } from "./auth.js";
 
 const form = document.querySelector("#registerForm");
 const message = document.querySelector("#authMessage");
@@ -17,9 +17,10 @@ form.addEventListener("submit", async (event) => {
   try {
     message.textContent = "Creating account...";
     const user = await register(data.get("email"), password);
-    message.textContent = "Member account created. An administrator can link it to your player record.";
+    await authFetch("/api/me");
+    message.textContent = "Account created. Confirm your in-game profile next.";
     window.setTimeout(() => {
-      window.location.href = "/";
+      window.location.href = "/profile-link.html";
     }, 900);
   } catch (error) {
     message.textContent = error.message;

@@ -9,10 +9,14 @@
   <body>
     <header class="app-header">
       <div>
-        <p class="eyebrow">Shared Web Server Edition</p>
-        <h1>Desert Storm Command Center</h1>
+        <p class="eyebrow">Lords of War Alliance Operations</p>
+        <h1>Ewar: Lords of War Command Center</h1>
       </div>
       <div class="header-actions">
+        <button id="profileTabButton" class="header-profile-button" data-header-view="userProfile" type="button">
+          <span id="headerProfileAvatar"></span>
+          <span id="headerProfileLabel">My Profile</span>
+        </button>
         <span id="saveStatus" class="status-pill">Connecting...</span>
         <span id="connectionStatus" class="status-pill">Live: connecting</span>
         <button id="refreshButton" class="secondary-button">Refresh</button>
@@ -22,58 +26,146 @@
 
     <div class="app-shell">
       <nav class="sidebar" aria-label="Command Center views">
-        <button data-view="myAssignment">My Assignment</button>
-        <button class="active" data-view="dashboard">Dashboard</button>
-        <button data-view="events" data-role="officer">Events</button>
-        <button data-view="directory">Directory</button>
-        <button data-view="teams">Teams</button>
-        <button data-view="assignmentsA">Team A Assignments</button>
-        <button data-view="assignmentsB">Team B Assignments</button>
-        <button data-view="results">Results</button>
-        <button data-view="participation" data-role="officer">Participation</button>
-        <button data-view="strategyTimeline">Strategy Timeline</button>
+        <button data-view="myAssignment">My Weekly Briefing &amp; Assignments</button>
+        <button class="active" data-view="dashboard">Ewar Dashboard</button>
+        <button data-view="events">Events</button>
+        <button data-view="create" data-role="officer">Create</button>
+        <button data-view="directory">Roster</button>
+        <button data-view="strategyTimeline">Tactical Map Planning</button>
+        <button data-view="strategyLibrary" data-role="officer">Strategy Library</button>
         <button data-view="history">History</button>
-        <button data-view="audit" data-role="officer">Audit Log</button>
         <button data-view="administration" data-role="administrator">Administration</button>
       </nav>
 
       <main>
         <div id="eventBanner" class="event-banner"></div>
 
+        <section id="userProfile" class="view">
+          <div class="section-title">
+            <h2>My Profile</h2>
+            <p>Your private account link, member identity, profile picture, and Command Center profile settings.</p>
+          </div>
+          <div id="userProfileContent"></div>
+        </section>
+
         <section id="myAssignment" class="view">
           <div class="section-title">
-            <h2>My Assignment</h2>
-            <p>Your current published Desert Storm plan.</p>
+            <h2>My Weekly Briefing &amp; Assignments</h2>
+            <p>Your personalized Desert Storm, alliance-event, and theme-week briefing.</p>
           </div>
           <div id="myAssignmentContent"></div>
         </section>
 
+        <section id="allianceWeeklyEvents" class="view">
+          <div class="section-title">
+            <h2>Alliance Weekly Events</h2>
+            <p>Officer-managed MG, ZS, Shark, Blimp, and custom events delivered to every member briefing.</p>
+          </div>
+          <div class="event-hub-selector panel">
+            <button class="secondary-button" type="button" data-event-subview="events">DS</button>
+            <button class="secondary-button" type="button" data-event-subview="themeWeek">Theme Week</button>
+            <button class="primary-button" type="button" data-event-subview="allianceWeeklyEvents">Alliance Events</button>
+          </div>
+          <div id="allianceEventList" class="history-list"></div>
+        </section>
+
+        <section id="themeWeek" class="view">
+          <div class="section-title">
+            <h2>Theme Week</h2>
+            <p>Weekly profile-picture theme, submissions, finalists, one-member voting, results, and discussion.</p>
+          </div>
+          <div class="event-hub-selector panel">
+            <button class="secondary-button" type="button" data-event-subview="events">DS</button>
+            <button class="primary-button" type="button" data-event-subview="themeWeek">Theme Week</button>
+            <button class="secondary-button" type="button" data-event-subview="allianceWeeklyEvents">Alliance Events</button>
+          </div>
+          <div id="themeWeekContent"></div>
+        </section>
+
         <section id="dashboard" class="view active">
           <div class="section-title">
-            <h2>Dashboard</h2>
+            <h2>Ewar Dashboard</h2>
             <p>Roster health, weekly readiness, and officer priorities.</p>
           </div>
           <div id="summaryCards" class="summary-grid"></div>
+          <form id="announcementForm" class="panel announcement-editor" data-role="officer">
+            <h3>Post announcement</h3>
+            <label>Title<input name="title" maxlength="120" required></label>
+            <label>Summary<textarea name="summary" maxlength="1200" required></textarea></label>
+            <label>Photo or file<input name="attachmentFile" type="file" accept="image/*,.pdf,.txt,.doc,.docx"></label>
+            <button class="primary-button" type="submit">Post to Ewar Dashboard</button>
+          </form>
+          <div id="announcementList" class="announcement-list"></div>
           <div id="readinessPanels" class="readiness-grid"></div>
         </section>
 
         <section id="events" class="view">
-          <div class="section-title section-title-with-action">
+          <div class="section-title">
             <div>
               <h2>Events</h2>
-              <p>Create, prepare, publish, run, and archive battles without resetting historical data.</p>
+              <p>Choose a current weekly event for a concise member reference.</p>
             </div>
-            <button id="createEventButton" class="primary-button" type="button">Create Next Battle</button>
+          </div>
+          <div class="event-hub-selector panel">
+            <button class="primary-button" type="button" data-event-subview="events">DS</button>
+            <button class="secondary-button" type="button" data-event-subview="themeWeek">Theme Week</button>
+            <button class="secondary-button" type="button" data-event-subview="allianceWeeklyEvents">Alliance Events</button>
           </div>
           <div id="eventActions" class="event-actions panel"></div>
           <div id="publishReadiness" class="readiness-grid"></div>
+          <div id="dsEventTeamOverview" class="ds-team-overview"></div>
           <div id="eventList" class="history-list"></div>
+        </section>
+
+        <section id="create" class="view" data-role="officer">
+          <div class="section-title">
+            <h2>Create Weekly Events</h2>
+            <p>Start a fresh dated DS battle, Theme Week, or Alliance Event. Published changes flow to every linked member.</p>
+          </div>
+          <div class="create-workflow-grid">
+            <article class="panel">
+              <h3>New DS Battle</h3>
+              <div class="create-event-controls">
+                <label>Upcoming battle date<input id="nextBattleDate" type="date"></label>
+                <button id="createEventButton" class="primary-button" type="button">Create DS Battle Plan</button>
+              </div>
+              <div id="dsSetupControls" class="ds-setup-controls">
+                <label>Team A server time<select id="createBattleTimeA"><option>9:00</option><option>18:00</option><option>23:00</option></select></label>
+                <label>Team A strategy<select id="createStrategyA"></select></label>
+                <label>Team B server time<select id="createBattleTimeB"><option>9:00</option><option>18:00</option><option>23:00</option></select></label>
+                <label>Team B strategy<select id="createStrategyB"></select></label>
+                <button id="publishDsSetupButton" class="primary-button" type="button">Publish DS Setup &amp; Unlock Roster</button>
+              </div>
+            </article>
+            <form id="themeWeekForm" class="panel weekly-editor-form" data-role="officer">
+              <h3>New Theme</h3>
+              <label>Theme title<input name="title" maxlength="100" required></label>
+              <label>Week of<input name="weekOf" type="date" required></label>
+              <label class="wide-field">Description<textarea name="description" maxlength="1200" required></textarea></label>
+              <label class="wide-field">Rules<textarea name="rules" maxlength="1200" required></textarea></label>
+              <button class="primary-button" type="submit">Create Theme Week</button>
+            </form>
+            <form id="allianceEventForm" class="panel weekly-editor-form" data-role="officer">
+              <h3>New Alliance Event</h3>
+              <label>Event<select name="name"><option>MG</option><option>ZS</option><option>Shark</option><option>Blimp</option><option>Shark Blimp</option><option>Other</option></select></label>
+              <label>Date<input name="date" type="date" required></label>
+              <label>Server time<input name="time" type="time" min="00:00" max="23:59" required></label>
+              <label class="wide-field">Brief overview<textarea name="overview" maxlength="800" required></textarea></label>
+              <button class="primary-button" type="submit">Create Alliance Event</button>
+            </form>
+          </div>
+          <div class="section-title"><h2>Created Event Management</h2><p>Edit or delete created items here. Their Events views remain read-only.</p></div>
+          <div class="create-management-grid">
+            <section><h3>DS Battles</h3><div id="createdDsManagement"></div></section>
+            <section><h3>Theme Weeks</h3><div id="createdThemeManagement"></div></section>
+            <section><h3>Alliance Events</h3><div id="createdAllianceManagement"></div></section>
+          </div>
         </section>
 
         <section id="directory" class="view">
           <div class="section-title">
-            <h2>Master Directory</h2>
-            <p>Select the weekly roster and assign each player.</p>
+            <h2>Master Roster</h2>
+            <p><strong>Choose team, role, assignments</strong> — select the weekly roster, in-game signup status, tactical unit, structure focus, and optional leaders.</p>
           </div>
           <div class="toolbar">
             <label>
@@ -88,6 +180,26 @@
                 <option value="reserve">Reserve only</option>
               </select>
             </label>
+            <label>
+              Team
+              <select id="directoryTeamFilter">
+                <option value="">All teams</option>
+                <option value="A">Team A</option>
+                <option value="B">Team B</option>
+                <option value="Reserve">Reserve</option>
+              </select>
+            </label>
+            <label>
+              Rank grouping
+              <select id="rankSort">
+                <option value="grouped">Separate R1–R5 groups</option>
+                <option value="R1">R1 only</option>
+                <option value="R2">R2 only</option>
+                <option value="R3">R3 only</option>
+                <option value="R4">R4 only</option>
+                <option value="R5">R5 only</option>
+              </select>
+            </label>
           </div>
           <div class="table-frame">
             <table>
@@ -98,9 +210,10 @@
                   <th>Rank</th>
                   <th>Team</th>
                   <th>Role</th>
-                  <th>Battle group</th>
                   <th>Unit</th>
-                  <th>Availability</th>
+                  <th>Structure focus</th>
+                  <th>In-game signup</th>
+                  <th>Leader</th>
                 </tr>
               </thead>
               <tbody id="directoryRows"></tbody>
@@ -167,6 +280,11 @@
             <h2>Results</h2>
             <p>Record attendance and scores, then archive the week.</p>
           </div>
+          <div class="event-hub-selector panel">
+            <button class="secondary-button" type="button" data-history-subview="history">Archives</button>
+            <button class="primary-button" type="button" data-history-subview="results">Publish Results</button>
+            <button class="secondary-button" type="button" data-history-subview="participation" data-role="officer">Participation</button>
+          </div>
           <div class="screenshot-import panel">
             <div>
               <h3>Import Results Screenshot</h3>
@@ -223,6 +341,11 @@
             <h2>Participation</h2>
             <p>Transparent attendance, confirmation, roster, and score history calculated from archived events.</p>
           </div>
+          <div class="event-hub-selector panel">
+            <button class="secondary-button" type="button" data-history-subview="history">Archives</button>
+            <button class="secondary-button" type="button" data-history-subview="results">Publish Results</button>
+            <button class="primary-button" type="button" data-history-subview="participation">Participation</button>
+          </div>
           <div class="toolbar">
             <label>Team<select id="participationTeam"><option value="">All teams</option><option>A</option><option>B</option></select></label>
             <label>Unit<select id="participationUnit"><option value="">All units</option></select></label>
@@ -233,25 +356,48 @@
 
         <section id="strategyTimeline" class="view">
           <div class="section-title">
-            <h2>Strategy Timeline</h2>
+            <h2>Tactical Map Planning</h2>
             <p>Interactive A/B team battle map with each unit's primary and secondary objectives, commands, rotations, and fallback plans.</p>
           </div>
           <div id="strategyControls" class="toolbar" data-role="officer"></div>
           <div id="strategyTimelineContent" class="timeline-grid"></div>
         </section>
 
+        <section id="strategyLibrary" class="view">
+          <div class="section-title">
+            <h2>Strategy Library</h2>
+            <p>Workbook templates and custom six-phase battle strategies used by Team A and Team B.</p>
+          </div>
+          <form id="customStrategyForm" class="strategy-builder panel" data-role="officer">
+            <h3>Build a custom strategy</h3>
+            <label>Name<input name="name" maxlength="80" required placeholder="Custom strategy name"></label>
+            <label>Start from<select name="baseTemplateId" id="customStrategyBase"></select></label>
+            <label class="strategy-goal-field">Strategy goal<textarea name="description" maxlength="500" required placeholder="Brief battle goal"></textarea></label>
+            <button class="primary-button" type="submit">Create Custom Strategy</button>
+          </form>
+          <div id="strategyLibraryCards" class="strategy-library-grid"></div>
+        </section>
+
         <section id="history" class="view">
           <div class="section-title section-title-with-action">
             <div>
               <h2>History</h2>
-              <p>Archived battles saved on the server.</p>
+              <p>Separate Desert Storm and themed-week archives saved on the server.</p>
             </div>
             <button id="clearHistoryButton" class="danger-button" type="button">Clear History</button>
           </div>
+          <div class="event-hub-selector panel">
+            <button class="primary-button" type="button" data-history-subview="history">DS &amp; Theme Archives</button>
+            <button class="secondary-button" type="button" data-history-subview="results">Publish Results</button>
+            <button class="secondary-button" type="button" data-history-subview="participation" data-role="officer">Participation</button>
+          </div>
+          <h3 class="archive-subheading">Desert Storm Archives</h3>
           <div id="historyList" class="history-list"></div>
+          <h3 class="archive-subheading">Theme Week Archives</h3>
+          <div id="themeHistoryList" class="history-list"></div>
         </section>
 
-        <section id="audit" class="view">
+        <section id="audit" class="view" data-role="administrator">
           <div class="section-title">
             <h2>Audit Log</h2>
             <p>Important event, roster, availability, result, and strategy changes.</p>
@@ -259,16 +405,26 @@
           <div id="auditList" class="history-list"></div>
         </section>
 
-        <section id="administration" class="view">
+        <section id="administration" class="view" data-role="administrator">
           <div class="section-title">
             <h2>Administration</h2>
-            <p>User access, player links, and data-quality review.</p>
+            <p>Firebase sign-in emails seen by this app, officer/member roles, player links, and data-quality review.</p>
+          </div>
+          <div class="event-hub-selector panel">
+            <button class="primary-button" type="button" data-admin-subview="administration">Accounts</button>
+            <button class="secondary-button" type="button" data-admin-subview="audit">Audit Logs</button>
           </div>
           <div id="dataQuality" class="readiness-grid"></div>
+          <div id="officerInbox" class="admin-inbox"></div>
           <div id="userList" class="history-list"></div>
         </section>
       </main>
     </div>
+
+    <dialog id="memberProfileDialog" class="member-profile-dialog">
+      <div id="memberProfileDialogContent"></div>
+      <button class="secondary-button" type="button" data-close-member-profile>Close</button>
+    </dialog>
 
     <script type="module" src="/app.js"></script>
   </body>

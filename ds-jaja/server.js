@@ -13,6 +13,8 @@ import {
   changeEventStatus,
   clearBattleHistory,
   deleteBattle,
+  deleteDraftEvent,
+  deletePlayerProfile,
   duplicateEvent,
   getAudit,
   getClientState,
@@ -39,7 +41,23 @@ import {
   updatePlayer,
   updateSettings,
   updateStrategyTemplate,
-  updateUser
+  updateUser,
+  updateOwnProfile,
+  createAllianceWeeklyEvent,
+  updateAllianceWeeklyEvent,
+  deleteAllianceWeeklyEvent,
+  createThemeWeek,
+  updateThemeWeek,
+  submitThemeEntry,
+  voteThemeWeek,
+  commentThemeWeek,
+  acknowledgeThemeWeek,
+  deleteThemeWeek,
+  addMemberNotice,
+  addOfficerQuestion,
+  addAnnouncement,
+  acknowledgeAnnouncement,
+  deleteAnnouncement
 } from "./src/dataStore.js";
 import { readResultScreenshot } from "./src/resultScreenshotReader.js";
 import { canEditOwnAvailability, requireRole, ROLES } from "./src/permissions.js";
@@ -81,6 +99,19 @@ server.listen(port, () => {
 });
 
 async function handleApi(request, response, url) {
+  url.pathname = normalizeApiPath(url.pathname);
+
+  if (request.method === "OPTIONS") {
+    response.writeHead(204, {
+      "Access-Control-Allow-Headers": "Authorization, Content-Type",
+      "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
+      "Access-Control-Allow-Origin": request.headers.origin || "*",
+      "Cache-Control": "no-store"
+    });
+    response.end();
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/health") {
     sendJson(response, 200, { ok: true, service: "ds-command-center" });
     return;
@@ -104,9 +135,94 @@ async function handleApi(request, response, url) {
     sendJson(response, 200, user);
     return;
   }
+  if (request.method === "PATCH" && url.pathname === "/api/me/profile") {
+    sendJson(response, 200, await updateOwnProfile(user.uid, await readJsonBody(request)));
+    return;
+  }
 
   if (request.method === "GET" && url.pathname === "/api/state") {
     sendJson(response, 200, await getClientState(user));
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/member-notices") {
+    sendJson(response, 201, await addMemberNotice(await readJsonBody(request), user));
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/officer-questions") {
+    sendJson(response, 201, await addOfficerQuestion(await readJsonBody(request), user));
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/announcements") {
+    requireRole(user, ROLES.OFFICER);
+    sendJson(response, 201, await addAnnouncement(await readJsonBody(request), user));
+    return;
+  }
+  const announcementRoute = url.pathname.match(/^\/api\/announcements\/([^/]+)$/);
+  if (announcementRoute && request.method === "DELETE") {
+    requireRole(user, ROLES.OFFICER);
+    sendJson(response, 200, await deleteAnnouncement(decodeURIComponent(announcementRoute[1])));
+    return;
+  }
+  const announcementAckRoute = url.pathname.match(/^\/api\/announcements\/([^/]+)\/acknowledge$/);
+  if (announcementAckRoute && request.method === "POST") {
+    sendJson(response, 200, await acknowledgeAnnouncement(decodeURIComponent(announcementAckRoute[1]), user));
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/alliance-weekly-events") {
+    requireRole(user, ROLES.OFFICER);
+    sendJson(response, 201, await createAllianceWeeklyEvent(await readJsonBody(request), user));
+    return;
+  }
+  const allianceWeeklyEventRoute = url.pathname.match(/^\/api\/alliance-weekly-events\/([^/]+)$/);
+  if (allianceWeeklyEventRoute && request.method === "PATCH") {
+    requireRole(user, ROLES.OFFICER);
+    sendJson(response, 200, await updateAllianceWeeklyEvent(
+      decodeURIComponent(allianceWeeklyEventRoute[1]),
+      await readJsonBody(request),
+      user
+    ));
+    return;
+  }
+  if (allianceWeeklyEventRoute && request.method === "DELETE") {
+    requireRole(user, ROLES.OFFICER);
+    sendJson(response, 200, await deleteAllianceWeeklyEvent(decodeURIComponent(allianceWeeklyEventRoute[1])));
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/theme-weeks") {
+    requireRole(user, ROLES.OFFICER);
+    sendJson(response, 201, await createThemeWeek(await readJsonBody(request), user));
+    return;
+  }
+  const themeRoute = url.pathname.match(/^\/api\/theme-weeks\/([^/]+)$/);
+  if (themeRoute && request.method === "PATCH") {
+    requireRole(user, ROLES.OFFICER);
+    sendJson(response, 200, await updateThemeWeek(decodeURIComponent(themeRoute[1]), await readJsonBody(request), user));
+    return;
+  }
+  if (themeRoute && request.method === "DELETE") {
+    requireRole(user, ROLES.OFFICER);
+    sendJson(response, 200, await deleteThemeWeek(decodeURIComponent(themeRoute[1])));
+    return;
+  }
+  const themeActionRoute = url.pathname.match(/^\/api\/theme-weeks\/([^/]+)\/(submit|vote|comment|acknowledge)$/);
+  if (themeActionRoute && request.method === "POST") {
+    const themeId = decodeURIComponent(themeActionRoute[1]);
+    const action = themeActionRoute[2];
+    const body = await readJsonBody(request);
+    const result = action === "submit" ? await submitThemeEntry(themeId, body, user)
+      : action === "vote" ? await voteThemeWeek(themeId, body.finalistId, user)
+      : action === "comment" ? await commentThemeWeek(themeId, body.text, user)
+      : await acknowledgeThemeWeek(themeId, user);
+    sendJson(response, 200, result);
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/theme-weeks/ocr") {
+    const image = await readMultipartImage(request);
+    const currentState = await getState();
+    const roster = Object.values(currentState.players).map((player) => ({ ...player, name: player.gameName }));
+    const result = await readResultScreenshot(image.buffer, roster);
+    sendJson(response, 200, { text: result.text || "" });
     return;
   }
 
@@ -136,6 +252,11 @@ async function handleApi(request, response, url) {
   if (eventRoute && request.method === "PATCH") {
     requireRole(user, ROLES.OFFICER);
     sendJson(response, 200, await updateEvent(decodeURIComponent(eventRoute[1]), await readJsonBody(request), user));
+    return;
+  }
+  if (eventRoute && request.method === "DELETE") {
+    requireRole(user, ROLES.OFFICER);
+    sendJson(response, 200, await deleteDraftEvent(decodeURIComponent(eventRoute[1]), user));
     return;
   }
 
@@ -189,15 +310,15 @@ async function handleApi(request, response, url) {
   }
 
   if (request.method === "GET" && url.pathname === "/api/users") {
-    requireRole(user, ROLES.ADMIN);
+    requireRole(user, ROLES.OFFICER);
     sendJson(response, 200, await listUsers());
     return;
   }
-  if (request.method === "GET" && url.pathname === "/api/available-player-profiles") {
-    sendJson(response, 200, await listAvailablePlayerProfiles());
+  if (request.method === "GET" && ["/api/available-player-profiles", "/api/profile-options", "/api/profiles"].includes(url.pathname)) {
+    sendJson(response, 200, await listAvailablePlayerProfiles(user.uid));
     return;
   }
-  if (request.method === "POST" && url.pathname === "/api/link-player") {
+  if (request.method === "POST" && ["/api/link-player", "/api/profile-link"].includes(url.pathname)) {
     const body = await readJsonBody(request);
     sendJson(response, 200, await linkOwnPlayer(user.uid, body.playerId));
     return;
@@ -217,6 +338,11 @@ async function handleApi(request, response, url) {
   if (playerRoute && request.method === "PATCH") {
     requireRole(user, ROLES.OFFICER);
     sendJson(response, 200, await updatePlayer(decodeURIComponent(playerRoute[1]), await readJsonBody(request), user));
+    return;
+  }
+  if (playerRoute && request.method === "DELETE") {
+    requireRole(user, ROLES.ADMIN);
+    sendJson(response, 200, await deletePlayerProfile(decodeURIComponent(playerRoute[1]), user));
     return;
   }
   const historyRoute = url.pathname.match(/^\/api\/players\/([^/]+)\/history$/);
@@ -273,14 +399,14 @@ async function handleApi(request, response, url) {
   }
   const auditRoute = url.pathname.match(/^\/api\/events\/([^/]+)\/audit$/);
   if (auditRoute && request.method === "GET") {
-    requireRole(user, ROLES.OFFICER);
+    requireRole(user, ROLES.ADMIN);
     sendJson(response, 200, await getAudit(decodeURIComponent(auditRoute[1])));
     return;
   }
 
   const userRoute = url.pathname.match(/^\/api\/users\/([^/]+)$/);
   if (userRoute && request.method === "PATCH") {
-    requireRole(user, ROLES.ADMIN);
+    requireRole(user, ROLES.OFFICER);
     sendJson(response, 200, await updateUser(decodeURIComponent(userRoute[1]), await readJsonBody(request), user));
     return;
   }
@@ -318,7 +444,7 @@ async function handleApi(request, response, url) {
   }
 
   if (request.method === "DELETE" && url.pathname.startsWith("/api/battles/")) {
-    requireRole(user, ROLES.ADMIN);
+    requireRole(user, ROLES.OFFICER);
     const battleId = decodeURIComponent(url.pathname.split("/").pop());
     await deleteBattle(battleId);
     sendJson(response, 200, await getClientState(user));
@@ -362,7 +488,15 @@ async function handleApi(request, response, url) {
     return;
   }
 
-  sendJson(response, 404, { error: "API route not found" });
+  sendJson(response, 404, {
+    error: `API route not found: ${request.method} ${url.pathname}`,
+    hint: "Confirm that the web client and Node server are running from the same application version."
+  });
+}
+
+function normalizeApiPath(pathname) {
+  const normalized = String(pathname || "").replace(/\/{2,}/g, "/").replace(/\/+$/, "");
+  return normalized || "/";
 }
 
 async function requireFirebaseUser(request, response) {
@@ -437,7 +571,8 @@ async function serveStatic(url, response) {
 function sendJson(response, status, payload) {
   response.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "no-store"
+    "Cache-Control": "no-store",
+    "Access-Control-Allow-Origin": "*"
   });
   response.end(JSON.stringify(payload, null, 2));
 }

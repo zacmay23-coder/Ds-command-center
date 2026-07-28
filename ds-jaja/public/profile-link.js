@@ -20,8 +20,10 @@ async function initialize() {
     ]);
     const me = await meResponse.json();
     const profiles = await profilesResponse.json();
+    if (!meResponse.ok) throw new Error(me.error || "Account could not be loaded");
+    if (!profilesResponse.ok) throw new Error(profiles.error || "Directory profiles could not be loaded");
 
-    if (me.playerId || me.role !== "member") {
+    if (me.profileConfirmedAt) {
       window.location.href = "/";
       return;
     }
@@ -29,11 +31,16 @@ async function initialize() {
     playerSelect.innerHTML = `
       <option value="">Choose your in-game name</option>
       ${profiles
-        .slice()
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map((member) => `<option value="${escapeHtml(member.id)}">${escapeHtml(member.name)}</option>`)
+        .map((member) => `<option value="${escapeHtml(member.id)}"
+          ${member.id === me.playerId ? "selected" : ""}
+          ${member.linkStatus === "linked" ? "disabled" : ""}>
+          ${escapeHtml(member.name)} · ${escapeHtml(member.rank || "No rank")} · Team ${escapeHtml(member.team)} · ${escapeHtml(member.unit)}${member.linkStatus === "linked" ? " · Linked to another account" : ""}
+        </option>`)
         .join("")}
     `;
+    message.textContent = me.playerId
+      ? "Confirm your current Master Directory profile or ask an officer to change the link."
+      : "Choose the profile that matches your current Master Directory entry.";
   } catch (error) {
     message.textContent = error.message;
   }

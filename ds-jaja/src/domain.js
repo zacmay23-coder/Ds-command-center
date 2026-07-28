@@ -4,7 +4,7 @@ import { EVENT_STATUSES, SERVER_TIMES, UNITS, validateEventForPublish, validateP
 
 export const CURRENT_SCHEMA = "dscc-events-v3";
 export const MIGRATION_ID = "legacy-weekly-to-events-v1";
-const TACTICAL_GROUPS = ["Unit A", "Unit B", "Unit C", "Unit D", "Strike Team", "Scout + Support", "Reserve"];
+const TACTICAL_GROUPS = ["Unit A", "Unit B", "Unit C", "Unit D", "Strike Team", "Scout + Support", "Disrupters", "Reserve"];
 
 export function newId(prefix) {
   return `${prefix}-${randomUUID()}`;
@@ -24,6 +24,8 @@ export function migrateLegacyState(input, actor = {}) {
     gameName: String(member.name || "Unnamed player"),
     rank: String(member.rank || ""),
     defaultRole: member.type || "Sub",
+    defaultSelected: Boolean(member.selected),
+    defaultTeam: ["A", "B"].includes(member.team) ? member.team : "Reserve",
     defaultUnit: UNITS.includes(member.unit) ? member.unit : "Unassigned",
     defaultTacticalGroup: TACTICAL_GROUPS.includes(member.unit) ? member.unit : "Reserve",
     active: true,
@@ -149,8 +151,46 @@ export function normalizeState(input = {}) {
     strategyVersions: input.strategyVersions || {},
     auditLogs: input.auditLogs || {},
     pendingResults: Array.isArray(input.pendingResults) ? input.pendingResults : [],
+    allianceWeeklyEvents: objectMap(input.allianceWeeklyEvents, normalizeAllianceWeeklyEvent),
+    themeWeeks: objectMap(input.themeWeeks, normalizeThemeWeek),
+    memberNotices: Array.isArray(input.memberNotices) ? input.memberNotices : [],
+    officerQuestions: Array.isArray(input.officerQuestions) ? input.officerQuestions : [],
+    announcements: Array.isArray(input.announcements) ? input.announcements : [],
     systemSettings: input.systemSettings || { invitationCodes: [] },
     migrations: input.migrations || {}
+  };
+}
+
+export function normalizeAllianceWeeklyEvent(event = {}) {
+  return {
+    id: String(event.id || newId("alliance-event")),
+    name: String(event.name || "MG"),
+    date: event.date || new Date().toISOString().slice(0, 10),
+    time: String(event.time || "00:00"),
+    overview: String(event.overview || ""),
+    active: event.active !== false,
+    createdAt: event.createdAt || now(),
+    createdBy: event.createdBy || "",
+    updatedAt: event.updatedAt || now()
+  };
+}
+
+export function normalizeThemeWeek(theme = {}) {
+  return {
+    id: String(theme.id || newId("theme")),
+    title: String(theme.title || "Theme Week"),
+    weekOf: theme.weekOf || new Date().toISOString().slice(0, 10),
+    description: String(theme.description || ""),
+    rules: String(theme.rules || ""),
+    status: ["open", "voting", "archived"].includes(theme.status) ? theme.status : "open",
+    finalistIds: Array.isArray(theme.finalistIds) ? theme.finalistIds : [],
+    submissions: theme.submissions || {},
+    votes: theme.votes || {},
+    comments: Array.isArray(theme.comments) ? theme.comments : [],
+    acknowledgements: theme.acknowledgements || {},
+    createdAt: theme.createdAt || now(),
+    createdBy: theme.createdBy || "",
+    updatedAt: theme.updatedAt || now()
   };
 }
 
@@ -161,6 +201,11 @@ export function normalizeUser(user = {}) {
     displayName: String(user.displayName || user.email || "Member"),
     role: normalizeRole(user.role),
     playerId: user.playerId ? String(user.playerId) : null,
+    profileConfirmedAt: user.profileConfirmedAt || null,
+    profileSelection: user.profileSelection || null,
+    accountPhotoUrl: user.accountPhotoUrl || "",
+    profileTitle: user.profileTitle || "Alliance Member",
+    profileBio: user.profileBio || "",
     active: user.active !== false,
     createdAt: user.createdAt || now(),
     lastLoginAt: user.lastLoginAt || null,
@@ -174,11 +219,17 @@ export function normalizePlayer(player = {}) {
     gameName: String(player.gameName || player.name || "Unnamed player"),
     rank: String(player.rank || ""),
     defaultRole: player.defaultRole || "Sub",
+    defaultSelected: Boolean(player.defaultSelected),
+    defaultTeam: ["A", "B"].includes(player.defaultTeam) ? player.defaultTeam : "Reserve",
     defaultUnit: UNITS.includes(player.defaultUnit) ? player.defaultUnit : "Unassigned",
     defaultTacticalGroup: TACTICAL_GROUPS.includes(player.defaultTacticalGroup) ? player.defaultTacticalGroup : "Reserve",
     active: player.active !== false,
     userId: player.userId || null,
     notes: player.notes || "",
+    availabilityGuidance: player.availabilityGuidance || "",
+    profileImage: player.profileImage || "",
+    profileImageFit: ["cover", "contain"].includes(player.profileImageFit) ? player.profileImageFit : "cover",
+    profileImagePosition: ["center", "top", "bottom", "left", "right"].includes(player.profileImagePosition) ? player.profileImagePosition : "center",
     aliases: Array.isArray(player.aliases) ? player.aliases : [],
     createdAt: player.createdAt || now(),
     updatedAt: player.updatedAt || now(),
@@ -210,6 +261,7 @@ export function normalizeEvent(event = {}) {
     publishedBy: event.publishedBy || null,
     completedAt: event.completedAt || null,
     archivedAt: event.archivedAt || null,
+    setupPublishedAt: event.setupPublishedAt || null,
     version: Number(event.version || 1)
   };
 }
@@ -228,6 +280,7 @@ export function normalizeParticipant(participant = {}) {
     role: participant.role || participant.type || "",
     unit: UNITS.includes(participant.unit) ? participant.unit : "Unassigned",
     tacticalGroup: TACTICAL_GROUPS.includes(participant.tacticalGroup) ? participant.tacticalGroup : "Reserve",
+    unitLeader: Boolean(participant.unitLeader),
     mapPosition: participant.mapPosition || "",
     primaryAssignment: participant.primaryAssignment || participant.unit || "",
     backupAssignment: participant.backupAssignment || "",
@@ -301,9 +354,13 @@ export function createEvent(state, input, actor, duplicateFromId = null) {
       eventId: event.id,
       playerId: player.id,
       playerName: player.gameName,
-      selected: Boolean(previous?.selected),
+      selected: source ? Boolean(previous?.selected) : false,
+      team: source ? (previous?.team || "Reserve") : "Reserve",
+      rosterStatus: source ? (previous?.rosterStatus || "Sub") : "Sub",
+      unit: source ? (previous?.unit || "Unassigned") : "Unassigned",
+      tacticalGroup: source ? (previous?.tacticalGroup || "Reserve") : "Reserve",
       availability: "Pending",
-      availabilityNote: "",
+      availabilityNote: player.availabilityGuidance || "",
       attendance: "",
       score: 0,
       notes: "",
@@ -406,6 +463,7 @@ export function applyStrategyTemplate(state, eventId, templateId, team, actor) {
   state.eventStrategies[eventId] ||= {};
   const before = state.eventStrategies[eventId][team] || null;
   state.eventStrategies[eventId][team] = copy;
+  syncOpeningAssignments(state, eventId, team, copy);
   const versions = state.strategyVersions[eventId] ||= {};
   versions[team] ||= [];
   versions[team].push({
@@ -423,6 +481,24 @@ export function applyStrategyTemplate(state, eventId, templateId, team, actor) {
   event.updatedAt = timestamp;
   event.version += 1;
   return copy;
+}
+
+function syncOpeningAssignments(state, eventId, team, strategy) {
+  const opening = [...(strategy.phases || [])].sort((left, right) => Number(left.startMinute) - Number(right.startMinute))[0];
+  if (!opening?.groupOrders) return;
+  for (const participant of Object.values(state.eventParticipants[eventId] || {})) {
+    if (participant.team !== team) continue;
+    const order = opening.groupOrders[participant.tacticalGroup];
+    if (!order) continue;
+    participant.unit = order.primaryObjective || "Unassigned";
+    participant.primaryUnit = order.primaryObjective || "";
+    participant.rotationUnit = order.secondaryObjective || "";
+    participant.primaryAssignment = order.primaryAction || "";
+    participant.backupAssignment = order.secondaryAction || "";
+    participant.openingObjective = order.primaryObjective || "";
+    participant.updatedAt = now();
+    if (state.players[participant.playerId]) state.players[participant.playerId].defaultUnit = participant.unit;
+  }
 }
 
 export function addAudit(state, actor, input) {

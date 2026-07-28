@@ -2,6 +2,7 @@ import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { battlePhases, strategyPlans } from "../public/battle-plan.js";
+import { createStarterStrategies } from "./strategyLibrary.js";
 import {
   addAudit,
   applyStrategyTemplate,
@@ -12,6 +13,8 @@ import {
   newId,
   normalizeParticipant,
   normalizePlayer,
+  normalizeAllianceWeeklyEvent,
+  normalizeThemeWeek,
   normalizeTemplate,
   now,
   transitionEvent,
@@ -42,8 +45,16 @@ function ensureInteractiveStrategyTemplates(state) {
       primaryObjective: order.objective || "",
       secondaryObjective: order.secondaryObjective || "",
       primaryAction: normalizeStrategyAction(order.action),
-      secondaryAction: order.secondaryObjective ? "Support" : "Hold"
+      secondaryAction: order.secondaryObjective ? "Support" : "Hold",
+      goal: order.instruction || ""
     }]));
+    groupOrders.Disrupters = groupOrders.Disrupters || {
+      primaryObjective: teamDisrupterObjective(plan, phaseKey),
+      secondaryObjective: "",
+      primaryAction: "Contest",
+      secondaryAction: "Rotate",
+      goal: "Disrupt enemy rotations and force defensive responses."
+    };
     return { id: `phase-${phaseKey}`, name: `Battle phase ${startMinute}–${endMinute}`, startMinute, endMinute, priority: "High", instructions: "Execute the defined group orders.", fallbackPlan: "Shift to the secondary objective on command.", groupOrders };
   });
   const plans = {
@@ -60,6 +71,36 @@ function ensureInteractiveStrategyTemplates(state) {
     template.groupOrdersByTeam = { A: phaseCopies(definition.A), B: phaseCopies(definition.B) };
     if (!template.phases?.length || template.phases.length !== 6) template.phases = phaseCopies(definition.A);
   }
+  for (const starter of createStarterStrategies()) {
+    const convert = (team) => phaseCopies({ phases: starter.teamPlans[team].phases });
+    const existingByName = Object.values(state.strategyTemplates).find((item) =>
+      item.name.trim().toLowerCase() === starter.name.trim().toLowerCase()
+    );
+    const template = state.strategyTemplates[starter.id] || existingByName || (state.strategyTemplates[starter.id] = {
+      id: starter.id,
+      name: starter.name,
+      description: starter.goal,
+      team: "Both",
+      active: true,
+      objectives: [],
+      phases: convert("A"),
+      structureResponsibilities: {},
+      defaultAssignments: {},
+      notes: `${starter.category} · ${starter.difficulty}`,
+      createdAt: starter.createdAt,
+      createdBy: "",
+      updatedAt: starter.updatedAt,
+      version: starter.version
+    });
+    template.groupOrdersByTeam = { A: convert("A"), B: convert("B") };
+    if (!template.description) template.description = starter.goal;
+  }
+}
+
+function teamDisrupterObjective(plan, phaseKey) {
+  return plan.phases[phaseKey]?.["Strike Team"]?.secondaryObjective
+    || plan.phases[phaseKey]?.["Strike Team"]?.objective
+    || "Arsenal";
 }
 
 function normalizeStrategyAction(action) {
@@ -123,9 +164,242 @@ export async function getClientState(user) {
     ),
     strategyTemplates: user.role === "member" ? [] : Object.values(state.strategyTemplates).filter((template) => template.active),
     eventStrategy: activeEvent ? state.eventStrategies[activeEvent.id] || {} : {},
+    allianceWeeklyEvents: Object.values(state.allianceWeeklyEvents)
+      .filter((item) => item.active)
+      .sort((left, right) => `${left.date}T${left.time}`.localeCompare(`${right.date}T${right.time}`)),
+    themeWeeks: Object.values(state.themeWeeks)
+      .filter((theme) => user.role !== "member" || theme.status !== "archived")
+      .sort((left, right) => right.weekOf.localeCompare(left.weekOf))
+      .map((theme) => publicThemeWeek(theme, user)),
+    archivedThemeWeeks: Object.values(state.themeWeeks)
+      .filter((theme) => theme.status === "archived")
+      .sort((left, right) => right.weekOf.localeCompare(left.weekOf))
+      .map((theme) => publicThemeWeek(theme, user)),
+    memberNotices: state.memberNotices.filter((notice) => user.role !== "member" || notice.playerId === user.playerId),
+    officerQuestions: state.officerQuestions.filter((question) => user.role !== "member" || question.playerId === user.playerId),
+    announcements: state.announcements.map((announcement) => ({
+      ...announcement,
+      acknowledgedAt: user.playerId ? announcement.acknowledgements?.[user.playerId] || null : null,
+      acknowledgements: undefined
+    })),
+    officerRecipients: Object.values(state.users)
+      .filter((account) => account.active && ["officer", "administrator"].includes(account.role))
+      .map((account) => ({ uid: account.uid, displayName: account.displayName, role: account.role })),
     pendingResults: user.role === "member" ? [] : state.pendingResults,
     permissions: permissionsFor(user)
   };
+}
+
+export async function addMemberNotice(input, actor) {
+  const state = await getState();
+  if (!actor.playerId) throw statusError(422, "Confirm your roster profile before posting a notice");
+  const notice = {
+    id: newId("notice"),
+    playerId: actor.playerId,
+    eventType: String(input.eventType || "Alliance event"),
+    message: String(input.message || "").trim().slice(0, 300),
+    date: new Date().toISOString().slice(0, 10),
+    createdAt: now()
+  };
+  if (!notice.message) throw statusError(422, "Enter a short availability notice");
+  state.memberNotices.unshift(notice);
+  state.memberNotices = state.memberNotices.slice(0, 500);
+  await saveState();
+  return notice;
+}
+
+export async function addOfficerQuestion(input, actor) {
+  const state = await getState();
+  if (!actor.playerId) throw statusError(422, "Confirm your roster profile before asking a question");
+  const recipient = String(input.recipient || "administrator");
+  if (recipient !== "administrator" && !state.users[recipient]) throw statusError(422, "Choose a valid officer");
+  const question = {
+    id: newId("question"),
+    playerId: actor.playerId,
+    recipient,
+    message: String(input.message || "").trim().slice(0, 600),
+    status: "open",
+    createdAt: now()
+  };
+  if (!question.message) throw statusError(422, "Enter your question");
+  state.officerQuestions.unshift(question);
+  state.officerQuestions = state.officerQuestions.slice(0, 1000);
+  await saveState();
+  return question;
+}
+
+export async function addAnnouncement(input, actor) {
+  const state = await getState();
+  const announcement = {
+    id: newId("announcement"),
+    title: String(input.title || "").trim().slice(0, 120),
+    summary: String(input.summary || "").trim().slice(0, 1200),
+    attachment: String(input.attachment || ""),
+    attachmentName: String(input.attachmentName || "").slice(0, 160),
+    acknowledgements: {},
+    createdAt: now(),
+    createdBy: actor.uid
+  };
+  if (!announcement.title || !announcement.summary) throw statusError(422, "Enter an announcement title and summary");
+  state.announcements.unshift(announcement);
+  await saveState();
+  return announcement;
+}
+
+export async function acknowledgeAnnouncement(announcementId, actor) {
+  const state = await getState();
+  const announcement = state.announcements.find((item) => item.id === announcementId);
+  if (!announcement) throw statusError(404, "Announcement was not found");
+  if (!actor.playerId) throw statusError(422, "Confirm your roster profile first");
+  announcement.acknowledgements ||= {};
+  announcement.acknowledgements[actor.playerId] = now();
+  await saveState();
+  return { acknowledgedAt: announcement.acknowledgements[actor.playerId] };
+}
+
+export async function deleteAnnouncement(announcementId) {
+  const state = await getState();
+  const index = state.announcements.findIndex((item) => item.id === announcementId);
+  if (index < 0) throw statusError(404, "Announcement was not found");
+  state.announcements.splice(index, 1);
+  await saveState();
+  return { deleted: true };
+}
+
+export async function createAllianceWeeklyEvent(input, actor) {
+  const state = await getState();
+  const event = normalizeAllianceWeeklyEvent({
+    ...input,
+    id: newId("alliance-event"),
+    createdBy: actor.uid,
+    createdAt: now(),
+    updatedAt: now()
+  });
+  if (!["MG", "ZS", "Shark", "Blimp", "Shark Blimp", "Other"].includes(event.name)) throw statusError(422, "Choose a supported alliance event");
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(event.time)) throw statusError(422, "Choose a valid 24-hour time");
+  state.allianceWeeklyEvents[event.id] = event;
+  await saveState();
+  return event;
+}
+
+export async function deleteAllianceWeeklyEvent(eventId) {
+  const state = await getState();
+  if (!state.allianceWeeklyEvents[eventId]) throw statusError(404, "Alliance event was not found");
+  delete state.allianceWeeklyEvents[eventId];
+  await saveState();
+  return { deleted: true };
+}
+
+export async function updateAllianceWeeklyEvent(eventId, patch, actor) {
+  const state = await getState();
+  const event = state.allianceWeeklyEvents[eventId];
+  if (!event) throw statusError(404, "Alliance event was not found");
+  const before = structuredClone(event);
+  const next = { ...event };
+  for (const field of ["name", "date", "time", "overview"]) {
+    if (Object.hasOwn(patch, field)) next[field] = String(patch[field]).trim();
+  }
+  if (!["MG", "ZS", "Shark", "Blimp", "Shark Blimp", "Other"].includes(next.name)) throw statusError(422, "Choose a supported alliance event");
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(next.time)) throw statusError(422, "Choose a valid 24-hour time");
+  if (!next.date) throw statusError(422, "Choose an event date");
+  Object.assign(event, next);
+  event.updatedAt = now();
+  addAudit(state, actor, { action: "alliance_event_updated", recordType: "allianceWeeklyEvent", recordId: eventId, before, after: event });
+  await saveState();
+  return event;
+}
+
+export async function createThemeWeek(input, actor) {
+  const state = await getState();
+  const theme = normalizeThemeWeek({
+    ...input,
+    id: newId("theme"),
+    createdBy: actor.uid,
+    createdAt: now(),
+    updatedAt: now()
+  });
+  state.themeWeeks[theme.id] = theme;
+  await saveState();
+  return theme;
+}
+
+export async function updateThemeWeek(themeId, patch, actor) {
+  const state = await getState();
+  const theme = state.themeWeeks[themeId];
+  if (!theme) throw statusError(404, "Theme week was not found");
+  const next = { ...theme };
+  for (const field of ["title", "weekOf", "description", "rules", "status"]) {
+    if (Object.hasOwn(patch, field)) next[field] = String(patch[field]);
+  }
+  if (!next.title.trim()) throw statusError(422, "Enter a theme title");
+  if (!next.weekOf) throw statusError(422, "Choose the theme week date");
+  if (!["open", "voting", "archived"].includes(next.status)) throw statusError(422, "Choose a valid theme status");
+  Object.assign(theme, next);
+  if (Object.hasOwn(patch, "finalistIds")) {
+    theme.finalistIds = [...new Set(patch.finalistIds)].filter((id) => theme.submissions[id]);
+  }
+  theme.updatedAt = now();
+  addAudit(state, actor, { action: "theme_week_updated", recordType: "themeWeek", recordId: themeId, after: patch });
+  await saveState();
+  return theme;
+}
+
+export async function submitThemeEntry(themeId, input, actor) {
+  const state = await getState();
+  const theme = state.themeWeeks[themeId];
+  if (!theme || theme.status !== "open") throw statusError(409, "This theme week is not accepting submissions");
+  if (!actor.playerId || !state.players[actor.playerId]) throw statusError(422, "Confirm your roster profile before submitting");
+  theme.submissions[actor.playerId] = {
+    playerId: actor.playerId,
+    text: String(input.text || "").slice(0, 4000),
+    image: String(input.image || ""),
+    submittedAt: now(),
+    updatedAt: now()
+  };
+  theme.updatedAt = now();
+  await saveState();
+  return theme.submissions[actor.playerId];
+}
+
+export async function voteThemeWeek(themeId, finalistId, actor) {
+  const state = await getState();
+  const theme = state.themeWeeks[themeId];
+  if (!theme || theme.status !== "voting") throw statusError(409, "Voting is not open");
+  if (!actor.playerId) throw statusError(422, "Confirm your roster profile before voting");
+  if (!theme.finalistIds.includes(finalistId)) throw statusError(422, "Choose a listed finalist");
+  theme.votes[actor.playerId] = finalistId;
+  theme.updatedAt = now();
+  await saveState();
+  return { finalistId };
+}
+
+export async function commentThemeWeek(themeId, text, actor) {
+  const state = await getState();
+  const theme = state.themeWeeks[themeId];
+  if (!theme || theme.status === "archived") throw statusError(409, "This theme-week discussion is archived");
+  if (!actor.playerId) throw statusError(422, "Confirm your roster profile before commenting");
+  theme.comments.push({ id: newId("comment"), playerId: actor.playerId, text: String(text || "").trim().slice(0, 500), createdAt: now() });
+  theme.updatedAt = now();
+  await saveState();
+  return theme.comments.at(-1);
+}
+
+export async function acknowledgeThemeWeek(themeId, actor) {
+  const state = await getState();
+  const theme = state.themeWeeks[themeId];
+  if (!theme) throw statusError(404, "Theme week was not found");
+  if (!actor.playerId) throw statusError(422, "Confirm your roster profile before acknowledging");
+  theme.acknowledgements[actor.playerId] = now();
+  await saveState();
+  return { acknowledgedAt: theme.acknowledgements[actor.playerId] };
+}
+
+export async function deleteThemeWeek(themeId) {
+  const state = await getState();
+  if (!state.themeWeeks[themeId]) throw statusError(404, "Theme week was not found");
+  delete state.themeWeeks[themeId];
+  await saveState();
+  return { deleted: true };
 }
 
 export async function getOrCreateUser(firebaseUser) {
@@ -133,12 +407,18 @@ export async function getOrCreateUser(firebaseUser) {
   let user = state.users[firebaseUser.localId];
   if (!user) {
     const configuredAdmins = String(process.env.DSCC_ADMIN_UIDS || "").split(",").map((value) => value.trim()).filter(Boolean);
+    const isPrimaryAdministrator = String(firebaseUser.email || "").toLowerCase() === "zacmay23@gmail.com";
     user = {
       uid: firebaseUser.localId,
       email: firebaseUser.email || "",
       displayName: firebaseUser.displayName || firebaseUser.email || "Member",
-      role: configuredAdmins.includes(firebaseUser.localId) ? "administrator" : "member",
+      role: configuredAdmins.includes(firebaseUser.localId) || isPrimaryAdministrator ? "administrator" : "member",
       playerId: null,
+      profileConfirmedAt: null,
+      profileSelection: null,
+      accountPhotoUrl: firebaseUser.photoUrl || "",
+      profileTitle: "Alliance Member",
+      profileBio: "",
       active: true,
       createdAt: now(),
       lastLoginAt: now(),
@@ -147,7 +427,9 @@ export async function getOrCreateUser(firebaseUser) {
     state.users[user.uid] = user;
     await saveState();
   } else {
+    if (String(user.email || firebaseUser.email || "").toLowerCase() === "zacmay23@gmail.com") user.role = "administrator";
     user.lastLoginAt = now();
+    if (firebaseUser.photoUrl) user.accountPhotoUrl = firebaseUser.photoUrl;
   }
   return user;
 }
@@ -185,6 +467,22 @@ export async function duplicateEvent(eventId, input, actor) {
   return event;
 }
 
+export async function deleteDraftEvent(eventId, actor) {
+  const state = await getState();
+  const event = state.events[eventId];
+  if (!event) throw statusError(404, "Draft event was not found");
+  if (event.status !== "draft") throw statusError(409, "Only draft battle plans can be deleted");
+  delete state.events[eventId];
+  delete state.eventParticipants[eventId];
+  delete state.eventStrategies[eventId];
+  delete state.strategyVersions[eventId];
+  delete state.auditLogs[eventId];
+  if (state.activeEventId === eventId) state.activeEventId = null;
+  addAudit(state, actor, { action: "event_draft_deleted", recordType: "event", recordId: eventId, before: event });
+  await saveState();
+  return event;
+}
+
 export async function updateEvent(eventId, patch, actor) {
   const state = await getState();
   const event = state.events[eventId];
@@ -192,7 +490,7 @@ export async function updateEvent(eventId, patch, actor) {
   assertVersion(event, patch.version);
   const allowed = [
     "date", "opponent", "strategyA", "strategyB", "battleTimeA", "battleTimeB",
-    "scoreFor", "scoreAgainst", "outcome", "notes", "importantInstructions", "debrief"
+    "scoreFor", "scoreAgainst", "outcome", "notes", "importantInstructions", "debrief", "setupPublishedAt"
   ];
   const before = structuredClone(event);
   for (const field of allowed) if (Object.hasOwn(patch, field)) event[field] = patch[field];
@@ -222,20 +520,56 @@ export async function updateEventParticipant(eventId, playerId, patch, actor, se
   const state = await getState();
   const participant = state.eventParticipants[eventId]?.[playerId];
   if (!participant) throw statusError(404, "Event participant was not found");
+  if (!selfOnly && !state.events[eventId]?.setupPublishedAt) throw statusError(409, "Publish Team A/B times and strategies in Create before editing the weekly roster");
   assertVersion(participant, patch.version);
   const ownFields = ["availability", "availabilityNote"];
   const officerFields = [
     "selected", "team", "rosterStatus", "availability", "availabilityNote",
-    "availabilityOverride", "role", "unit", "tacticalGroup", "mapPosition", "primaryAssignment",
+    "availabilityOverride", "role", "unit", "tacticalGroup", "unitLeader", "mapPosition", "primaryAssignment",
     "backupAssignment", "primaryUnit", "rotationUnit", "openingObjective",
     "midBattleObjective", "finalObjective", "attendance", "score", "notes", "officerNotes"
   ];
   const before = structuredClone(participant);
   const fields = selfOnly ? ownFields : officerFields;
   for (const field of fields) if (Object.hasOwn(patch, field)) participant[field] = patch[field];
+  if (!selfOnly) {
+    const player = state.players[playerId];
+    const defaultFields = {
+      selected: "defaultSelected",
+      team: "defaultTeam",
+      rosterStatus: "defaultRole",
+      unit: "defaultUnit",
+      tacticalGroup: "defaultTacticalGroup"
+    };
+    if (player) {
+      for (const [participantField, playerField] of Object.entries(defaultFields)) {
+        if (Object.hasOwn(patch, participantField)) player[playerField] = participant[participantField];
+      }
+      player.updatedAt = now();
+      player.version += 1;
+    }
+  }
+  if (Object.hasOwn(patch, "tacticalGroup") || Object.hasOwn(patch, "team")) {
+    const strategy = state.eventStrategies[eventId]?.[participant.team];
+    const opening = [...(strategy?.phases || [])].sort((left, right) => Number(left.startMinute) - Number(right.startMinute))[0];
+    const order = opening?.groupOrders?.[participant.tacticalGroup];
+    if (order) {
+      participant.unit = order.primaryObjective || "Unassigned";
+      participant.primaryUnit = order.primaryObjective || "";
+      participant.rotationUnit = order.secondaryObjective || "";
+      participant.primaryAssignment = order.primaryAction || "";
+      participant.backupAssignment = order.secondaryAction || "";
+      participant.openingObjective = order.primaryObjective || "";
+      if (state.players[playerId]) state.players[playerId].defaultUnit = participant.unit;
+    }
+  }
   if (Object.hasOwn(patch, "score")) participant.score = Number(patch.score || 0);
   if (Object.hasOwn(patch, "availability")) {
     participant.confirmedAt = patch.availability === "Confirmed" ? now() : null;
+  }
+  if (Object.hasOwn(patch, "availabilityNote") && state.players[playerId]) {
+    state.players[playerId].availabilityGuidance = String(participant.availabilityNote || "").slice(0, 180);
+    state.players[playerId].updatedAt = now();
   }
   participant.updatedAt = now();
   participant.updatedBy = actor.uid;
@@ -254,12 +588,31 @@ export async function listUsers() {
   return Object.values((await getState()).users);
 }
 
-export async function listAvailablePlayerProfiles() {
+export async function listAvailablePlayerProfiles(userId) {
   const state = await getState();
-  const linkedIds = new Set(Object.values(state.users).map((user) => user.playerId).filter(Boolean));
+  const linkedByPlayerId = new Map(Object.values(state.users)
+    .filter((user) => user.playerId)
+    .map((user) => [user.playerId, user.uid]));
+  const activeParticipants = state.eventParticipants[state.activeEventId] || {};
   return Object.values(state.players)
-    .filter((player) => player.active && !linkedIds.has(player.id))
-    .map((player) => ({ id: player.id, name: player.gameName }));
+    .filter((player) => player.active)
+    .map((player) => {
+      const participant = activeParticipants[player.id];
+      const linkedUserId = linkedByPlayerId.get(player.id) || null;
+      return {
+        id: player.id,
+        name: player.gameName,
+        rank: player.rank,
+        team: participant?.team || player.defaultTeam || "Reserve",
+        unit: participant?.tacticalGroup || player.defaultTacticalGroup || "Reserve",
+        profileImage: player.profileImage || "",
+        linkStatus: linkedUserId === userId ? "current" : linkedUserId ? "linked" : "available"
+      };
+    })
+    .sort((left, right) =>
+      ["current", "available", "linked"].indexOf(left.linkStatus) - ["current", "available", "linked"].indexOf(right.linkStatus)
+      || left.name.localeCompare(right.name)
+    );
 }
 
 export async function linkOwnPlayer(userId, playerId) {
@@ -267,17 +620,69 @@ export async function linkOwnPlayer(userId, playerId) {
   const user = state.users[userId];
   const player = state.players[playerId];
   if (!user || !player) throw statusError(404, "Account or player profile was not found");
-  if (user.playerId) throw statusError(409, "This account is already linked to a player");
+  if (user.playerId && user.playerId !== playerId) throw statusError(409, "An administrator must change an existing player link");
   if (Object.values(state.users).some((item) => item.uid !== userId && item.playerId === playerId)) {
     throw statusError(409, "That player is already linked to another account");
   }
   user.playerId = playerId;
+  user.profileConfirmedAt = now();
+  const participant = state.eventParticipants[state.activeEventId]?.[playerId];
+  user.profileSelection = {
+    playerId,
+    playerName: player.gameName,
+    rank: player.rank,
+    team: participant?.team || player.defaultTeam || "Reserve",
+    unit: participant?.tacticalGroup || player.defaultTacticalGroup || "Reserve",
+    confirmedAt: user.profileConfirmedAt
+  };
   user.version += 1;
   player.userId = userId;
   player.version += 1;
   player.updatedAt = now();
+  addAudit(state, user, {
+    action: "profile_link_confirmed",
+    recordType: "user",
+    recordId: userId,
+    after: user.profileSelection
+  });
   await saveState();
   return user;
+}
+
+export async function updateOwnProfile(userId, patch) {
+  const state = await getState();
+  const user = state.users[userId];
+  if (!user) throw statusError(404, "User account was not found");
+  const player = user.playerId ? state.players[user.playerId] : null;
+  if (!player) throw statusError(409, "Confirm a Master Directory profile before designing your account");
+  if (Object.hasOwn(patch, "profileTitle")) user.profileTitle = String(patch.profileTitle || "").slice(0, 60);
+  if (Object.hasOwn(patch, "profileBio")) user.profileBio = String(patch.profileBio || "").slice(0, 400);
+  if (Object.hasOwn(patch, "profileImageFit")) {
+    if (!["cover", "contain"].includes(patch.profileImageFit)) throw statusError(422, "Choose a valid image fit");
+    player.profileImageFit = patch.profileImageFit;
+  }
+  if (Object.hasOwn(patch, "profileImagePosition")) {
+    if (!["center", "top", "bottom", "left", "right"].includes(patch.profileImagePosition)) throw statusError(422, "Choose a valid image position");
+    player.profileImagePosition = patch.profileImagePosition;
+  }
+  if (patch.useAccountPhoto) {
+    if (!user.accountPhotoUrl) throw statusError(422, "This Firebase account does not provide a profile picture");
+    player.profileImage = user.accountPhotoUrl;
+  }
+  if (Object.hasOwn(patch, "profileImage")) {
+    const profileImage = String(patch.profileImage || "");
+    if (profileImage.length > 750000) throw statusError(422, "Profile image is too large");
+    if (profileImage && !/^data:image\/(jpeg|png|webp|gif);base64,/.test(profileImage)) {
+      throw statusError(422, "Choose a JPG, PNG, WebP, or GIF profile image");
+    }
+    player.profileImage = profileImage;
+  }
+  user.version += 1;
+  player.version += 1;
+  player.updatedAt = now();
+  addAudit(state, user, { action: "own_profile_updated", recordType: "user", recordId: userId, after: { profileTitle: user.profileTitle } });
+  await saveState();
+  return getClientState(user);
 }
 
 export async function getDataQuality() {
@@ -334,12 +739,41 @@ export async function updatePlayer(playerId, patch, actor) {
   if (!player) throw statusError(404, "Player was not found");
   assertVersion(player, patch.version);
   const before = structuredClone(player);
-  for (const field of ["gameName", "rank", "defaultRole", "defaultUnit", "active", "userId", "notes", "aliases"]) {
+  for (const field of ["gameName", "rank", "defaultRole", "defaultSelected", "defaultTeam", "defaultUnit", "defaultTacticalGroup", "active", "userId", "notes", "aliases", "profileImage", "profileImageFit", "profileImagePosition"]) {
     if (Object.hasOwn(patch, field)) player[field] = patch[field];
+  }
+  if (String(player.profileImage || "").length > 750000) throw statusError(422, "Profile image is too large");
+  if (player.profileImage && !/^data:image\/(jpeg|png|webp|gif);base64,/.test(player.profileImage)) {
+    throw statusError(422, "Choose a supported profile image");
+  }
+  if (Object.hasOwn(patch, "gameName")) {
+    for (const participants of Object.values(state.eventParticipants)) {
+      if (participants[playerId]) participants[playerId].playerName = player.gameName;
+    }
   }
   player.updatedAt = now();
   player.version += 1;
   auditDiff(state, actor, null, "player", playerId, before, player, "player_updated");
+  await saveState();
+  return player;
+}
+
+export async function deletePlayerProfile(playerId, actor) {
+  const state = await getState();
+  const player = state.players[playerId];
+  if (!player) throw statusError(404, "Player was not found");
+  delete state.players[playerId];
+  for (const user of Object.values(state.users)) {
+    if (user.playerId === playerId) {
+      user.playerId = null;
+      user.profileConfirmedAt = null;
+      user.version += 1;
+    }
+  }
+  for (const [eventId, participants] of Object.entries(state.eventParticipants)) {
+    if (state.events[eventId]?.status !== "archived") delete participants[playerId];
+  }
+  addAudit(state, actor, { action: "player_deleted", recordType: "player", recordId: playerId, before: player });
   await saveState();
   return player;
 }
@@ -406,15 +840,16 @@ export async function updateAppliedStrategyOrder(eventId, team, input, actor) {
   const [startMinute, endMinute] = String(input.phase || "").split("-").map(Number);
   if (!Number.isFinite(startMinute) || !Number.isFinite(endMinute)) throw statusError(422, "Choose a valid battle phase");
   const group = String(input.group || "");
-  const allowedGroups = ["Unit A", "Unit B", "Unit C", "Unit D", "Strike Team", "Scout + Support", "Reserve"];
+  const allowedGroups = ["Unit A", "Unit B", "Unit C", "Unit D", "Strike Team", "Scout + Support", "Disrupters", "Reserve"];
   if (!allowedGroups.includes(group)) throw statusError(422, "Choose a valid tactical group");
-  const allowedFields = ["primaryObjective", "secondaryObjective", "primaryAction", "secondaryAction"];
+  const allowedFields = ["primaryObjective", "secondaryObjective", "primaryAction", "secondaryAction", "goal"];
   const patch = Object.fromEntries(Object.entries(input.patch || {}).filter(([field]) => allowedFields.includes(field)));
   const objectives = ["", "Info Center", "Field Hospital 4", "Arsenal", "Oil Refinery 1", "Field Hospital 2", "Nuclear Silo", "Field Hospital 1", "Oil Refinery 2", "Mercenary Factory", "Field Hospital 3", "Science Hub"];
   const actions = ["Secure", "Support", "Rotate", "Attack", "Contest", "Hold", "Defend"];
   for (const [field, value] of Object.entries(patch)) {
     if (field.endsWith("Objective") && !objectives.includes(value)) throw statusError(422, "Choose an objective from the battle map");
     if (field.endsWith("Action") && !actions.includes(value)) throw statusError(422, "Choose a supported strategy action");
+    if (field === "goal" && String(value).length > 240) throw statusError(422, "Keep the group goal under 240 characters");
   }
   let phase = strategy.phases.find((item) => Number(item.startMinute) === startMinute);
   if (!phase) {
@@ -423,6 +858,19 @@ export async function updateAppliedStrategyOrder(eventId, team, input, actor) {
   }
   phase.groupOrders ||= {};
   phase.groupOrders[group] = { ...(phase.groupOrders[group] || {}), ...patch };
+  if (startMinute === 0) {
+    for (const participant of Object.values(state.eventParticipants[eventId] || {})) {
+      if (participant.team !== team || participant.tacticalGroup !== group) continue;
+      const order = phase.groupOrders[group];
+      participant.unit = order.primaryObjective || "Unassigned";
+      participant.primaryUnit = order.primaryObjective || "";
+      participant.rotationUnit = order.secondaryObjective || "";
+      participant.primaryAssignment = order.primaryAction || "";
+      participant.backupAssignment = order.secondaryAction || "";
+      participant.openingObjective = order.primaryObjective || "";
+      participant.updatedAt = now();
+    }
+  }
   strategy.updatedAt = now();
   strategy.updatedBy = actor.uid;
   addAudit(state, actor, { eventId, action: "strategy_order_updated", recordType: "eventStrategy", recordId: team, field: `${input.phase}.${group}`, after: patch });
@@ -443,7 +891,12 @@ export async function updateUser(userId, patch, actor) {
   const user = state.users[userId];
   if (!user) throw statusError(404, "User was not found");
   const before = structuredClone(user);
-  if (Object.hasOwn(patch, "role")) user.role = patch.role;
+  if (actor.role !== "administrator" && user.role === "administrator") throw statusError(403, "Only an administrator can change an administrator account");
+  if (Object.hasOwn(patch, "role")) {
+    if (!["member", "officer", "administrator"].includes(patch.role)) throw statusError(422, "Choose a valid role");
+    if (actor.role !== "administrator" && patch.role === "administrator") throw statusError(403, "Only an administrator can grant administrator access");
+    user.role = patch.role;
+  }
   if (Object.hasOwn(patch, "playerId")) {
     const nextPlayerId = patch.playerId || null;
     if (nextPlayerId && !state.players[nextPlayerId]) throw statusError(404, "Player was not found");
@@ -455,6 +908,8 @@ export async function updateUser(userId, patch, actor) {
       state.players[user.playerId].userId = null;
     }
     user.playerId = nextPlayerId;
+    user.profileConfirmedAt = null;
+    user.profileSelection = null;
     if (nextPlayerId) state.players[nextPlayerId].userId = userId;
   }
   if (Object.hasOwn(patch, "active")) user.active = Boolean(patch.active);
@@ -571,6 +1026,37 @@ function publicParticipant(participant, user) {
   return safe;
 }
 
+function publicThemeWeek(theme, user) {
+  const state = cachedState;
+  const submissions = Object.fromEntries(Object.entries(theme.submissions || {}).map(([playerId, entry]) => [
+    playerId,
+    {
+      ...entry,
+      playerName: state?.players?.[playerId]?.gameName || "Alliance member",
+      profileImage: state?.players?.[playerId]?.profileImage || ""
+    }
+  ]));
+  const comments = (theme.comments || []).map((comment) => ({
+    ...comment,
+    playerName: state?.players?.[comment.playerId]?.gameName || "Alliance member",
+    profileImage: state?.players?.[comment.playerId]?.profileImage || ""
+  }));
+  const tally = Object.values(theme.votes || {}).reduce((counts, playerId) => {
+    counts[playerId] = (counts[playerId] || 0) + 1;
+    return counts;
+  }, {});
+  return {
+    ...theme,
+    submissions,
+    comments,
+    tally,
+    myVote: user.playerId ? theme.votes?.[user.playerId] || null : null,
+    acknowledgedAt: user.playerId ? theme.acknowledgements?.[user.playerId] || null : null,
+    votes: undefined,
+    acknowledgements: undefined
+  };
+}
+
 function legacyMemberProjection(player, participant) {
   return {
     id: player.id,
@@ -581,8 +1067,11 @@ function legacyMemberProjection(player, participant) {
     type: participant?.rosterStatus || player.defaultRole || "Sub",
     unit: participant?.unit || player.defaultUnit || "Unassigned",
     tacticalGroup: participant?.tacticalGroup || player.defaultTacticalGroup || "Reserve",
+    unitLeader: Boolean(participant?.unitLeader),
     availability: participant?.availability === "Unavailable" ? "Not available" : participant?.availability || "Pending",
     aliases: player.aliases,
+    profileImage: player.profileImage || "",
+    availabilityGuidance: player.availabilityGuidance || "",
     weekScore: Number(participant?.score || 0),
     weekAttendance: participant?.attendance || "",
     weekNotes: participant?.notes || ""

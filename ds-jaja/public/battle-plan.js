@@ -5,6 +5,7 @@ export const tacticalGroups = [
   "Unit D",
   "Strike Team",
   "Scout + Support",
+  "Disrupters",
   "Reserve"
 ];
 
