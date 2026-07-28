@@ -10,7 +10,7 @@ form.addEventListener("submit", async (event) => {
   try {
     message.textContent = "Signing in...";
     await signIn(data.get("email"), data.get("password"));
-    window.location.href = "/";
+    window.location.href = "/profile-link.html";
   } catch (error) {
     message.textContent = error.message;
   }

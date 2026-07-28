@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Link Roster Profile - Desert Storm Command Center</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body class="auth-page">
+    <main class="auth-card">
+      <p class="eyebrow">Player Identity</p>
+      <h1>Select your roster profile</h1>
+      <p class="muted">Choose your in-game name. This links your login email to your roster record.</p>
+
+      <form id="profileLinkForm" class="auth-form">
+        <label>
+          In-game roster name
+          <select id="playerId" name="playerId" required>
+            <option value="">Loading roster…</option>
+          </select>
+        </label>
+        <button class="primary-button" type="submit">Link My Profile</button>
+      </form>
+
+      <p class="muted">Choose carefully. An administrator must correct the link after it is saved.</p>
+      <p id="linkMessage" class="auth-message"></p>
+      <button id="signOutButton" class="secondary-button" type="button">Sign Out</button>
+    </main>
+
+    <script type="module" src="/profile-link.js"></script>
+  </body>
+</html>
