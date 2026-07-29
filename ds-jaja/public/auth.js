@@ -105,34 +105,29 @@ async function refreshSession(session) {
 }
 
 export async function signIn(email, password) {
-  return firebaseAuthRequest("accounts:signInWithPassword", {
+  return appAuthRequest("/api/auth/sign-in", {
     email,
-    password,
-    returnSecureToken: true
+    password
   });
 }
 
 export async function register(email, password) {
-  return firebaseAuthRequest("accounts:signUp", {
+  return appAuthRequest("/api/auth/register", {
     email,
-    password,
-    returnSecureToken: true
+    password
   });
 }
 
-async function firebaseAuthRequest(action, body) {
-  const response = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/${action}?key=${encodeURIComponent(firebaseConfig.apiKey)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    }
-  );
+async function appAuthRequest(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
   const payload = await response.json();
 
   if (!response.ok) {
-    throw new Error(formatFirebaseError(payload));
+    throw new Error(payload.error || formatFirebaseError(payload));
   }
 
   saveSession(payload);

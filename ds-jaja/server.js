@@ -141,6 +141,16 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/auth/sign-in") {
+    sendJson(response, 200, await proxyFirebaseAuth("accounts:signInWithPassword", await readJsonBody(request)));
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/auth/register") {
+    sendJson(response, 200, await proxyFirebaseAuth("accounts:signUp", await readJsonBody(request)));
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/live") {
     const firebaseUser = await verifyFirebaseToken(url.searchParams.get("token") || "");
     if (!firebaseUser) {
@@ -729,6 +739,41 @@ async function verifyFirebaseToken(token) {
   }
 }
 
+async function proxyFirebaseAuth(action, input) {
+  const email = String(input.email || "").trim();
+  const password = String(input.password || "");
+  if (!email || !password) throw statusError(422, "Email and password are required");
+
+  const authResponse = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/${action}?key=${encodeURIComponent(firebaseApiKey)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, returnSecureToken: true })
+    }
+  );
+  const payload = await authResponse.json();
+  if (!authResponse.ok) {
+    const error = statusError(authResponse.status, formatFirebaseAuthError(payload?.error?.message));
+    error.details = { code: payload?.error?.message || "AUTH_ERROR" };
+    throw error;
+  }
+  return payload;
+}
+
+function formatFirebaseAuthError(code = "AUTH_ERROR") {
+  const messages = {
+    EMAIL_EXISTS: "That email is already registered.",
+    EMAIL_NOT_FOUND: "No account exists for that email.",
+    INVALID_LOGIN_CREDENTIALS: "Incorrect email or password.",
+    INVALID_PASSWORD: "Incorrect email or password.",
+    WEAK_PASSWORD: "Use a password with at least 6 characters.",
+    OPERATION_NOT_ALLOWED: "Enable Email/Password sign-in in Firebase Authentication.",
+    TOO_MANY_ATTEMPTS_TRY_LATER: "Too many sign-in attempts. Try again later."
+  };
+  return messages[code] || String(code).replaceAll("_", " ");
+}
+
 async function openEventStream(response) {
   response.writeHead(200, {
     "Content-Type": "text/event-stream",
@@ -766,6 +811,12 @@ function sendJson(response, status, payload) {
     "Access-Control-Allow-Origin": "*"
   });
   response.end(JSON.stringify(payload, null, 2));
+}
+
+function statusError(statusCode, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
 }
 
 async function readJsonBody(request) {
