@@ -1132,6 +1132,38 @@ function renderMyAssignment() {
   const pendingAnnouncements = (state.announcements || []).filter((announcement) => !announcement.acknowledgedAt);
   const todayAllianceEvents = (state.allianceWeeklyEvents || []).filter((item) => item.date === todayKey);
   const dsIsToday = event?.date === todayKey;
+  const briefingUpdates = [
+    ...(state.announcements || []).map((announcement) => ({
+      type: "Announcement",
+      title: announcement.title,
+      detail: announcement.summary,
+      timestamp: announcement.createdAt,
+      tone: "announcement"
+    })),
+    ...(state.allianceWeeklyEvents || []).map((item) => ({
+      type: "Alliance Event",
+      title: `${item.name} · ${item.date}`,
+      detail: `${item.time} server · ${item.overview}`,
+      timestamp: item.updatedAt || item.createdAt || `${item.date}T${item.time}:00`,
+      tone: "event"
+    })),
+    ...activeThemes.map((theme) => ({
+      type: theme.status === "finalized" ? "Theme Week Result" : "Theme Week",
+      title: theme.status === "finalized" && theme.winner ? `${theme.winner.playerName} won ${theme.title}` : `${theme.title} · ${theme.status}`,
+      detail: theme.status === "voting" ? "Secret voting is open. Cast your one vote." : theme.description,
+      timestamp: theme.updatedAt,
+      tone: theme.status === "finalized" ? "winner" : "theme"
+    })),
+    ...(event && participant ? [{
+      type: "My DS Assignment",
+      title: `Team ${participant.team} · ${participant.tacticalGroup || "Unit pending"}`,
+      detail: `${event.date} vs ${event.opponent || "Opponent pending"} · ${battleTime} server · ${participant.role || "Role pending"}`,
+      timestamp: participant.updatedAt || event.updatedAt,
+      tone: "assignment"
+    }] : [])
+  ].filter((item) => item.timestamp)
+    .sort((left, right) => String(right.timestamp).localeCompare(String(left.timestamp)))
+    .slice(0, 12);
   elements.myAssignmentContent.innerHTML = `
     <article class="weekly-welcome panel">
       ${memberMiniProfile(player, state.me.profileTitle || "Alliance Member")}
@@ -1145,6 +1177,12 @@ function renderMyAssignment() {
       ${theme.winner.submissionImage ? `<img src="${theme.winner.submissionImage}" alt="${escapeHtml(theme.winner.playerName)} winning profile-picture submission">` : ""}
       <div><p class="eyebrow">${escapeHtml(theme.title)} concluded</p><h3>${escapeHtml(theme.winner.playerName)} won Theme Week</h3><p>The winning profile-picture submission received ${theme.winner.votes} vote${theme.winner.votes === 1 ? "" : "s"}.</p></div>
     </article>`).join("")}
+    <section class="panel personal-briefing-report">
+      <div class="assignment-heading"><div><p class="eyebrow">Personal update feed</p><h3>This Week in My Briefing</h3></div><span>${briefingUpdates.length} update${briefingUpdates.length === 1 ? "" : "s"}</span></div>
+      <div class="briefing-update-list">${briefingUpdates.map((item) => `<article class="briefing-update briefing-update-${item.tone}">
+        <span>${escapeHtml(item.type)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(formatDateTime(item.timestamp))}</small><p>${escapeHtml(item.detail)}</p>
+      </article>`).join("") || `<p class="muted">No weekly updates have been posted yet.</p>`}</div>
+    </section>
     <section class="today-strip">
       ${dsIsToday && participant ? `<article><strong>DS · Team ${escapeHtml(participant.team)}</strong><span>${escapeHtml(battleTime)} server · ${escapeHtml(serverToLocal(event.date, battleTime))} local</span></article>` : ""}
       ${todayAllianceEvents.map((item) => `<article><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.time)} server · ${escapeHtml(serverToLocal(item.date, item.time))} local</span></article>`).join("")}

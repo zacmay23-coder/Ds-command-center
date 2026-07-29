@@ -4546,6 +4546,23 @@ tbody tr:hover td { background: rgba(215, 168, 77, .08); }
 @media (max-width: 850px) { .theme-officer-submission { grid-template-columns: 1fr 1fr; } .theme-officer-submission h5, .theme-officer-submission label:nth-of-type(3), .theme-officer-submission button { grid-column: 1 / -1; } }
 @media (max-width: 600px) { .theme-stage-track, .theme-podium { grid-template-columns: 1fr; } .theme-place-1 { transform: none; } .theme-officer-submission { grid-template-columns: 1fr; } .theme-officer-submission > * { grid-column: 1 !important; } .theme-winner-briefing { grid-template-columns: 72px minmax(0,1fr); } .theme-winner-briefing img { width: 72px; } }
 
+.personal-briefing-report { margin: 14px 0; }
+.briefing-update-list { display: grid; gap: 9px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+.briefing-update { background: rgba(255,255,255,.025); border: 1px solid var(--line-soft); border-left: 3px solid var(--info); border-radius: 9px; display: grid; gap: 3px; padding: 10px 12px; }
+.briefing-update > span { color: var(--info); font-size: .7rem; font-weight: 900; letter-spacing: .07em; text-transform: uppercase; }
+.briefing-update strong { color: var(--text); }
+.briefing-update small { color: var(--muted); }
+.briefing-update p { margin: 5px 0 0; }
+.briefing-update-announcement { border-left-color: var(--accent); }
+.briefing-update-announcement > span { color: var(--accent-strong); }
+.briefing-update-assignment { border-left-color: #79b9de; }
+.briefing-update-theme { border-left-color: #a88ed8; }
+.briefing-update-theme > span { color: #c2a9ef; }
+.briefing-update-winner { background: rgba(215,168,77,.08); border-left-color: #e7bb52; }
+.briefing-update-winner > span { color: #f2ca78; }
+.briefing-update-event { border-left-color: var(--ok); }
+.briefing-update-event > span { color: var(--ok); }
+
 .vs-day-navigation .vs-day-win { background: rgba(62, 201, 120, .2); border-color: #62df97; color: #9af0bd; }
 .vs-day-navigation .vs-day-loss { background: rgba(235, 91, 91, .2); border-color: #ff7b7b; color: #ffadad; }
 .vs-top-three { display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
