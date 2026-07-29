@@ -17,30 +17,6 @@
       "createdAt": "2026-07-27T06:56:42.199Z",
       "lastLoginAt": "2026-07-27T06:56:42.199Z",
       "version": 1
-    },
-    "pending-zacmay23-admin": {
-      "uid": "pending-zacmay23-admin",
-      "email": "zacmay23@gmail.com",
-      "displayName": "Dark Wizard",
-      "role": "administrator",
-      "playerId": "m1",
-      "profileConfirmedAt": "2026-07-29T12:00:00.000Z",
-      "profileSelection": {
-        "playerId": "m1",
-        "playerName": "Dark Wizard",
-        "rank": "R5",
-        "team": "A",
-        "unit": "Reserve",
-        "confirmedAt": "2026-07-29T12:00:00.000Z"
-      },
-      "accountPhotoUrl": "",
-      "profileTitle": "Alliance Administrator",
-      "profileBio": "",
-      "profileSetupCompletedAt": null,
-      "active": true,
-      "createdAt": "2026-07-29T12:00:00.000Z",
-      "lastLoginAt": "2026-07-29T12:00:00.000Z",
-      "version": 1
     }
   },
   "players": {
@@ -54,7 +30,7 @@
       "defaultUnit": "Oil Refinery 2",
       "defaultTacticalGroup": "Reserve",
       "active": true,
-      "userId": "pending-zacmay23-admin",
+      "userId": null,
       "notes": "",
       "availabilityGuidance": "",
       "profileImage": "",

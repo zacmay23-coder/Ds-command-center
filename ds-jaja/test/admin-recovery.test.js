@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { isRecoveryAdministrator, restoreAdministratorIdentity } from "../src/dataStore.js";
 
 test("recognizes the primary administrator email regardless of case", () => {
-  assert.equal(isRecoveryAdministrator({ email: "ZacMay23@Gmail.com" }), true);
+  assert.equal(isRecoveryAdministrator({ email: "ZacheryAaronMay@Gmail.com" }), true);
 });
 
 test("does not grant recovery access to an unrelated email", () => {
@@ -26,8 +26,8 @@ test("moves a deleted administrator identity and player link to a replacement Fi
     users: {
       legacy: {
         uid: "deleted-firebase-uid",
-        email: "zacmay23@gmail.com",
-        displayName: "zacmay23@gmail.com",
+        email: "zacheryaaronmay@gmail.com",
+        displayName: "zacheryaaronmay@gmail.com",
         role: "administrator",
         playerId: "m1",
         profileConfirmedAt: "2026-07-28T23:45:43.963Z",
@@ -42,7 +42,7 @@ test("moves a deleted administrator identity and player link to a replacement Fi
 
   const result = restoreAdministratorIdentity(state, {
     localId: "replacement-firebase-uid",
-    email: "zacmay23@gmail.com"
+    email: "zacheryaaronmay@gmail.com"
   });
 
   assert.equal(result.changed, true);

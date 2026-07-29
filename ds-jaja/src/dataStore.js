@@ -30,7 +30,7 @@ const dataDir = path.join(projectRoot, "data");
 const statePath = path.join(dataDir, "state.json");
 const backupPath = path.join(dataDir, "state.pre-events-v1.json");
 const migrationReportPath = path.join(projectRoot, "MIGRATION_REPORT.md");
-const primaryAdministratorEmail = "zacmay23@gmail.com";
+const primaryAdministratorEmail = "zacheryaaronmay@gmail.com";
 let cachedState;
 const subscribers = new Set();
 
