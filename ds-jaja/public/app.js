@@ -189,6 +189,39 @@ const api = {
   async acknowledgeAnnouncement(id) {
     return request(`/api/announcements/${encodeURIComponent(id)}/acknowledge`, { method: "POST", body: "{}" });
   },
+  async replyToAnnouncement(id, text) {
+    return request(`/api/announcements/${encodeURIComponent(id)}/replies`, {
+      method: "POST",
+      body: JSON.stringify({ text })
+    });
+  },
+  async toggleAnnouncementHelpful(id) {
+    return request(`/api/announcements/${encodeURIComponent(id)}/helpful`, { method: "POST", body: "{}" });
+  },
+  async sendPrivateMessage(payload) {
+    return request("/api/private-messages", { method: "POST", body: JSON.stringify(payload) });
+  },
+  async postDailyChat(text) {
+    return request("/api/daily-chat", { method: "POST", body: JSON.stringify({ text }) });
+  },
+  async saveJournalItem(payload) {
+    return request("/api/journal", { method: "POST", body: JSON.stringify(payload) });
+  },
+  async deleteJournalItem(id) {
+    return request(`/api/journal/${encodeURIComponent(id)}`, { method: "DELETE" });
+  },
+  async scheduleLeadershipMeeting(payload) {
+    return request("/api/leadership/meetings", { method: "POST", body: JSON.stringify(payload) });
+  },
+  async addLeadershipPost(payload) {
+    return request("/api/leadership/posts", { method: "POST", body: JSON.stringify(payload) });
+  },
+  async requestLeadershipMeeting(payload) {
+    return request("/api/leadership/requests", { method: "POST", body: JSON.stringify(payload) });
+  },
+  async deleteLeadershipPost(id) {
+    return request(`/api/leadership/posts/${encodeURIComponent(id)}`, { method: "DELETE" });
+  },
   async deleteAnnouncement(id) {
     return request(`/api/announcements/${encodeURIComponent(id)}`, { method: "DELETE" });
   }
@@ -242,6 +275,7 @@ let timelineEditMode = false;
 let timelineMovementView = "all";
 let selectedVsWeekId = "";
 let selectedVsDate = "";
+let selectedVsScoreFilter = "all";
 let latestVsAudit = null;
 
 const elements = {
@@ -312,8 +346,9 @@ elements.vsImportMatches = document.querySelector("#vsImportMatches");
 elements.vsManualForm = document.querySelector("#vsManualForm");
 elements.vsPlayerSelect = document.querySelector("#vsPlayerSelect");
 elements.vsSummary = document.querySelector("#vsSummary");
-elements.vsRankingRows = document.querySelector("#vsRankingRows");
+elements.vsTopThree = document.querySelector("#vsTopThree");
 elements.vsDailyTables = document.querySelector("#vsDailyTables");
+elements.vsScoreFilter = document.querySelector("#vsScoreFilter");
 elements.vsWeekSelect = document.querySelector("#vsWeekSelect");
 elements.vsDayNavigation = document.querySelector("#vsDayNavigation");
 elements.vsMatchupHeader = document.querySelector("#vsMatchupHeader");
@@ -342,6 +377,17 @@ elements.createStrategyB = document.querySelector("#createStrategyB");
 elements.publishDsSetupButton = document.querySelector("#publishDsSetupButton");
 elements.announcementForm = document.querySelector("#announcementForm");
 elements.announcementList = document.querySelector("#announcementList");
+elements.privateMessageForm = document.querySelector("#privateMessageForm");
+elements.privateMessageRecipient = document.querySelector("#privateMessageRecipient");
+elements.privateMessageList = document.querySelector("#privateMessageList");
+elements.dailyChatForm = document.querySelector("#dailyChatForm");
+elements.dailyChatList = document.querySelector("#dailyChatList");
+elements.dailyChatDate = document.querySelector("#dailyChatDate");
+elements.journalForm = document.querySelector("#journalForm");
+elements.journalEntries = document.querySelector("#journalEntries");
+elements.journalTabButton = document.querySelector("#journalTabButton");
+elements.planVsWeekButton = document.querySelector("#planVsWeekButton");
+elements.leadership = document.querySelector("#leadership");
 const expandedPlayers = new Set();
 let liveSource = null;
 
@@ -362,10 +408,15 @@ async function initialize() {
     window.location.href = "/profile-link.html";
     return;
   }
-  const requestedView = new URLSearchParams(window.location.search).get("view");
-  const requestedButton = requestedView && document.querySelector(`.sidebar button[data-view="${requestedView}"]`);
-  const requestedPanel = requestedView && document.querySelector(`#${requestedView}`);
-  if (requestedButton && requestedPanel && !requestedButton.hidden) showView(requestedView);
+  if (!state.me.profileSetupCompletedAt) {
+    showView("userProfile");
+    setStatus("Complete your member title and bio to finish profile setup");
+  } else {
+    const requestedView = new URLSearchParams(window.location.search).get("view");
+    const requestedButton = requestedView && document.querySelector(`.sidebar button[data-view="${requestedView}"]`);
+    const requestedPanel = requestedView && document.querySelector(`#${requestedView}`);
+    if (requestedButton && requestedPanel && !requestedButton.hidden) showView(requestedView);
+  }
   connectLiveUpdates();
 }
 
@@ -413,6 +464,13 @@ function bindControls() {
   document.querySelector("#refreshButton").addEventListener("click", refreshState);
   document.querySelector("#logoutButton").addEventListener("click", logout);
   document.querySelector("#profileTabButton").addEventListener("click", () => showView("userProfile"));
+  elements.journalTabButton.addEventListener("click", () => showView("playerJournal"));
+  elements.planVsWeekButton.addEventListener("click", openVsWeekPlan);
+  elements.journalForm.addEventListener("submit", saveJournalEntry);
+  elements.journalForm.addEventListener("reset", () => window.setTimeout(resetJournalEditor));
+  elements.journalEntries.addEventListener("click", handleJournalEntryClick);
+  elements.leadership.addEventListener("submit", handleLeadershipSubmit);
+  elements.leadership.addEventListener("click", handleLeadershipClick);
   elements.searchInput.addEventListener("input", renderDirectory);
   elements.filterInput.addEventListener("change", renderDirectory);
   elements.rankSort.addEventListener("change", renderDirectory);
@@ -461,6 +519,8 @@ function bindControls() {
   elements.publishDsSetupButton.addEventListener("click", publishDsSetup);
   elements.announcementForm.addEventListener("submit", postAnnouncement);
   elements.announcementList.addEventListener("click", handleAnnouncementClick);
+  elements.privateMessageForm.addEventListener("submit", handlePrivateMessageSubmit);
+  elements.dailyChatForm.addEventListener("submit", handleDailyChatSubmit);
   elements.allianceEventForm.addEventListener("submit", handleAllianceEventSubmit);
   elements.allianceEventList.addEventListener("click", handleAllianceEventClick);
   elements.themeWeekForm.addEventListener("submit", handleThemeWeekCreate);
@@ -472,6 +532,10 @@ function bindControls() {
   elements.vsImportMatches.addEventListener("click", handleVsMatchFix);
   elements.vsManualForm.addEventListener("submit", saveManualVsScore);
   elements.vsDailyTables.addEventListener("click", handleVsScoreDelete);
+  elements.vsScoreFilter.addEventListener("change", () => {
+    selectedVsScoreFilter = elements.vsScoreFilter.value;
+    renderVsScores();
+  });
   elements.vsWeekSelect.addEventListener("change", handleVsWeekSelection);
   elements.vsDayNavigation.addEventListener("click", handleVsDaySelection);
   elements.vsDailyResultForm.addEventListener("submit", saveVsDailyResult);
@@ -522,6 +586,8 @@ function render() {
   renderEventBanner();
   renderUserProfile();
   renderHeaderProfile();
+  renderJournal();
+  renderLeadership();
   renderMyAssignment();
   renderEvents();
   renderDashboard();
@@ -669,7 +735,7 @@ function applyRoleVisibility() {
   });
   if (state.permissions.isMember) {
     const activeView = document.querySelector(".view.active")?.id;
-    const memberViews = ["myAssignment", "dashboard", "events", "allianceWeeklyEvents", "themeWeek", "history", "strategyTimeline", "userProfile"];
+    const memberViews = ["myAssignment", "dashboard", "events", "allianceWeeklyEvents", "themeWeek", "history", "strategyTimeline", "userProfile", "playerJournal"];
     if (!memberViews.includes(activeView)) {
       document.querySelectorAll(".sidebar button, .view").forEach((item) => item.classList.remove("active"));
       document.querySelector("[data-view='myAssignment']").classList.add("active");
@@ -699,12 +765,160 @@ function renderUserProfile() {
       <form id="ownProfileForm" class="member-profile-details">
         <p class="eyebrow">Member profile</p>
         <h3>${escapeHtml(player.gameName)}</h3>
-        <label>Member title<input name="profileTitle" maxlength="60" value="${escapeHtml(user.profileTitle || "Alliance Member")}"></label>
-        <label>Member bio<textarea name="profileBio" maxlength="400" placeholder="Add a short alliance or battle profile.">${escapeHtml(user.profileBio || "")}</textarea></label>
+        ${user.profileSetupCompletedAt ? "" : `<p class="weekly-notice">Complete your title and description to finish account setup.</p>`}
+        <label>Member title<input name="profileTitle" maxlength="60" value="${escapeHtml(user.profileTitle || "Alliance Member")}" required></label>
+        <label>Member description<textarea name="profileBio" maxlength="400" placeholder="Add a short alliance or battle profile." required>${escapeHtml(user.profileBio || "")}</textarea></label>
         <button class="primary-button" type="submit">Save My Profile</button>
       </form>
     </article>
   `;
+}
+
+function renderJournal() {
+  const entries = state.myJournal || [];
+  elements.journalEntries.innerHTML = entries.map((entry) => {
+    const week = (state.vsWeeks || []).find((item) => item.id === entry.vsWeekId);
+    const schedule = entry.type === "plan" && week
+      ? `<p class="journal-schedule">${vsWeekDays(week.beginDate).map((day) => `${day.label} ${day.shortDate}`).join(" · ")}</p><small>EWAR vs ${escapeHtml(week.opponent)}</small>`
+      : "";
+    const label = entry.type === "plan" ? "VS Week Plan" : entry.type === "goal" ? "Goal" : "Note";
+    return `<article class="panel journal-entry journal-${escapeHtml(entry.type)}">
+      <div class="journal-entry-heading"><span>${label}</span><small>Updated ${escapeHtml(formatDateTime(entry.updatedAt))}</small></div>
+      <h3>${escapeHtml(entry.title)}</h3>
+      ${schedule}
+      <p>${escapeHtml(entry.text)}</p>
+      <div class="journal-actions">
+        <button class="secondary-button" type="button" data-edit-journal="${escapeHtml(entry.id)}">Edit</button>
+        <button class="danger-button" type="button" data-delete-journal="${escapeHtml(entry.id)}">Delete</button>
+      </div>
+    </article>`;
+  }).join("") || `<div class="panel journal-empty"><h3>Your journal is ready.</h3><p>Create a private note, plan your VS week, or set a personal goal.</p></div>`;
+}
+
+function openVsWeekPlan() {
+  const week = (state.vsWeeks || []).find((item) => item.id === selectedVsWeekId);
+  if (!week) return setStatus("Select a VS week first", true);
+  showView("playerJournal");
+  const form = elements.journalForm;
+  form.reset();
+  form.elements.type.value = "plan";
+  form.elements.vsWeekId.value = week.id;
+  form.elements.title.value = `EWAR vs ${week.opponent} · Week plan`;
+  form.elements.text.value = `Scoring focus for ${vsWeekDays(week.beginDate).map((day) => `${day.label} ${day.shortDate}`).join(", ")}:\n`;
+  form.elements.text.focus();
+}
+
+async function saveJournalEntry(event) {
+  event.preventDefault();
+  try {
+    await api.saveJournalItem(Object.fromEntries(new FormData(event.currentTarget)));
+    event.currentTarget.reset();
+    await refreshState();
+    showView("playerJournal");
+    setStatus("Private journal entry saved");
+  } catch (error) { setStatus(error.message, true); }
+}
+
+function resetJournalEditor() {
+  elements.journalForm.elements.id.value = "";
+  elements.journalForm.elements.vsWeekId.value = "";
+}
+
+async function handleJournalEntryClick(event) {
+  const editButton = event.target.closest("[data-edit-journal]");
+  const deleteButton = event.target.closest("[data-delete-journal]");
+  const id = editButton?.dataset.editJournal || deleteButton?.dataset.deleteJournal;
+  if (!id) return;
+  const entry = (state.myJournal || []).find((item) => item.id === id);
+  if (!entry) return;
+  if (deleteButton) {
+    if (!confirm(`Delete "${entry.title}" from your private journal?`)) return;
+    try {
+      await api.deleteJournalItem(id);
+      await refreshState();
+      showView("playerJournal");
+      setStatus("Journal entry deleted");
+    } catch (error) { setStatus(error.message, true); }
+    return;
+  }
+  const form = elements.journalForm;
+  form.elements.id.value = entry.id;
+  form.elements.vsWeekId.value = entry.vsWeekId || "";
+  form.elements.type.value = entry.type;
+  form.elements.title.value = entry.title;
+  form.elements.text.value = entry.text;
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderLeadership() {
+  if (!state.permissions.isOfficer || !state.leadership) return;
+  for (const category of ["roles", "strategy", "improvements", "weekly"]) {
+    const requestPanel = elements.leadership.querySelector(`[data-leadership-request="${category}"]`);
+    const recipientOptions = (state.officerRecipients || []).map((recipient) =>
+      `<option value="${escapeHtml(recipient.uid)}">${escapeHtml(recipient.displayName)} · ${escapeHtml(recipient.role)}</option>`
+    ).join("");
+    const requests = (state.leadership.requests || []).filter((request) => request.category === category);
+    requestPanel.innerHTML = `<details class="leadership-request-box">
+      <summary>Request a meeting</summary>
+      <form data-leadership-request-form="${category}">
+        <label>Request from<select name="recipientUid"><option value="all">All officers and administrators</option>${recipientOptions}</select></label>
+        <label>Reason / topic<textarea name="topic" maxlength="500" required placeholder="What should the leadership meeting cover?"></textarea></label>
+        <button class="secondary-button">Send meeting request</button>
+      </form>
+      <div class="leadership-request-list">${requests.map((request) => `<article><strong>${escapeHtml(request.requestedByName)}</strong><span> requested ${escapeHtml(request.recipientName)}</span><small>${escapeHtml(formatDateTime(request.createdAt))}</small><p>${escapeHtml(request.topic)}</p></article>`).join("") || `<p class="muted">No meeting requests in this category.</p>`}</div>
+    </details>`;
+    const feed = elements.leadership.querySelector(`[data-leadership-feed="${category}"]`);
+    const posts = (state.leadership.posts || []).filter((post) => post.category === category);
+    feed.innerHTML = posts.map((post) => `<article class="leadership-message">
+      ${memberMiniProfile({ id: post.playerId, name: post.playerName, profileImage: post.profileImage }, formatDateTime(post.createdAt))}
+      <p>${escapeHtml(post.text)}</p>
+      ${post.userId === state.me.uid || state.permissions.isAdministrator ? `<button class="danger-button" type="button" data-delete-leadership-post="${escapeHtml(post.id)}">Delete</button>` : ""}
+    </article>`).join("") || `<p class="muted">No shared leadership notes yet.</p>`;
+  }
+  for (const category of ["strategy", "weekly"]) {
+    const meeting = state.leadership.meetings?.[category];
+    const card = elements.leadership.querySelector(`[data-leadership-meeting-card="${category}"]`);
+    card.innerHTML = meeting ? `<article class="leadership-meeting-card">
+      <span>Scheduled leadership session</span><strong>${escapeHtml(meeting.date)} · ${escapeHtml(meeting.time)}</strong>
+      <small>20 minutes</small><p>${escapeHtml(meeting.agenda || "Agenda to be confirmed.")}</p>
+    </article>` : `<p class="muted">No meeting scheduled.</p>`;
+    const form = elements.leadership.querySelector(`[data-leadership-meeting="${category}"]`);
+    if (meeting) {
+      form.elements.date.value = meeting.date;
+      form.elements.time.value = meeting.time;
+      form.elements.agenda.value = meeting.agenda || "";
+    }
+  }
+}
+
+async function handleLeadershipSubmit(event) {
+  const meetingForm = event.target.closest("[data-leadership-meeting]");
+  const postForm = event.target.closest("[data-leadership-post]");
+  const requestForm = event.target.closest("[data-leadership-request-form]");
+  if (!meetingForm && !postForm && !requestForm) return;
+  event.preventDefault();
+  try {
+    const form = Object.fromEntries(new FormData(event.target));
+    if (meetingForm) await api.scheduleLeadershipMeeting({ ...form, category: meetingForm.dataset.leadershipMeeting });
+    else if (requestForm) await api.requestLeadershipMeeting({ ...form, category: requestForm.dataset.leadershipRequestForm });
+    else await api.addLeadershipPost({ ...form, category: postForm.dataset.leadershipPost });
+    if (postForm || requestForm) event.target.reset();
+    await refreshState();
+    showView("leadership");
+    setStatus(meetingForm ? "20-minute leadership meeting scheduled" : requestForm ? "Leadership meeting request sent" : "Leadership collaboration updated");
+  } catch (error) { setStatus(error.message, true); }
+}
+
+async function handleLeadershipClick(event) {
+  const button = event.target.closest("[data-delete-leadership-post]");
+  if (!button) return;
+  if (!confirm("Delete this leadership note?")) return;
+  try {
+    await api.deleteLeadershipPost(button.dataset.deleteLeadershipPost);
+    await refreshState();
+    showView("leadership");
+    setStatus("Leadership note deleted");
+  } catch (error) { setStatus(error.message, true); }
 }
 
 async function handleOwnProfileSave(event) {
@@ -1202,10 +1416,56 @@ function renderDashboard() {
 
   elements.readinessPanels.innerHTML = [readinessPanel("A", readinessA), readinessPanel("B", readinessB)].join("");
   elements.announcementList.innerHTML = (state.announcements || []).map((announcement) => `<article class="panel announcement-card">
-    <div><p class="eyebrow">${escapeHtml(formatDateTime(announcement.createdAt))}</p><h3>${escapeHtml(announcement.title)}</h3><p>${escapeHtml(announcement.summary)}</p></div>
+    <div>
+      <p class="eyebrow">Posted by ${escapeHtml(announcement.createdByName || "EWAR Officer")} · ${escapeHtml(formatDateTime(announcement.createdAt))}</p>
+      <h3>${escapeHtml(announcement.title)}</h3><p>${escapeHtml(announcement.summary)}</p>
+    </div>
     ${announcement.attachment ? (announcement.attachment.startsWith("data:image/") ? `<img src="${announcement.attachment}" alt="">` : `<a class="secondary-button" href="${announcement.attachment}" download="${escapeHtml(announcement.attachmentName || "attachment")}">Download attachment</a>`) : ""}
+    <div class="announcement-feedback">
+      <button class="secondary-button ${announcement.markedHelpful ? "is-active" : ""}" type="button" data-announcement-helpful="${escapeHtml(announcement.id)}">Helpful · ${Number(announcement.helpfulCount || 0)}</button>
+      <span>${(announcement.replies || []).length} ${(announcement.replies || []).length === 1 ? "reply" : "replies"}</span>
+    </div>
+    <div class="announcement-replies">
+      ${(announcement.replies || []).map((reply) => `<div class="announcement-reply">${memberMiniProfile({ id: reply.playerId, name: reply.playerName, profileImage: reply.profileImage }, formatDateTime(reply.createdAt))}<p>${escapeHtml(reply.text)}</p></div>`).join("")}
+      <div class="announcement-reply-editor">
+        <input type="text" maxlength="500" placeholder="Reply to this announcement" data-announcement-reply-text="${escapeHtml(announcement.id)}">
+        <button class="secondary-button" type="button" data-announcement-reply="${escapeHtml(announcement.id)}">Reply</button>
+      </div>
+    </div>
     ${state.permissions.isOfficer ? `<button class="danger-button" type="button" data-delete-announcement="${escapeHtml(announcement.id)}">Delete</button>` : ""}
   </article>`).join("") || emptyState("No Ewar announcements posted.");
+  elements.privateMessageRecipient.innerHTML = `<option value="">Choose a member</option>${(state.messageRecipients || []).map((member) =>
+    `<option value="${escapeHtml(member.uid)}">${escapeHtml(member.name)}</option>`
+  ).join("")}`;
+  elements.privateMessageList.innerHTML = [...(state.privateMessages || [])].reverse().map((message) =>
+    `<div class="community-message ${message.direction}"><strong>${message.direction === "sent" ? `To ${escapeHtml(message.recipientName)}` : `From ${escapeHtml(message.senderName)}`}</strong><small>${escapeHtml(formatDateTime(message.createdAt))}</small><p>${escapeHtml(message.text)}</p></div>`
+  ).join("") || `<p class="muted">No private messages yet.</p>`;
+  elements.dailyChatDate.textContent = `${state.dailyChatDate || "Today"} · resets daily`;
+  elements.dailyChatList.innerHTML = (state.dailyChat || []).map((message) =>
+    `<div class="community-message">${memberMiniProfile({ id: message.playerId, name: message.playerName, profileImage: message.profileImage }, formatDateTime(message.createdAt))}<p>${escapeHtml(message.text)}</p></div>`
+  ).join("") || `<p class="muted">No team chat messages today.</p>`;
+}
+
+async function handlePrivateMessageSubmit(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  try {
+    await api.sendPrivateMessage({ recipientUid: form.get("recipientUid"), text: form.get("text") });
+    event.currentTarget.reset();
+    await refreshState();
+    setStatus("Private message sent");
+  } catch (error) { setStatus(error.message, true); }
+}
+
+async function handleDailyChatSubmit(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  try {
+    await api.postDailyChat(form.get("text"));
+    event.currentTarget.reset();
+    await refreshState();
+    setStatus("Team chat message posted");
+  } catch (error) { setStatus(error.message, true); }
 }
 
 async function postAnnouncement(event) {
@@ -1234,10 +1494,23 @@ async function postAnnouncement(event) {
 }
 
 async function handleAnnouncementClick(event) {
-  const button = event.target.closest("[data-delete-announcement]");
-  if (!button || !confirm("Delete this announcement?")) return;
-  try { await api.deleteAnnouncement(button.dataset.deleteAnnouncement); await refreshState(); }
-  catch (error) { setStatus(error.message, true); }
+  const deleteButton = event.target.closest("[data-delete-announcement]");
+  const helpfulButton = event.target.closest("[data-announcement-helpful]");
+  const replyButton = event.target.closest("[data-announcement-reply]");
+  if (!deleteButton && !helpfulButton && !replyButton) return;
+  try {
+    if (deleteButton) {
+      if (!confirm("Delete this announcement?")) return;
+      await api.deleteAnnouncement(deleteButton.dataset.deleteAnnouncement);
+    } else if (helpfulButton) {
+      await api.toggleAnnouncementHelpful(helpfulButton.dataset.announcementHelpful);
+    } else {
+      const id = replyButton.dataset.announcementReply;
+      const input = elements.announcementList.querySelector(`[data-announcement-reply-text="${CSS.escape(id)}"]`);
+      await api.replyToAnnouncement(id, input?.value || "");
+    }
+    await refreshState();
+  } catch (error) { setStatus(error.message, true); }
 }
 
 function renderDirectory() {
@@ -1254,12 +1527,7 @@ function renderDirectory() {
       if (filter === "reserve") return member.team === "Reserve";
       return true;
     });
-  const teamOrder = { A: 0, B: 1, Reserve: 2 };
-  members.sort((left, right) =>
-    (teamOrder[left.team] ?? 9) - (teamOrder[right.team] ?? 9)
-    || Number(String(left.rank).replace(/\D/g, "")) - Number(String(right.rank).replace(/\D/g, ""))
-    || left.name.localeCompare(right.name)
-  );
+  members.sort(masterRosterComparator);
   let previousGroup = "";
   const rows = members.map((member) => {
     const group = `${member.team} · ${member.rank || "No rank"}`;
@@ -1280,6 +1548,17 @@ function renderDirectory() {
     <article><span>Confirmed</span><strong>${confirmedMembers.length}/${selectedMembers.length}</strong><small>Selected players signed up</small></article>
   `;
   elements.directoryRows.innerHTML = `${lockRow}${rows || `<tr><td colspan="9">No members match this view.</td></tr>`}`;
+}
+
+function masterRosterComparator(left, right) {
+  const rankOrder = { R5: 0, R4: 1, R3: 2, R2: 3, R1: 4 };
+  const teamOrder = { A: 0, B: 1, Reserve: 2 };
+  const leftRank = String(left.rank || "").trim().toUpperCase();
+  const rightRank = String(right.rank || "").trim().toUpperCase();
+  return (rankOrder[leftRank] ?? 9) - (rankOrder[rightRank] ?? 9)
+    || (teamOrder[left.team] ?? 9) - (teamOrder[right.team] ?? 9)
+    || String(left.name || "").localeCompare(String(right.name || ""), undefined, { sensitivity: "base", numeric: true })
+    || String(left.id || "").localeCompare(String(right.id || ""));
 }
 
 function renderTeams() {
@@ -2273,9 +2552,13 @@ function renderVsScores() {
   ).join("") || `<option value="">No VS week created</option>`;
   const days = week ? vsWeekDays(week.beginDate) : [];
   if (!days.some((day) => day.date === selectedVsDate)) selectedVsDate = days[0]?.date || "";
-  elements.vsDayNavigation.innerHTML = days.map((day) =>
-    `<button class="${day.date === selectedVsDate ? "primary-button" : "secondary-button"}" type="button" data-vs-day="${day.date}">${day.label}<small>${day.shortDate}</small></button>`
-  ).join("");
+  elements.vsDayNavigation.innerHTML = days.map((day) => {
+    const dayResult = week?.dailyResults?.[day.date];
+    const resultStyle = !dayResult || Number(dayResult.ourScore) === Number(dayResult.opponentScore)
+      ? ""
+      : Number(dayResult.ourScore) > Number(dayResult.opponentScore) ? "vs-day-win" : "vs-day-loss";
+    return `<button class="${day.date === selectedVsDate ? "primary-button" : "secondary-button"} ${resultStyle}" type="button" data-vs-day="${day.date}">${day.label}<small>${day.shortDate}</small></button>`;
+  }).join("");
   elements.vsScoreDate.innerHTML = days.map((day) =>
     `<option value="${day.date}" ${day.date === selectedVsDate ? "selected" : ""}>${day.label} · ${day.date}</option>`
   ).join("");
@@ -2283,7 +2566,8 @@ function renderVsScores() {
   manualDate.value = selectedVsDate;
   elements.vsImportButton.disabled = !week;
   elements.vsManualForm.querySelector("button").disabled = !week;
-  elements.vsDailyResultForm.querySelector("button").disabled = !week;
+  const vsScoreSaveButton = elements.vsDailyResultForm.querySelector("button");
+  if (vsScoreSaveButton) vsScoreSaveButton.disabled = !week;
   elements.vsPlayerSelect.innerHTML = `<option value="">Choose roster player</option>${state.players
     .filter((player) => player.active !== false)
     .sort((left, right) => left.gameName.localeCompare(right.gameName))
@@ -2302,17 +2586,47 @@ function renderVsScores() {
   }
   const ranking = [...byPlayer.values()].sort((left, right) => right.total - left.total || left.name.localeCompare(right.name));
   const total = scores.reduce((sum, entry) => sum + Number(entry.score || 0), 0);
+  const submittedDates = [...new Set(scores.map((entry) => entry.date).filter((date) => days.some((day) => day.date === date)))];
+  const weeklyDailyAverage = submittedDates.length ? Math.round(total / submittedDates.length) : 0;
+  const aboveTargetCounts = submittedDates.map((date) =>
+    scores.filter((entry) => entry.date === date && Number(entry.score) >= 7_200_000).length
+  );
+  const averageAboveTarget = aboveTargetCounts.length
+    ? aboveTargetCounts.reduce((sum, count) => sum + count, 0) / aboveTargetCounts.length
+    : 0;
   const result = week?.dailyResults?.[selectedVsDate] || { ourScore: 0, opponentScore: 0 };
   const published = Boolean(week?.publishedDays?.[selectedVsDate]);
   const outcome = Number(result.ourScore) === Number(result.opponentScore) ? "Pending" : Number(result.ourScore) > Number(result.opponentScore) ? "Win" : "Loss";
   const resultClass = outcome === "Win" ? "vs-win" : outcome === "Loss" ? "vs-loss" : "vs-pending";
+  const weeklyTeamTotals = days.reduce((totals, day) => {
+    const dailyResult = week?.dailyResults?.[day.date];
+    if (!dailyResult) return totals;
+    totals.ewar += Number(dailyResult.ourScore || 0);
+    totals.opponent += Number(dailyResult.opponentScore || 0);
+    return totals;
+  }, { ewar: 0, opponent: 0 });
   elements.vsMatchupHeader.innerHTML = week ? `<article class="panel vs-matchup-header ${resultClass}">
-    <div><p class="eyebrow">${escapeHtml(duelGroup?.code || "Duel League")} · Week ${week.duelLeagueWeek}/4 · ${escapeHtml(days.find((day) => day.date === selectedVsDate)?.label || "")} · ${escapeHtml(selectedVsDate)}</p><h3>EWAR vs ${escapeHtml(week.opponent)}</h3><p>Server ${escapeHtml(week.server)} · ${week.opponentMembers} opponent members</p></div>
-    <div class="vs-final-score"><span>${published ? `Published · ${outcome}` : outcome}</span><strong>${Number(result.ourScore).toLocaleString()} – ${Number(result.opponentScore).toLocaleString()}</strong></div>
+    <div class="vs-scoreboard-context">
+      <p class="eyebrow">${escapeHtml(duelGroup?.code || "Duel League")} · Week ${week.duelLeagueWeek}/4 · ${escapeHtml(days.find((day) => day.date === selectedVsDate)?.label || "")} · ${escapeHtml(selectedVsDate)}</p>
+      <span>Server ${escapeHtml(week.server)} · ${week.opponentMembers} opponent members${published ? " · Published" : ""}</span>
+    </div>
+    <div class="vs-scoreboard-team vs-scoreboard-ewar ${outcome === "Win" ? "vs-team-leading" : outcome === "Loss" ? "vs-team-trailing" : ""}">
+      <h3>EWAR</h3>
+      <label>Daily team points<input name="ourScore" type="number" min="0" value="${Number(result.ourScore || 0)}" required aria-label="EWAR daily team points"></label>
+      <small>Weekly total · ${weeklyTeamTotals.ewar.toLocaleString()}</small>
+    </div>
+    <div class="vs-scoreboard-outcome"><span>${outcome}</span><small>Highest daily score wins</small>${state.permissions.isOfficer ? `<button class="primary-button" type="submit">${published ? "Scores locked" : "Save scores"}</button>` : ""}</div>
+    <div class="vs-scoreboard-team vs-scoreboard-opponent ${outcome === "Loss" ? "vs-team-leading" : outcome === "Win" ? "vs-team-trailing" : ""}">
+      <h3>${escapeHtml(week.opponent || "Opponent")}</h3>
+      <label>Daily team points<input name="opponentScore" type="number" min="0" value="${Number(result.opponentScore || 0)}" required aria-label="${escapeHtml(week.opponent || "Opponent")} daily team points"></label>
+      <small>Weekly total · ${weeklyTeamTotals.opponent.toLocaleString()}</small>
+    </div>
   </article>` : emptyState("Create a VS week in the Create tab to begin scoring.");
   elements.vsDailyResultForm.querySelector("[name='ourScore']").value = Number(result.ourScore || 0);
   elements.vsDailyResultForm.querySelector("[name='opponentScore']").value = Number(result.opponentScore || 0);
-  elements.vsDailyResultForm.querySelectorAll("input, button").forEach((control) => { control.disabled = !week || published; });
+  elements.vsDailyResultForm.querySelectorAll("input, button").forEach((control) => {
+    control.disabled = !week || published || !state.permissions.isOfficer;
+  });
   elements.vsImportButton.disabled = !week || published;
   elements.vsManualForm.querySelectorAll("select, input, button").forEach((control) => { control.disabled = !week || published; });
   elements.vsDuelGroupReference.innerHTML = week
@@ -2328,29 +2642,35 @@ function renderVsScores() {
     ? `${week.standings.length} alliances imported for this VS week.`
     : "No standings imported for this week.";
   elements.vsSummary.innerHTML = `
-    <article class="summary-card"><span>Ranked players</span><strong>${ranking.length}</strong></article>
-    <article class="summary-card"><span>Selected day entries</span><strong>${dailyScores.length}</strong></article>
-    <article class="summary-card"><span>Total VS score</span><strong>${total.toLocaleString()}</strong></article>
-    <article class="summary-card"><span>Current leader</span><strong>${escapeHtml(ranking[0]?.name || "—")}</strong></article>`;
-  elements.vsRankingRows.innerHTML = ranking.map((record, index) => {
-    const latest = [...record.entries].sort((left, right) => right.date.localeCompare(left.date))[0];
-    return `<tr><td><strong>#${index + 1}</strong></td><td>${escapeHtml(record.name)}</td><td><strong>${record.total.toLocaleString()}</strong></td><td>${record.entries.length}</td><td>${Math.round(record.total / record.entries.length).toLocaleString()}</td><td>${Number(latest.score).toLocaleString()} <small>${escapeHtml(latest.date)}</small></td></tr>`;
-  }).join("") || `<tr><td colspan="6">No VS scores have been recorded yet.</td></tr>`;
+    <article class="summary-card"><span>Scoring days submitted</span><strong>${submittedDates.length}/6</strong><small>${submittedDates.length === 6 ? "Ready for day 7 finalization" : `${6 - submittedDates.length} scoring days remaining`}</small></article>
+    <article class="summary-card"><span>EWAR VS weekly average</span><strong>${weeklyDailyAverage.toLocaleString()}</strong><small>Average team total per submitted day</small></article>
+    <article class="summary-card"><span>Members ≥ 7,200,000</span><strong>${averageAboveTarget.toFixed(1)}</strong><small>Average number per submitted day</small></article>
+    <article class="summary-card"><span>Selected day entries</span><strong>${dailyScores.length}</strong><small>${escapeHtml(days.find((day) => day.date === selectedVsDate)?.label || "")}</small></article>`;
+  elements.vsTopThree.innerHTML = ranking.slice(0, 3).map((record, index) =>
+    `<article><span>#${index + 1}</span><strong>${escapeHtml(record.name)}</strong><span>${record.total.toLocaleString()} total</span><small>${record.entries.length}/6 days · ${Math.round(record.total / record.entries.length).toLocaleString()} daily avg</small></article>`
+  ).join("") || `<p class="muted">Top members will appear after scores are submitted.</p>`;
   const daily = [...dailyScores].sort((left, right) => Number(right.score) - Number(left.score));
-  elements.vsDailyTables.innerHTML = week ? `<section class="panel vs-daily-panel"><div class="assignment-heading"><h3>${escapeHtml(days.find((day) => day.date === selectedVsDate)?.label || "")} Player Scores</h3><span>${daily.reduce((sum, entry) => sum + Number(entry.score), 0).toLocaleString()} total</span></div>
+  const selectedDayAverage = daily.length ? daily.reduce((sum, entry) => sum + Number(entry.score), 0) / daily.length : 0;
+  const filteredDaily = selectedVsScoreFilter === "top10" ? daily.slice(0, 10)
+    : selectedVsScoreFilter === "above-average" ? daily.filter((entry) => Number(entry.score) >= selectedDayAverage)
+    : selectedVsScoreFilter === "below-average" ? daily.filter((entry) => Number(entry.score) < selectedDayAverage)
+    : selectedVsScoreFilter === "below-target" ? daily.filter((entry) => Number(entry.score) < 7_200_000)
+    : daily;
+  elements.vsScoreFilter.value = selectedVsScoreFilter;
+  elements.vsDailyTables.innerHTML = week ? `<section class="vs-daily-panel"><div class="assignment-heading"><h3>${escapeHtml(days.find((day) => day.date === selectedVsDate)?.label || "")} Member Scores</h3><span>${filteredDaily.length} shown · team avg ${Math.round(selectedDayAverage).toLocaleString()}</span></div>
       <div class="table-frame"><table><thead><tr><th>Daily rank</th><th>Player</th><th>Score</th><th>Source</th>${state.permissions.isOfficer ? "<th>Action</th>" : ""}</tr></thead>
-      <tbody>${daily.map((entry, index) => `<tr><td>#${index + 1}</td><td>${escapeHtml(entry.playerName)}</td><td>${Number(entry.score).toLocaleString()}</td><td>${escapeHtml(entry.source)}</td>${state.permissions.isOfficer ? `<td>${published ? "Locked" : `<button class="danger-button" type="button" data-delete-vs-score="${escapeHtml(entry.id)}">Delete</button>`}</td>` : ""}</tr>`).join("")}</tbody></table></div></section>`
+      <tbody>${filteredDaily.map((entry) => `<tr><td>#${daily.indexOf(entry) + 1}</td><td>${escapeHtml(entry.playerName)}</td><td>${Number(entry.score).toLocaleString()}</td><td>${escapeHtml(entry.source)}</td>${state.permissions.isOfficer ? `<td>${published ? "Locked" : `<button class="danger-button" type="button" data-delete-vs-score="${escapeHtml(entry.id)}">Delete</button>`}</td>` : ""}</tr>`).join("") || `<tr><td colspan="${state.permissions.isOfficer ? 5 : 4}">No scores match this filter.</td></tr>`}</tbody></table></div></section>`
   : "";
 }
 
 function duelRankingTable(rankings = [], editable = false) {
-  const rowCount = editable ? Math.max(10, rankings.length) : rankings.length;
+  const rowCount = editable ? 16 : Math.min(16, rankings.length);
   const rows = rankings.length || editable
     ? Array.from({ length: rowCount }, (_, index) => rankings[index] || ({ rank: index + 1, alliance: "", weeks: [] }))
     : [];
-  if (!rows.length) return `<div class="table-frame duel-ranking-table"><table><thead><tr><th>Ranking</th><th>Alliance</th><th>Week 1</th><th>Week 2</th><th>Week 3</th><th>Week 4</th></tr></thead><tbody>${Array.from({ length: 8 }, (_, index) => `<tr><td>#${index + 1}</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>`).join("")}</tbody></table></div>`;
+  if (!rows.length) return `<div class="table-frame duel-ranking-table"><table><thead><tr><th>Ranking</th><th>Alliance</th><th>Week 1</th><th>Week 2</th><th>Week 3</th><th>Week 4</th></tr></thead><tbody>${Array.from({ length: 16 }, (_, index) => `<tr><td>#${index + 1}</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>`).join("")}</tbody></table></div>`;
   return `<div class="table-frame duel-ranking-table"><table><thead><tr><th>Ranking</th><th>Alliance</th><th>Week 1</th><th>Week 2</th><th>Week 3</th><th>Week 4</th></tr></thead>
-    <tbody>${rows.map((row, rowIndex) => `<tr data-vs-standing-row><td>${editable ? `<input data-standing-rank type="number" min="1" value="${Number(row.rank || rowIndex + 1)}">` : `#${Number(row.rank)}`}</td><td>${editable ? `<input data-standing-alliance value="${escapeHtml(row.alliance || "")}" placeholder="Alliance name">` : escapeHtml(row.alliance || "—")}</td>${Array.from({ length: 4 }, (_, index) => {
+    <tbody>${rows.map((row, rowIndex) => `<tr data-vs-standing-row><td>${editable ? `<input data-standing-rank type="number" value="${rowIndex + 1}" readonly>` : `#${rowIndex + 1}`}</td><td>${editable ? `<input data-standing-alliance value="${escapeHtml(row.alliance || "")}" placeholder="[TAG] Alliance name">` : escapeHtml(row.alliance || "—")}</td>${Array.from({ length: 4 }, (_, index) => {
       const outcome = row.weeks?.[index] || "";
       return editable
         ? `<td><select data-standing-week="${index}"><option value="">—</option><option value="W" ${outcome === "W" ? "selected" : ""}>W</option><option value="L" ${outcome === "L" ? "selected" : ""}>L</option></select></td>`
@@ -2534,7 +2854,7 @@ function fillVsStandingsFromPaste() {
   const rows = [...elements.vsDuelGroupReference.querySelectorAll("[data-vs-standing-row]")];
   rows.forEach((row, index) => {
     const value = parsed[index] || { rank: index + 1, alliance: "", weeks: [] };
-    row.querySelector("[data-standing-rank]").value = value.rank;
+    row.querySelector("[data-standing-rank]").value = index + 1;
     row.querySelector("[data-standing-alliance]").value = value.alliance;
     row.querySelectorAll("[data-standing-week]").forEach((select, weekIndex) => {
       select.value = value.weeks[weekIndex] || "";

@@ -133,6 +133,10 @@ export function migrateLegacyState(input, actor = {}) {
       vsScores: input?.vsScores || [],
       vsWeeks: input?.vsWeeks || {},
       duelLeagueGroups: input?.duelLeagueGroups || {},
+      privateMessages: input?.privateMessages || [],
+      dailyChats: input?.dailyChats || {},
+      userJournals: input?.userJournals || {},
+      leadership: input?.leadership || { meetings: {}, posts: [], requests: [] },
       systemSettings: input?.systemSettings || { invitationCodes: [] },
       migrations: { ...(input?.migrations || {}), [MIGRATION_ID]: { completedAt: timestamp, report } }
     }),
@@ -162,6 +166,10 @@ export function normalizeState(input = {}) {
     memberNotices: Array.isArray(input.memberNotices) ? input.memberNotices : [],
     officerQuestions: Array.isArray(input.officerQuestions) ? input.officerQuestions : [],
     announcements: Array.isArray(input.announcements) ? input.announcements : [],
+    privateMessages: Array.isArray(input.privateMessages) ? input.privateMessages : [],
+    dailyChats: input.dailyChats && typeof input.dailyChats === "object" ? input.dailyChats : {},
+    userJournals: input.userJournals && typeof input.userJournals === "object" ? input.userJournals : {},
+    leadership: input.leadership && typeof input.leadership === "object" ? input.leadership : { meetings: {}, posts: [], requests: [] },
     systemSettings: input.systemSettings || { invitationCodes: [] },
     migrations: input.migrations || {}
   };
@@ -268,6 +276,7 @@ export function normalizeUser(user = {}) {
     accountPhotoUrl: user.accountPhotoUrl || "",
     profileTitle: user.profileTitle || "Alliance Member",
     profileBio: user.profileBio || "",
+    profileSetupCompletedAt: user.profileSetupCompletedAt || null,
     active: user.active !== false,
     createdAt: user.createdAt || now(),
     lastLoginAt: user.lastLoginAt || null,

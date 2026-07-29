@@ -57,7 +57,17 @@ import {
   addOfficerQuestion,
   addAnnouncement,
   acknowledgeAnnouncement,
+  replyToAnnouncement,
+  toggleAnnouncementHelpful,
   deleteAnnouncement,
+  sendPrivateMessage,
+  postDailyChatMessage,
+  saveJournalItem,
+  deleteJournalItem,
+  scheduleLeadershipMeeting,
+  addLeadershipPost,
+  requestLeadershipMeeting,
+  deleteLeadershipPost,
   saveVsScore,
   applyVsScreenshotMatches,
   deleteVsScore
@@ -179,6 +189,61 @@ async function handleApi(request, response, url) {
   const announcementAckRoute = url.pathname.match(/^\/api\/announcements\/([^/]+)\/acknowledge$/);
   if (announcementAckRoute && request.method === "POST") {
     sendJson(response, 200, await acknowledgeAnnouncement(decodeURIComponent(announcementAckRoute[1]), user));
+    return;
+  }
+  const announcementReplyRoute = url.pathname.match(/^\/api\/announcements\/([^/]+)\/replies$/);
+  if (announcementReplyRoute && request.method === "POST") {
+    sendJson(response, 201, await replyToAnnouncement(
+      decodeURIComponent(announcementReplyRoute[1]),
+      await readJsonBody(request),
+      user
+    ));
+    return;
+  }
+  const announcementHelpfulRoute = url.pathname.match(/^\/api\/announcements\/([^/]+)\/helpful$/);
+  if (announcementHelpfulRoute && request.method === "POST") {
+    sendJson(response, 200, await toggleAnnouncementHelpful(
+      decodeURIComponent(announcementHelpfulRoute[1]),
+      user
+    ));
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/private-messages") {
+    sendJson(response, 201, await sendPrivateMessage(await readJsonBody(request), user));
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/daily-chat") {
+    sendJson(response, 201, await postDailyChatMessage(await readJsonBody(request), user));
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/journal") {
+    sendJson(response, 201, await saveJournalItem(await readJsonBody(request), user));
+    return;
+  }
+  const journalRoute = url.pathname.match(/^\/api\/journal\/([^/]+)$/);
+  if (journalRoute && request.method === "DELETE") {
+    sendJson(response, 200, await deleteJournalItem(decodeURIComponent(journalRoute[1]), user));
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/leadership/meetings") {
+    requireRole(user, ROLES.OFFICER);
+    sendJson(response, 201, await scheduleLeadershipMeeting(await readJsonBody(request), user));
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/leadership/posts") {
+    requireRole(user, ROLES.OFFICER);
+    sendJson(response, 201, await addLeadershipPost(await readJsonBody(request), user));
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/leadership/requests") {
+    requireRole(user, ROLES.OFFICER);
+    sendJson(response, 201, await requestLeadershipMeeting(await readJsonBody(request), user));
+    return;
+  }
+  const leadershipPostRoute = url.pathname.match(/^\/api\/leadership\/posts\/([^/]+)$/);
+  if (leadershipPostRoute && request.method === "DELETE") {
+    requireRole(user, ROLES.OFFICER);
+    sendJson(response, 200, await deleteLeadershipPost(decodeURIComponent(leadershipPostRoute[1]), user));
     return;
   }
 

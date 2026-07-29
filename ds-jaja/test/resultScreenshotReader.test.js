@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { matchPlayersFromText } from "../src/resultScreenshotReader.js";
+import { matchPlayersFromText, parseDuelLeagueStandings } from "../src/resultScreenshotReader.js";
 
 const roster = [
   { id: "player-1", name: "NightHawk", aliases: [] },
@@ -44,4 +44,26 @@ test("matches a roster name and score on the same OCR line", () => {
   assert.equal(result.matches.length, 1);
   assert.equal(result.matches[0].memberId, "player-2");
   assert.equal(result.matches[0].score, 7654321);
+});
+
+test("ranks Duel League alliances by screenshot order when printed ranks are unreadable", () => {
+  const result = parseDuelLeagueStandings(`
+    Duel League Standings
+    [EWAR] Eternal Lords of War W L W W
+    [FURY] Fury Road L W L W
+    9 [NOVA] Nova Prime W W L L
+  `);
+
+  assert.deepEqual(result.standings.map(({ rank, alliance }) => ({ rank, alliance })), [
+    { rank: 1, alliance: "[EWAR] Eternal Lords of War" },
+    { rank: 2, alliance: "[FURY] Fury Road" },
+    { rank: 3, alliance: "[NOVA] Nova Prime" }
+  ]);
+});
+
+test("limits a Duel League OCR import to 16 ordered alliances", () => {
+  const text = Array.from({ length: 20 }, (_, index) => `[T${index + 1}] Alliance ${index + 1} W L`).join("\n");
+  const result = parseDuelLeagueStandings(text);
+  assert.equal(result.standings.length, 16);
+  assert.equal(result.standings[15].rank, 16);
 });

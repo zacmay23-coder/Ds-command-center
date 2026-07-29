@@ -1,0 +1,7 @@
+Archive/
+Archive.zip
+eng.traineddata
+server.log
+server.err.log
+coverage/
+test/

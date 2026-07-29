@@ -182,9 +182,39 @@ export async function getClientState(user) {
     officerQuestions: state.officerQuestions.filter((question) => user.role !== "member" || question.playerId === user.playerId),
     announcements: state.announcements.map((announcement) => ({
       ...announcement,
+      createdByName: announcementAuthorName(state, announcement),
+      replies: (announcement.replies || []).map((reply) => ({
+        ...reply,
+        playerName: state.players[reply.playerId]?.gameName || "Alliance member",
+        profileImage: state.players[reply.playerId]?.profileImage || ""
+      })),
+      helpfulCount: Object.keys(announcement.helpful || {}).length,
+      markedHelpful: user.playerId ? Boolean(announcement.helpful?.[user.playerId]) : false,
       acknowledgedAt: user.playerId ? announcement.acknowledgements?.[user.playerId] || null : null,
-      acknowledgements: undefined
+      acknowledgements: undefined,
+      helpful: undefined
     })),
+    messageRecipients: Object.values(state.users)
+      .filter((account) => account.active && account.playerId && account.uid !== user.uid)
+      .map((account) => ({
+        uid: account.uid,
+        playerId: account.playerId,
+        name: state.players[account.playerId]?.gameName || account.displayName || "Alliance member",
+        profileImage: state.players[account.playerId]?.profileImage || ""
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
+    privateMessages: state.privateMessages
+      .filter((message) => message.senderUid === user.uid || message.recipientUid === user.uid)
+      .slice(-500)
+      .map((message) => publicPrivateMessage(state, message, user)),
+    dailyChat: (state.dailyChats[localDateKey()] || []).slice(-300).map((message) => ({
+      ...message,
+      playerName: state.players[message.playerId]?.gameName || "Alliance member",
+      profileImage: state.players[message.playerId]?.profileImage || ""
+    })),
+    dailyChatDate: localDateKey(),
+    myJournal: Array.isArray(state.userJournals[user.uid]) ? state.userJournals[user.uid] : [],
+    leadership: ["officer", "administrator"].includes(user.role) ? publicLeadership(state, user) : undefined,
     officerRecipients: Object.values(state.users)
       .filter((account) => account.active && ["officer", "administrator"].includes(account.role))
       .map((account) => ({ uid: account.uid, displayName: account.displayName, role: account.role })),
@@ -245,6 +275,8 @@ export async function addAnnouncement(input, actor) {
     attachment: String(input.attachment || ""),
     attachmentName: String(input.attachmentName || "").slice(0, 160),
     acknowledgements: {},
+    replies: [],
+    helpful: {},
     createdAt: now(),
     createdBy: actor.uid
   };
@@ -265,6 +297,41 @@ export async function acknowledgeAnnouncement(announcementId, actor) {
   return { acknowledgedAt: announcement.acknowledgements[actor.playerId] };
 }
 
+export async function replyToAnnouncement(announcementId, input, actor) {
+  const state = await getState();
+  const announcement = state.announcements.find((item) => item.id === announcementId);
+  if (!announcement) throw statusError(404, "Announcement was not found");
+  if (!actor.playerId) throw statusError(422, "Confirm your roster profile before replying");
+  const text = String(input.text || "").trim().slice(0, 500);
+  if (!text) throw statusError(422, "Enter a reply");
+  announcement.replies ||= [];
+  const reply = {
+    id: newId("announcement-reply"),
+    playerId: actor.playerId,
+    text,
+    createdAt: now()
+  };
+  announcement.replies.push(reply);
+  announcement.replies = announcement.replies.slice(-250);
+  await saveState();
+  return reply;
+}
+
+export async function toggleAnnouncementHelpful(announcementId, actor) {
+  const state = await getState();
+  const announcement = state.announcements.find((item) => item.id === announcementId);
+  if (!announcement) throw statusError(404, "Announcement was not found");
+  if (!actor.playerId) throw statusError(422, "Confirm your roster profile before giving feedback");
+  announcement.helpful ||= {};
+  if (announcement.helpful[actor.playerId]) delete announcement.helpful[actor.playerId];
+  else announcement.helpful[actor.playerId] = now();
+  await saveState();
+  return {
+    markedHelpful: Boolean(announcement.helpful[actor.playerId]),
+    helpfulCount: Object.keys(announcement.helpful).length
+  };
+}
+
 export async function deleteAnnouncement(announcementId) {
   const state = await getState();
   const index = state.announcements.findIndex((item) => item.id === announcementId);
@@ -272,6 +339,219 @@ export async function deleteAnnouncement(announcementId) {
   state.announcements.splice(index, 1);
   await saveState();
   return { deleted: true };
+}
+
+export async function sendPrivateMessage(input, actor) {
+  const state = await getState();
+  if (!actor.playerId) throw statusError(422, "Confirm your roster profile before messaging");
+  const recipientUid = String(input.recipientUid || "");
+  const recipient = state.users[recipientUid];
+  if (!recipient?.active || !recipient.playerId || recipientUid === actor.uid) {
+    throw statusError(422, "Choose another registered member");
+  }
+  const text = String(input.text || "").trim().slice(0, 1000);
+  if (!text) throw statusError(422, "Enter a message");
+  const message = {
+    id: newId("private-message"),
+    senderUid: actor.uid,
+    recipientUid,
+    text,
+    createdAt: now()
+  };
+  state.privateMessages.push(message);
+  state.privateMessages = state.privateMessages.slice(-5000);
+  await saveState();
+  return publicPrivateMessage(state, message, actor);
+}
+
+export async function postDailyChatMessage(input, actor) {
+  const state = await getState();
+  if (!actor.playerId) throw statusError(422, "Confirm your roster profile before chatting");
+  const text = String(input.text || "").trim().slice(0, 500);
+  if (!text) throw statusError(422, "Enter a chat message");
+  const date = localDateKey();
+  state.dailyChats[date] ||= [];
+  const message = {
+    id: newId("daily-chat"),
+    playerId: actor.playerId,
+    text,
+    createdAt: now()
+  };
+  state.dailyChats[date].push(message);
+  state.dailyChats[date] = state.dailyChats[date].slice(-500);
+  for (const key of Object.keys(state.dailyChats).sort().slice(0, -7)) delete state.dailyChats[key];
+  await saveState();
+  return message;
+}
+
+export async function saveJournalItem(input, actor) {
+  const state = await getState();
+  if (!actor.playerId) throw statusError(422, "Confirm your roster profile before using the journal");
+  const type = ["note", "plan", "goal"].includes(input.type) ? input.type : "note";
+  const title = String(input.title || "").trim().slice(0, 120);
+  const text = String(input.text || "").trim().slice(0, 4000);
+  if (!title || !text) throw statusError(422, "Enter a journal title and details");
+  state.userJournals[actor.uid] ||= [];
+  const existing = input.id && state.userJournals[actor.uid].find((item) => item.id === input.id);
+  const item = existing || {
+    id: newId("journal"),
+    createdAt: now()
+  };
+  Object.assign(item, {
+    type,
+    title,
+    text,
+    vsWeekId: type === "plan" ? String(input.vsWeekId || "") : "",
+    updatedAt: now()
+  });
+  if (!existing) state.userJournals[actor.uid].unshift(item);
+  state.userJournals[actor.uid] = state.userJournals[actor.uid].slice(0, 500);
+  await saveState();
+  return item;
+}
+
+export async function deleteJournalItem(itemId, actor) {
+  const state = await getState();
+  const journal = state.userJournals[actor.uid] ||= [];
+  const index = journal.findIndex((item) => item.id === itemId);
+  if (index < 0) throw statusError(404, "Journal entry was not found");
+  journal.splice(index, 1);
+  await saveState();
+  return { deleted: true };
+}
+
+export async function scheduleLeadershipMeeting(input, actor) {
+  const state = await getState();
+  const category = ["strategy", "weekly"].includes(input.category) ? input.category : "";
+  if (!category) throw statusError(422, "Choose a valid leadership meeting");
+  const date = String(input.date || "");
+  const time = String(input.time || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) {
+    throw statusError(422, "Choose a valid meeting date and time");
+  }
+  state.leadership.meetings ||= {};
+  const existing = state.leadership.meetings[category];
+  state.leadership.meetings[category] = {
+    id: existing?.id || newId("leadership-meeting"),
+    category,
+    date,
+    time,
+    durationMinutes: 20,
+    agenda: String(input.agenda || "").trim().slice(0, 1200),
+    scheduledBy: actor.uid,
+    updatedAt: now()
+  };
+  await saveState();
+  return state.leadership.meetings[category];
+}
+
+export async function addLeadershipPost(input, actor) {
+  const state = await getState();
+  const category = ["roles", "strategy", "improvements", "weekly"].includes(input.category) ? input.category : "";
+  if (!category) throw statusError(422, "Choose a valid leadership category");
+  const text = String(input.text || "").trim().slice(0, 2000);
+  if (!text) throw statusError(422, "Enter a leadership note or message");
+  const post = {
+    id: newId("leadership-post"),
+    category,
+    playerId: actor.playerId || "",
+    userId: actor.uid,
+    text,
+    createdAt: now()
+  };
+  state.leadership.posts ||= [];
+  state.leadership.posts.push(post);
+  state.leadership.posts = state.leadership.posts.slice(-2000);
+  await saveState();
+  return post;
+}
+
+export async function requestLeadershipMeeting(input, actor) {
+  const state = await getState();
+  const category = ["roles", "strategy", "improvements", "weekly"].includes(input.category) ? input.category : "";
+  if (!category) throw statusError(422, "Choose a valid leadership category");
+  const recipientUid = String(input.recipientUid || "all");
+  if (recipientUid !== "all") {
+    const recipient = state.users[recipientUid];
+    if (!recipient?.active || !["officer", "administrator"].includes(recipient.role)) {
+      throw statusError(422, "Choose a valid officer or administrator");
+    }
+  }
+  const topic = String(input.topic || "").trim().slice(0, 500);
+  if (!topic) throw statusError(422, "Enter a reason or topic for the meeting request");
+  state.leadership.requests ||= [];
+  const request = {
+    id: newId("meeting-request"),
+    category,
+    recipientUid,
+    requestedBy: actor.uid,
+    topic,
+    createdAt: now()
+  };
+  state.leadership.requests.unshift(request);
+  state.leadership.requests = state.leadership.requests.slice(0, 1000);
+  await saveState();
+  return request;
+}
+
+export async function deleteLeadershipPost(postId, actor) {
+  const state = await getState();
+  const index = (state.leadership.posts || []).findIndex((post) => post.id === postId);
+  if (index < 0) throw statusError(404, "Leadership entry was not found");
+  const post = state.leadership.posts[index];
+  if (post.userId !== actor.uid && actor.role !== "administrator") {
+    throw statusError(403, "Only the author or an administrator can delete this entry");
+  }
+  state.leadership.posts.splice(index, 1);
+  await saveState();
+  return { deleted: true };
+}
+
+function publicLeadership(state, viewer) {
+  return {
+    meetings: state.leadership.meetings || {},
+    posts: (state.leadership.posts || []).map((post) => ({
+      ...post,
+      playerName: state.players[post.playerId]?.gameName || state.users[post.userId]?.displayName || "Leader",
+      profileImage: state.players[post.playerId]?.profileImage || ""
+    })),
+    requests: (state.leadership.requests || [])
+      .filter((request) => request.recipientUid === "all" || request.recipientUid === viewer.uid || request.requestedBy === viewer.uid)
+      .map((request) => ({
+        ...request,
+        requestedByName: state.users[request.requestedBy]?.playerId
+          ? state.players[state.users[request.requestedBy].playerId]?.gameName
+          : state.users[request.requestedBy]?.displayName || "Leader",
+        recipientName: request.recipientUid === "all"
+          ? "All officers and administrators"
+          : state.users[request.recipientUid]?.playerId
+            ? state.players[state.users[request.recipientUid].playerId]?.gameName
+            : state.users[request.recipientUid]?.displayName || "Leader"
+      }))
+  };
+}
+
+function announcementAuthorName(state, announcement) {
+  const account = state.users[announcement.createdBy];
+  const playerName = account?.playerId ? state.players[account.playerId]?.gameName : "";
+  return playerName || account?.displayName || "EWAR Officer";
+}
+
+function publicPrivateMessage(state, message, viewer) {
+  const sender = state.users[message.senderUid];
+  const recipient = state.users[message.recipientUid];
+  const senderPlayer = sender?.playerId ? state.players[sender.playerId] : null;
+  const recipientPlayer = recipient?.playerId ? state.players[recipient.playerId] : null;
+  return {
+    ...message,
+    direction: message.senderUid === viewer.uid ? "sent" : "received",
+    senderName: senderPlayer?.gameName || sender?.displayName || "Alliance member",
+    recipientName: recipientPlayer?.gameName || recipient?.displayName || "Alliance member"
+  };
+}
+
+function localDateKey() {
+  return new Date().toLocaleDateString("en-CA");
 }
 
 export async function createAllianceWeeklyEvent(input, actor) {
@@ -427,6 +707,7 @@ export async function getOrCreateUser(firebaseUser) {
       accountPhotoUrl: firebaseUser.photoUrl || "",
       profileTitle: "Alliance Member",
       profileBio: "",
+      profileSetupCompletedAt: null,
       active: true,
       createdAt: now(),
       lastLoginAt: now(),
@@ -686,6 +967,9 @@ export async function updateOwnProfile(userId, patch) {
     player.profileImage = profileImage;
   }
   user.version += 1;
+  if (String(user.profileTitle || "").trim() && String(user.profileBio || "").trim()) {
+    user.profileSetupCompletedAt ||= now();
+  }
   player.version += 1;
   player.updatedAt = now();
   addAudit(state, user, { action: "own_profile_updated", recordType: "user", recordId: userId, after: { profileTitle: user.profileTitle } });
@@ -1075,9 +1359,9 @@ export async function updateVsWeekStandings(weekId, standings, actor) {
   if (Object.keys(week.publishedDays || {}).length) throw statusError(409, "Standings for a published VS week are read-only");
   const normalized = normalizeVsWeek({ standings }).standings;
   if (!normalized.length) throw statusError(422, "No Duel League standings could be extracted");
-  week.standings = normalized;
+  week.standings = normalized.slice(0, 16).map((row, index) => ({ ...row, rank: index + 1 }));
   week.updatedAt = now();
-  addAudit(state, actor, { action: "vs_week_standings_imported", recordType: "vsWeek", recordId: week.id, after: { standings: normalized } });
+  addAudit(state, actor, { action: "vs_week_standings_imported", recordType: "vsWeek", recordId: week.id, after: { standings: week.standings } });
   await saveState();
   return week;
 }

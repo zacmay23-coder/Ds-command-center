@@ -40,6 +40,7 @@
           <span id="headerProfileAvatar"></span>
           <span id="headerProfileLabel">My Profile</span>
         </button>
+        <button id="journalTabButton" class="journal-tab-button" type="button"><span aria-hidden="true">▥</span> Player Journal</button>
         <span id="saveStatus" class="status-pill">Connecting...</span>
         <span id="connectionStatus" class="status-pill">Live: connecting</span>
         <button id="refreshButton" class="secondary-button">Refresh</button>
@@ -56,6 +57,7 @@
         <button data-view="directory">Roster</button>
         <button data-view="strategyTimeline">Tactical Map Planning</button>
         <button data-view="strategyLibrary" data-role="officer">Strategy Library</button>
+        <button data-view="leadership" data-role="officer">Leadership</button>
         <button data-view="history">History</button>
         <button data-view="administration" data-role="administrator">Administration</button>
       </nav>
@@ -69,6 +71,71 @@
             <p>Maintain the title and short bio shown with your alliance identity.</p>
           </div>
           <div id="userProfileContent"></div>
+        </section>
+
+        <section id="playerJournal" class="view">
+          <div class="section-title">
+            <h2>Player Journal</h2>
+            <p>Your private notebook for VS-week plans, personal goals, and member notes.</p>
+          </div>
+          <div class="journal-layout">
+            <form id="journalForm" class="panel journal-editor">
+              <input name="id" type="hidden">
+              <input name="vsWeekId" type="hidden">
+              <label>Entry type<select name="type"><option value="note">Note</option><option value="plan">Plan my VS week</option><option value="goal">Set my goals</option></select></label>
+              <label>Title<input name="title" maxlength="120" required></label>
+              <label>Private details<textarea name="text" maxlength="4000" required placeholder="Write your private plan, goals, reminders, or scoring focus."></textarea></label>
+              <div class="journal-actions"><button class="primary-button" type="submit">Save entry</button><button class="secondary-button" type="reset">New entry</button></div>
+            </form>
+            <div id="journalEntries" class="journal-entries"></div>
+          </div>
+        </section>
+
+        <section id="leadership" class="view" data-role="officer">
+          <div class="section-title">
+            <h2>Leadership</h2>
+            <p>Protected collaboration for officers and administrators.</p>
+          </div>
+          <div class="leadership-categories">
+            <details class="panel leadership-category" open>
+              <summary>Roles / Responsibilities</summary>
+              <div data-leadership-request="roles"></div>
+              <div data-leadership-feed="roles" class="leadership-feed"></div>
+              <form data-leadership-post="roles" class="leadership-message-form"><textarea name="text" maxlength="2000" placeholder="Document roles, ownership, and leadership responsibilities." required></textarea><button class="primary-button">Add shared note</button></form>
+            </details>
+            <details class="panel leadership-category">
+              <summary>Battle &amp; Strategy Planning</summary>
+              <div data-leadership-request="strategy"></div>
+              <form data-leadership-meeting="strategy" class="leadership-meeting-form">
+                <h3>Schedule 20-minute planning meeting</h3>
+                <label>Date<input name="date" type="date" required></label><label>Time<input name="time" type="time" required></label>
+                <label>Agenda<textarea name="agenda" maxlength="1200" placeholder="Battle plans, assignments, strategy topics, and decisions."></textarea></label>
+                <button class="primary-button">Schedule meeting</button>
+              </form>
+              <div data-leadership-meeting-card="strategy"></div>
+              <div data-leadership-feed="strategy" class="leadership-feed"></div>
+              <form data-leadership-post="strategy" class="leadership-message-form"><textarea name="text" maxlength="2000" placeholder="Live text chat or meeting notation for leaders who cannot join voice." required></textarea><button class="primary-button">Post to strategy chat</button></form>
+            </details>
+            <details class="panel leadership-category">
+              <summary>Improvements &amp; Team Engagement</summary>
+              <div data-leadership-request="improvements"></div>
+              <div data-leadership-feed="improvements" class="leadership-feed"></div>
+              <form data-leadership-post="improvements" class="leadership-message-form"><textarea name="text" maxlength="2000" placeholder="Capture improvements, engagement ideas, feedback, and follow-ups." required></textarea><button class="primary-button">Add collaboration note</button></form>
+            </details>
+            <details class="panel leadership-category">
+              <summary>Weekly Leadership Meetings</summary>
+              <div data-leadership-request="weekly"></div>
+              <form data-leadership-meeting="weekly" class="leadership-meeting-form">
+                <h3>Schedule 20-minute weekly meeting</h3>
+                <label>Date<input name="date" type="date" required></label><label>Time<input name="time" type="time" required></label>
+                <label>Agenda<textarea name="agenda" maxlength="1200" placeholder="Weekly topics, decisions required, and follow-up items."></textarea></label>
+                <button class="primary-button">Schedule meeting</button>
+              </form>
+              <div data-leadership-meeting-card="weekly"></div>
+              <div data-leadership-feed="weekly" class="leadership-feed"></div>
+              <form data-leadership-post="weekly" class="leadership-message-form"><textarea name="text" maxlength="2000" placeholder="Meeting chat and covered notations for anyone catching up later." required></textarea><button class="primary-button">Post meeting notation</button></form>
+            </details>
+          </div>
         </section>
 
         <section id="myAssignment" class="view">
@@ -125,6 +192,25 @@
           </details>
           <div class="dashboard-section-label dashboard-announcement-label"><span>Command feed</span><small>Current notices and attachments</small></div>
           <div id="announcementList" class="announcement-list"></div>
+          <div class="dashboard-community-grid">
+            <section class="panel">
+              <div class="dashboard-section-label"><span>Private messages</span><small>Visible only to sender and recipient</small></div>
+              <form id="privateMessageForm" class="community-composer">
+                <select name="recipientUid" id="privateMessageRecipient" required></select>
+                <textarea name="text" maxlength="1000" placeholder="Write a private message" required></textarea>
+                <button class="primary-button" type="submit">Send privately</button>
+              </form>
+              <div id="privateMessageList" class="community-feed"></div>
+            </section>
+            <section class="panel">
+              <div class="dashboard-section-label"><span>Daily team chat</span><small id="dailyChatDate"></small></div>
+              <form id="dailyChatForm" class="community-composer">
+                <input name="text" maxlength="500" placeholder="Message the alliance team" required>
+                <button class="primary-button" type="submit">Post</button>
+              </form>
+              <div id="dailyChatList" class="community-feed"></div>
+            </section>
+          </div>
           <div class="dashboard-section-label dashboard-readiness-label"><span>Battle readiness</span><small>Team A and Team B</small></div>
           <div id="readinessPanels" class="readiness-grid"></div>
         </section>
@@ -151,7 +237,7 @@
         <section id="vsEvents" class="view">
           <div class="section-title">
             <h2>VS Daily Scores</h2>
-            <p>Capture daily VS screenshots, supplement them with roster-linked entries, and track cumulative rankings.</p>
+            <p>Capture Monday–Saturday VS scores, monitor weekly team performance, and finalize submissions on day seven.</p>
           </div>
           <div class="event-hub-selector panel">
             <button class="secondary-button" type="button" data-event-subview="events">DS</button>
@@ -162,13 +248,10 @@
           <div class="panel vs-week-controls">
             <label>VS week<select id="vsWeekSelect"></select></label>
             <div id="vsDayNavigation" class="vs-day-navigation" aria-label="VS scoring day"></div>
+            <button id="planVsWeekButton" class="journal-plan-button" type="button">Plan my VS Week</button>
           </div>
-          <div id="vsMatchupHeader"></div>
-          <form id="vsDailyResultForm" class="panel vs-result-form" data-role="officer">
-            <h3>Daily Team Result</h3>
-            <label>Our team total<input name="ourScore" type="number" min="0" required></label>
-            <label>Opponent total<input name="opponentScore" type="number" min="0" required></label>
-            <button class="primary-button" type="submit">Save Final Result</button>
+          <form id="vsDailyResultForm" class="vs-scoreboard-form">
+            <div id="vsMatchupHeader"></div>
           </form>
           <div class="screenshot-import panel" data-role="officer">
             <div><h3>Import Daily VS Screenshot</h3><p class="muted">Scores matched to names in the Master Roster are saved for the selected day.</p></div>
@@ -187,7 +270,7 @@
           </form>
           <div id="vsSummary" class="summary-grid"></div>
           <section class="panel">
-            <div class="assignment-heading"><div><h3>Duel League Standings</h3><p class="muted">This table begins blank for every new VS week.</p></div></div>
+            <div class="assignment-heading"><div><h3>Duel League Standings</h3><p class="muted">16 alliances ranked by row order. Screenshot imports treat the top alliance as #1 even when printed ranks are unreadable.</p></div></div>
             <div class="vs-standings-import" data-role="officer">
               <label>Standings screenshot<input id="vsStandingsInput" type="file" accept="image/*"></label>
               <button id="vsStandingsImportButton" class="secondary-button" type="button">Import Standings</button>
@@ -202,13 +285,23 @@
             </div>
             <div id="vsDuelGroupReference"></div>
           </section>
-          <div class="table-frame">
-            <table class="vs-ranking-table">
-              <thead><tr><th>Rank</th><th>Player</th><th>Total VS</th><th>Days</th><th>Daily average</th><th>Latest score</th></tr></thead>
-              <tbody id="vsRankingRows"></tbody>
-            </table>
-          </div>
-          <div id="vsDailyTables"></div>
+          <section class="panel">
+            <div class="assignment-heading"><h3>Weekly Top 3 Members</h3><span>Updates with every score submission</span></div>
+            <div id="vsTopThree" class="vs-top-three"></div>
+          </section>
+          <details class="panel vs-score-records">
+            <summary>Member VS score records</summary>
+            <label>Score view
+              <select id="vsScoreFilter">
+                <option value="all">All scores</option>
+                <option value="top10">Top 10</option>
+                <option value="above-average">Above team average</option>
+                <option value="below-average">Below team average</option>
+                <option value="below-target">Below 7,200,000</option>
+              </select>
+            </label>
+            <div id="vsDailyTables"></div>
+          </details>
         </section>
 
         <section id="create" class="view" data-role="officer">

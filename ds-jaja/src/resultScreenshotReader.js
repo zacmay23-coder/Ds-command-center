@@ -58,11 +58,14 @@ export function parseDuelLeagueStandings(text) {
   const unmatched = [];
   for (const sourceLine of String(text).split(/\r?\n/).map((line) => line.trim()).filter(Boolean)) {
     const rankMatch = sourceLine.match(/^\s*#?\s*(\d{1,3})\b/);
-    if (!rankMatch) {
+    const remainder = sourceLine
+      .replace(/^\s*#?\s*\d{1,3}\s*[.)\-:]?\s*/, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!remainder || isStandingsHeader(remainder)) {
       unmatched.push(sourceLine);
       continue;
     }
-    const remainder = sourceLine.slice(rankMatch[0].length).trim();
     const tokens = remainder.split(/\s+/);
     const outcomes = [];
     while (tokens.length && outcomes.length < 4) {
@@ -71,20 +74,35 @@ export function parseDuelLeagueStandings(text) {
       outcomes.unshift(token.startsWith("W") ? "W" : "L");
       tokens.pop();
     }
-    const alliance = tokens.join(" ").replace(/^[\s.)\-:]+|[\s.)\-:]+$/g, "").trim();
-    if (!alliance) {
+    const alliance = cleanAllianceName(tokens.join(" "));
+    const hasAllianceTag = /\[[^\]]{2,12}\]\s*\S+/i.test(alliance);
+    if (!alliance || !/[a-z]/i.test(alliance) || (!rankMatch && !hasAllianceTag && !outcomes.length)) {
       unmatched.push(sourceLine);
       continue;
     }
     standings.push({
-      rank: Number(rankMatch[1]),
+      rank: standings.length + 1,
       alliance,
       weeks: Array.from({ length: 4 }, (_, index) => outcomes[index] || ""),
       sourceLine
     });
+    if (standings.length === 16) break;
   }
-  standings.sort((left, right) => left.rank - right.rank);
   return { standings, unmatched };
+}
+
+function isStandingsHeader(line) {
+  return /^(duel\s+league|standings?|ranking|rank|alliance|server|week\s*[1-4]|wins?|losses?)\b/i.test(line)
+    || /alliance.*week\s*1/i.test(line);
+}
+
+function cleanAllianceName(value) {
+  return String(value)
+    .replace(/^.*?(?=\[[^\]]{2,12}\])/, "")
+    .replace(/^[\s.)\-:]+|[\s.)\-:]+$/g, "")
+    .replace(/\[\s*([a-z0-9]{2,12})\s*\]/i, "[$1]")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function matchPlayersFromText(text, members) {
