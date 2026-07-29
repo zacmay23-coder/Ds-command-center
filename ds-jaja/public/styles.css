@@ -4562,6 +4562,9 @@ tbody tr:hover td { background: rgba(215, 168, 77, .08); }
 .briefing-update-winner > span { color: #f2ca78; }
 .briefing-update-event { border-left-color: var(--ok); }
 .briefing-update-event > span { color: var(--ok); }
+.availability-prompt-row { display: flex; flex-wrap: wrap; gap: 7px; }
+.availability-prompt-row button { flex: 1 1 auto; min-height: 34px; padding: 6px 9px; }
+.compact-action-form textarea[name="message"] { min-height: 92px; }
 
 .vs-day-navigation .vs-day-win { background: rgba(62, 201, 120, .2); border-color: #62df97; color: #9af0bd; }
 .vs-day-navigation .vs-day-loss { background: rgba(235, 91, 91, .2); border-color: #ff7b7b; color: #ffadad; }

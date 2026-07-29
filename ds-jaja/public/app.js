@@ -501,6 +501,7 @@ function bindControls() {
   elements.participationTeam.addEventListener("change", renderParticipation);
   elements.participationUnit.addEventListener("change", renderParticipation);
   elements.myAssignmentContent.addEventListener("click", handleAvailabilityClick);
+  elements.myAssignmentContent.addEventListener("click", handleAvailabilityPrompt);
   elements.myAssignmentContent.addEventListener("click", handleThemeWeekClick);
   elements.myAssignmentContent.addEventListener("change", handleAvailabilityNote);
   elements.strategyControls.addEventListener("change", handleStrategyApply);
@@ -1132,6 +1133,11 @@ function renderMyAssignment() {
   const pendingAnnouncements = (state.announcements || []).filter((announcement) => !announcement.acknowledgedAt);
   const todayAllianceEvents = (state.allianceWeeklyEvents || []).filter((item) => item.date === todayKey);
   const dsIsToday = event?.date === todayKey;
+  const availabilityEventOptions = [
+    ...(event ? [{ value: `DS · ${event.date} · ${event.opponent || "Opponent pending"}`, label: `Desert Storm · ${event.date}` }] : []),
+    ...activeThemes.map((theme) => ({ value: `Theme Week · ${theme.title}`, label: `Theme Week · ${theme.title}` })),
+    ...(state.allianceWeeklyEvents || []).map((item) => ({ value: `${item.name} · ${item.date} · ${item.time}`, label: `${item.name} · ${item.date}` }))
+  ];
   const briefingUpdates = [
     ...(state.announcements || []).map((announcement) => ({
       type: "Announcement",
@@ -1191,10 +1197,17 @@ function renderMyAssignment() {
     </section>
     <section class="briefing-quick-actions">
       <form class="panel compact-action-form" data-briefing-action="notice">
-        <strong>Same-day availability notice</strong>
-        <label>Event<select name="eventType"><option>DS</option><option>Theme Week</option><option>Alliance Event</option></select></label>
-        <label>Notice<input name="message" maxlength="300" required placeholder="I cannot make today's event because…"></label>
-        <button class="secondary-button" type="submit">Send notice</button>
+        <strong>Event availability chat</strong>
+        <p class="muted">Send officers a quick availability update for any current event.</p>
+        <label>Event<select name="eventType" required>${availabilityEventOptions.map((item) => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`).join("") || `<option value="General availability">General availability</option>`}</select></label>
+        <div class="availability-prompt-row">
+          <button class="secondary-button" type="button" data-availability-prompt="I'm available and ready for this event.">Available</button>
+          <button class="secondary-button" type="button" data-availability-prompt="I'm running late but still plan to attend.">Running late</button>
+          <button class="secondary-button" type="button" data-availability-prompt="I'm unavailable for this event.">Unavailable</button>
+          <button class="secondary-button" type="button" data-availability-prompt="">Clear</button>
+        </div>
+        <label>Availability message<textarea name="message" maxlength="300" required placeholder="Type any availability update for officers…"></textarea></label>
+        <button class="primary-button" type="submit">Send availability message</button>
       </form>
       <form class="panel compact-action-form" data-briefing-action="question">
         <strong>Quick ask</strong>
@@ -1501,6 +1514,16 @@ function renderDashboard() {
   elements.dailyChatList.innerHTML = (state.dailyChat || []).map((message) =>
     `<div class="community-message">${memberMiniProfile({ id: message.playerId, name: message.playerName, profileImage: message.profileImage }, formatDateTime(message.createdAt))}<p>${escapeHtml(message.text)}</p></div>`
   ).join("") || `<p class="muted">No team chat messages today.</p>`;
+}
+
+function handleAvailabilityPrompt(event) {
+  const button = event.target.closest("[data-availability-prompt]");
+  if (!button) return;
+  const form = button.closest("[data-briefing-action='notice']");
+  const message = form?.querySelector("[name='message']");
+  if (!message) return;
+  message.value = button.dataset.availabilityPrompt || "";
+  message.focus();
 }
 
 async function handlePrivateMessageSubmit(event) {
