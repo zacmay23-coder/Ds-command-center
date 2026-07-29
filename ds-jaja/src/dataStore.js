@@ -30,8 +30,21 @@ const dataDir = path.join(projectRoot, "data");
 const statePath = path.join(dataDir, "state.json");
 const backupPath = path.join(dataDir, "state.pre-events-v1.json");
 const migrationReportPath = path.join(projectRoot, "MIGRATION_REPORT.md");
+const primaryAdministratorEmail = "zacmay23@gmail.com";
 let cachedState;
 const subscribers = new Set();
+
+function recoveryAdministratorEmails() {
+  return new Set([
+    primaryAdministratorEmail,
+    process.env.DSCC_BOOTSTRAP_ADMIN_EMAIL,
+    ...String(process.env.DSCC_RESTORE_ADMIN_EMAILS || "").split(",")
+  ].map((value) => String(value || "").trim().toLowerCase()).filter(Boolean));
+}
+
+export function isRecoveryAdministrator(firebaseUser) {
+  return recoveryAdministratorEmails().has(String(firebaseUser?.email || "").trim().toLowerCase());
+}
 
 export async function getState() {
   if (!cachedState) {
@@ -730,14 +743,14 @@ export async function deleteThemeWeek(themeId) {
 export async function getOrCreateUser(firebaseUser) {
   const state = await getState();
   let user = state.users[firebaseUser.localId];
+  const shouldRestoreAdministrator = isRecoveryAdministrator(firebaseUser);
   if (!user) {
     const configuredAdmins = String(process.env.DSCC_ADMIN_UIDS || "").split(",").map((value) => value.trim()).filter(Boolean);
-    const isPrimaryAdministrator = String(firebaseUser.email || "").toLowerCase() === "zacmay23@gmail.com";
     user = {
       uid: firebaseUser.localId,
       email: firebaseUser.email || "",
       displayName: firebaseUser.displayName || firebaseUser.email || "Member",
-      role: configuredAdmins.includes(firebaseUser.localId) || isPrimaryAdministrator ? "administrator" : "member",
+      role: configuredAdmins.includes(firebaseUser.localId) || shouldRestoreAdministrator ? "administrator" : "member",
       playerId: null,
       profileConfirmedAt: null,
       profileSelection: null,
@@ -753,9 +766,17 @@ export async function getOrCreateUser(firebaseUser) {
     state.users[user.uid] = user;
     await saveState();
   } else {
-    if (String(user.email || firebaseUser.email || "").toLowerCase() === "zacmay23@gmail.com") user.role = "administrator";
+    let restoredAdministrator = false;
+    if (shouldRestoreAdministrator && (user.role !== "administrator" || !user.active)) {
+      user.role = "administrator";
+      user.active = true;
+      user.version = Number(user.version || 0) + 1;
+      restoredAdministrator = true;
+    }
+    if (firebaseUser.email) user.email = firebaseUser.email;
     user.lastLoginAt = now();
     if (firebaseUser.photoUrl) user.accountPhotoUrl = firebaseUser.photoUrl;
+    if (restoredAdministrator) await saveState();
   }
   return user;
 }

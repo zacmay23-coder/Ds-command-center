@@ -116,7 +116,7 @@ This build uses the configured Firebase project for Email/Password access:
 Registration creates a Firebase Auth account. The server checks each API request
 against Firebase before returning shared data.
 
-### Role bootstrap
+### Administrator bootstrap and recovery
 
 New accounts always start with the `member` role. Before the first administrator
 signs in, set `DSCC_BOOTSTRAP_ADMIN_EMAIL` to that administrator's exact email:
@@ -127,9 +127,22 @@ npm run dev
 ```
 
 Only an account whose email matches that server-controlled value is initially
-created as an administrator. Do not expose this value in browser code. After
-bootstrap, administrators can manage roles and player links through the
-authenticated `/api/users` endpoints.
+created as an administrator. The primary administrator account
+`zacmay23@gmail.com` is also restored to an active administrator whenever that
+authenticated Firebase account signs in. This repairs an accidentally removed,
+demoted, or deactivated application account without weakening authorization for
+other users.
+
+Additional recovery accounts can be configured as a comma-separated,
+server-controlled list:
+
+```powershell
+$env:DSCC_RESTORE_ADMIN_EMAILS="owner@example.com,backup@example.com"
+npm run dev
+```
+
+Do not expose these values in browser code. After bootstrap, administrators can
+manage roles and player links through the authenticated `/api/users` endpoints.
 
 Application user records contain `uid`, `email`, `displayName`, `role`,
 `playerId`, `active`, `createdAt`, and `lastLoginAt`. All protected writes check
