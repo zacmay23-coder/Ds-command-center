@@ -17,45 +17,6 @@
       "createdAt": "2026-07-27T06:56:42.199Z",
       "lastLoginAt": "2026-07-27T06:56:42.199Z",
       "version": 1
-    },
-    "1": {
-      "uid": "YrvLC7ZL9xWzACxoeUks4dadnr32",
-      "email": "zacmay23@gmail.com",
-      "displayName": "zacmay23@gmail.com",
-      "role": "administrator",
-      "playerId": "m1",
-      "profileConfirmedAt": null,
-      "profileSelection": null,
-      "accountPhotoUrl": "",
-      "profileTitle": "Alliance Member",
-      "profileBio": "",
-      "active": true,
-      "createdAt": "2026-07-27T06:57:17.857Z",
-      "lastLoginAt": "2026-07-28T23:37:56.949Z",
-      "version": 1
-    },
-    "YrvLC7ZL9xWzACxoeUks4dadnr32": {
-      "uid": "YrvLC7ZL9xWzACxoeUks4dadnr32",
-      "email": "zacmay23@gmail.com",
-      "displayName": "zacmay23@gmail.com",
-      "role": "administrator",
-      "playerId": "m1",
-      "profileConfirmedAt": "2026-07-28T23:45:43.963Z",
-      "profileSelection": {
-        "playerId": "m1",
-        "playerName": "Dark Wizard",
-        "rank": "R5",
-        "team": "A",
-        "unit": "Reserve",
-        "confirmedAt": "2026-07-28T23:45:43.963Z"
-      },
-      "accountPhotoUrl": "",
-      "profileTitle": "Alliance Member",
-      "profileBio": "",
-      "active": true,
-      "createdAt": "2026-07-28T23:45:25.910Z",
-      "lastLoginAt": "2026-07-28T23:45:43.963Z",
-      "version": 2
     }
   },
   "players": {
@@ -69,7 +30,7 @@
       "defaultUnit": "Oil Refinery 2",
       "defaultTacticalGroup": "Reserve",
       "active": true,
-      "userId": "YrvLC7ZL9xWzACxoeUks4dadnr32",
+      "userId": null,
       "notes": "",
       "availabilityGuidance": "",
       "profileImage": "",
