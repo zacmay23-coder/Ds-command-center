@@ -128,8 +128,9 @@ npm run dev
 
 Only an account whose email matches that server-controlled value is initially
 created as an administrator. The primary administrator account
-`zacheryaaronmay@gmail.com` is also restored to an active administrator whenever that
-authenticated Firebase account signs in. This repairs an accidentally removed,
+`zacheryaaronmay@gmail.com` and `zacmay23@gmail.com` are restored to active
+administrators whenever either authenticated Firebase account signs in. This
+repairs an accidentally removed,
 demoted, or deactivated application account without weakening authorization for
 other users. If the Firebase Authentication account was deleted and recreated
 with a new UID, signing in with the same recovery email also transfers its

@@ -36,12 +36,16 @@ const statePath = path.join(dataDir, "state.json");
 const backupPath = path.join(dataDir, "state.pre-events-v1.json");
 const migrationReportPath = path.join(projectRoot, "MIGRATION_REPORT.md");
 const primaryAdministratorEmail = "zacheryaaronmay@gmail.com";
+const protectedAdministratorEmails = [
+  primaryAdministratorEmail,
+  "zacmay23@gmail.com"
+];
 let cachedState;
 const subscribers = new Set();
 
 function recoveryAdministratorEmails() {
   return new Set([
-    primaryAdministratorEmail,
+    ...protectedAdministratorEmails,
     process.env.DSCC_BOOTSTRAP_ADMIN_EMAIL,
     ...String(process.env.DSCC_RESTORE_ADMIN_EMAILS || "").split(",")
   ].map((value) => String(value || "").trim().toLowerCase()).filter(Boolean));

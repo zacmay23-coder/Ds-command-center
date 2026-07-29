@@ -6,6 +6,10 @@ test("recognizes the primary administrator email regardless of case", () => {
   assert.equal(isRecoveryAdministrator({ email: "ZacheryAaronMay@Gmail.com" }), true);
 });
 
+test("recognizes the restored protected administrator email", () => {
+  assert.equal(isRecoveryAdministrator({ email: "ZacMay23@Gmail.com" }), true);
+});
+
 test("does not grant recovery access to an unrelated email", () => {
   assert.equal(isRecoveryAdministrator({ email: "member@example.com" }), false);
 });
