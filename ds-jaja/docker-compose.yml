@@ -1,6 +1,8 @@
 services:
   command-center:
-    build: .
+    build:
+      context: ..
+      dockerfile: ds-jaja/Dockerfile
     container_name: ds-command-center
     restart: unless-stopped
     environment:

@@ -6,15 +6,18 @@ ENV NODE_ENV=production
 ENV PORT=8082
 
 COPY package*.json ./
-RUN npm ci --omit=dev
+COPY ds-jaja/package*.json ./ds-jaja/
+RUN npm ci --omit=dev --workspace ds-jaja
 
-COPY server.js ./
-COPY src ./src
-COPY public ./public
-COPY scripts ./scripts
-COPY data ./data
+WORKDIR /app/ds-jaja
 
-RUN mkdir -p /app/data && chown -R node:node /app
+COPY ds-jaja/server.js ./
+COPY ds-jaja/src ./src
+COPY ds-jaja/public ./public
+COPY ds-jaja/scripts ./scripts
+COPY ds-jaja/data ./data
+
+RUN mkdir -p /app/ds-jaja/data && chown -R node:node /app
 
 USER node
 
