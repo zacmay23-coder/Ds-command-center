@@ -1,0 +1,12 @@
+{
+  "rules": {
+    "desert-storm-master": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "appState": {
+      ".read": false,
+      ".write": false
+    }
+  }
+}

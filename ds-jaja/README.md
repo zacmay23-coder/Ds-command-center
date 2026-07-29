@@ -151,7 +151,22 @@ Application user records contain `uid`, `email`, `displayName`, `role`,
 `playerId`, `active`, `createdAt`, and `lastLoginAt`. All protected writes check
 the authenticated user's active record and role on the server.
 
-Realtime Database subscriptions are not enabled yet. They require deploying
-matching Firebase Database Security Rules (and preferably configuring the
-Firebase Admin SDK/service account on the server) before local JSON state can be
-migrated safely.
+Realtime Database persistence is available through the Firebase Admin SDK. Set
+`DSCC_DATA_BACKEND=firebase` and configure Application Default Credentials before
+starting the server. On the first Firebase-backed startup, an empty database is
+seeded from `data/state.json`; every later application mutation is saved to
+`appState/current` automatically.
+
+```powershell
+$env:DSCC_DATA_BACKEND="firebase"
+$env:GOOGLE_APPLICATION_CREDENTIALS="C:\secure\service-account.json"
+npm start
+```
+
+The Admin SDK is the only database client, so `database.rules.json` denies
+direct browser reads and writes. Deploy those rules with:
+
+```powershell
+npm run firebase:login
+npm run firebase:deploy:rules
+```

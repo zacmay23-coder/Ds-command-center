@@ -4,6 +4,11 @@ import { fileURLToPath } from "node:url";
 import { battlePhases, strategyPlans } from "../public/battle-plan.js";
 import { createStarterStrategies } from "./strategyLibrary.js";
 import {
+  isFirebasePersistenceEnabled,
+  loadFirebaseState,
+  saveFirebaseState
+} from "./firebasePersistence.js";
+import {
   addAudit,
   applyStrategyTemplate,
   calculateParticipation,
@@ -181,8 +186,12 @@ function normalizeStrategyAction(action) {
 export async function saveState() {
   const state = await getState();
   state.updatedAt = now();
-  await mkdir(dataDir, { recursive: true });
-  await writeFile(statePath, JSON.stringify(state, null, 2), "utf8");
+  if (isFirebasePersistenceEnabled()) {
+    await saveFirebaseState(state);
+  } else {
+    await mkdir(dataDir, { recursive: true });
+    await writeFile(statePath, JSON.stringify(state, null, 2), "utf8");
+  }
   notifySubscribers(state);
   return state;
 }
@@ -1612,14 +1621,21 @@ export async function deleteVsScore(scoreId, actor) {
 
 async function loadAndMigrateState() {
   await mkdir(dataDir, { recursive: true });
-  let input;
-  try {
-    input = JSON.parse(await readFile(statePath, "utf8"));
-  } catch {
-    input = { members: [], battles: [], settings: {} };
+  const firebaseInput = await loadFirebaseState();
+  let input = firebaseInput;
+  if (!input) {
+    try {
+      input = JSON.parse(await readFile(statePath, "utf8"));
+    } catch {
+      input = { members: [], battles: [], settings: {} };
+    }
   }
   const { state, report } = migrateLegacyState(input);
-  if (input.schema !== CURRENT_SCHEMA) {
+  if (firebaseInput && input.schema !== CURRENT_SCHEMA) {
+    await saveFirebaseState(state);
+  } else if (!firebaseInput && isFirebasePersistenceEnabled()) {
+    await saveFirebaseState(state);
+  } else if (input.schema !== CURRENT_SCHEMA) {
     try {
       await copyFile(statePath, backupPath);
     } catch {}

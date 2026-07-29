@@ -5,17 +5,24 @@
   "type": "module",
   "dependencies": {
     "@tesseract.js-data/eng": "^1.0.0",
+    "firebase-admin": "^14.2.0",
     "tesseract.js": "5.1.1"
   },
   "scripts": {
     "start": "node server.js",
+    "start:firebase": "node --env-file=.env server.js",
     "dev": "node server.js",
     "seed": "node scripts/seed-from-legacy.js",
     "migrate:v1": "node scripts/migrate-v1-events.js",
+    "firebase:login": "firebase login",
+    "firebase:deploy:rules": "firebase deploy --only database",
     "test": "node --test",
-    "check": "node --check server.js && node --check src/dataStore.js && node --check src/domain.js && node --check src/permissions.js && node --check src/validation.js && node --check src/resultScreenshotReader.js && node --check scripts/seed-from-legacy.js && node --check scripts/migrate-v1-events.js && node --check public/app.js && node --check public/auth.js && node --check public/login.js && node --check public/register.js"
+    "check": "node --check server.js && node --check src/dataStore.js && node --check src/firebasePersistence.js && node --check src/domain.js && node --check src/permissions.js && node --check src/validation.js && node --check src/resultScreenshotReader.js && node --check scripts/seed-from-legacy.js && node --check scripts/migrate-v1-events.js && node --check public/app.js && node --check public/auth.js && node --check public/login.js && node --check public/register.js"
   },
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "firebase-tools": "^15.24.0"
   }
 }

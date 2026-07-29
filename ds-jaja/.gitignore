@@ -4,6 +4,7 @@ npm-debug.log*
 .env
 .env.*
 !.env.example
+*firebase-adminsdk*.json
 
 server.log
 server.err.log
