@@ -164,6 +164,12 @@ $env:GOOGLE_APPLICATION_CREDENTIALS="C:\secure\service-account.json"
 npm start
 ```
 
+For Docker Compose, copy `.env.example` to `.env`, keep
+`GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/firebase-service-account.json`,
+and place the Firebase service account JSON at
+`.secrets/firebase-service-account.json`. Compose mounts that ignored local
+folder into the container at `/run/secrets`.
+
 The Admin SDK is the only database client, so `database.rules.json` denies
 direct browser reads and writes. Deploy those rules with:
 

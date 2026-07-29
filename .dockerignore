@@ -1,10 +1,14 @@
-.git
-.DS_Store
+**/.git
 **/.DS_Store
 **/node_modules
 **/Archive
 **/Archive.zip
 **/*.log
+**/npm-debug.log
+**/server.log
+**/server.err.log
 coverage
 dist
 build
+ds-jaja/Archive
+ds-jaja/Archive.zip
