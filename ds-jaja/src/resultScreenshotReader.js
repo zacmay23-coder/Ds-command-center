@@ -98,15 +98,17 @@ export function matchPlayersFromText(text, members) {
   let pendingNameLine = "";
 
   for (const line of lines) {
+    if (isAllianceBoilerplate(line)) continue;
+
     const score = readScore(line);
-    const hasPlayerMarker = /\[?\s*ewar\s*\]?/i.test(line);
+    const cleanedLine = stripAllianceBoilerplate(line);
 
     if (!score) {
-      if (hasPlayerMarker || /[a-z]/i.test(line)) pendingNameLine = line;
+      if (looksLikePlayerName(cleanedLine)) pendingNameLine = cleanedLine;
       continue;
     }
 
-    const searchLine = hasPlayerMarker ? line : `${pendingNameLine} ${line}`;
+    const searchLine = `${pendingNameLine} ${cleanedLine}`.trim();
     const member = findBestMember(searchLine, members, usedMemberIds);
     if (!member) {
       unmatched.push({
@@ -133,9 +135,30 @@ export function matchPlayersFromText(text, members) {
 }
 
 function readScore(line) {
-  const numbers = line.match(/\b\d{5,9}\b/g);
+  const numbers = String(line)
+    .replace(/(?<=\d)[,.](?=\d{3}\b)/g, "")
+    .match(/\b\d{5,9}\b/g);
   if (!numbers?.length) return null;
   return Number(numbers[numbers.length - 1]);
+}
+
+function isAllianceBoilerplate(line) {
+  return normalize(stripAllianceBoilerplate(line)) === "";
+}
+
+function stripAllianceBoilerplate(line) {
+  return String(line)
+    .replace(/\[?\s*ewar\s*\]?/gi, " ")
+    .replace(/\(?\s*eternal\s+lords\s+(?:of|or)\s+war\s*\)?/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function looksLikePlayerName(line) {
+  if (!line || isAllianceBoilerplate(line)) return false;
+  if (!/[a-z]/i.test(line)) return false;
+  if (/^(score|power|rank|points?|total|victory|defeat)\b/i.test(line)) return false;
+  return normalize(line).length >= 2;
 }
 
 function findBestMember(line, members, usedMemberIds) {
