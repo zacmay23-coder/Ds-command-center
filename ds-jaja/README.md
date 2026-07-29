@@ -131,7 +131,10 @@ created as an administrator. The primary administrator account
 `zacmay23@gmail.com` is also restored to an active administrator whenever that
 authenticated Firebase account signs in. This repairs an accidentally removed,
 demoted, or deactivated application account without weakening authorization for
-other users.
+other users. If the Firebase Authentication account was deleted and recreated
+with a new UID, signing in with the same recovery email also transfers its
+existing roster profile and player link to the new UID. For the primary
+administrator, this restores the `Dark Wizard` profile link.
 
 Additional recovery accounts can be configured as a comma-separated,
 server-controlled list:

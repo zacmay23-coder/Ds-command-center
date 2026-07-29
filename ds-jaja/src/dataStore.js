@@ -46,6 +46,54 @@ export function isRecoveryAdministrator(firebaseUser) {
   return recoveryAdministratorEmails().has(String(firebaseUser?.email || "").trim().toLowerCase());
 }
 
+export function restoreAdministratorIdentity(state, firebaseUser) {
+  if (!isRecoveryAdministrator(firebaseUser)) return { user: state.users[firebaseUser.localId], changed: false };
+
+  const email = String(firebaseUser.email || "").trim().toLowerCase();
+  const matches = Object.entries(state.users).filter(([, account]) =>
+    String(account.email || "").trim().toLowerCase() === email
+  );
+  if (!matches.length) return { user: state.users[firebaseUser.localId], changed: false };
+
+  const current = state.users[firebaseUser.localId];
+  const needsIdentityMigration = matches.some(([key, account]) =>
+    key !== firebaseUser.localId || account.uid !== firebaseUser.localId
+  );
+  if (current && !needsIdentityMigration) return { user: current, changed: false };
+
+  const bestMatch = matches
+    .map(([, account]) => account)
+    .sort((left, right) =>
+      Number(Boolean(right.profileConfirmedAt)) - Number(Boolean(left.profileConfirmedAt))
+      || Number(Boolean(right.playerId)) - Number(Boolean(left.playerId))
+      || Number(right.version || 0) - Number(left.version || 0)
+    )[0];
+  const user = current || structuredClone(bestMatch);
+  const staleUids = new Set(matches.map(([, account]) => account.uid).filter((uid) => uid && uid !== firebaseUser.localId));
+  const linkedPlayerId = user.playerId || bestMatch.playerId || null;
+
+  Object.assign(user, {
+    uid: firebaseUser.localId,
+    email: firebaseUser.email,
+    role: "administrator",
+    playerId: linkedPlayerId,
+    active: true,
+    version: Math.max(Number(user.version || 0), Number(bestMatch.version || 0)) + 1
+  });
+  if (linkedPlayerId && state.players[linkedPlayerId]) {
+    state.players[linkedPlayerId].userId = firebaseUser.localId;
+    user.displayName = state.players[linkedPlayerId].gameName || user.displayName;
+  }
+  for (const player of Object.values(state.players)) {
+    if (staleUids.has(player.userId)) player.userId = firebaseUser.localId;
+  }
+  for (const [key, account] of matches) {
+    if (key !== firebaseUser.localId && account !== user) delete state.users[key];
+  }
+  state.users[firebaseUser.localId] = user;
+  return { user, changed: true };
+}
+
 export async function getState() {
   if (!cachedState) {
     cachedState = await loadAndMigrateState();
@@ -742,8 +790,9 @@ export async function deleteThemeWeek(themeId) {
 
 export async function getOrCreateUser(firebaseUser) {
   const state = await getState();
-  let user = state.users[firebaseUser.localId];
   const shouldRestoreAdministrator = isRecoveryAdministrator(firebaseUser);
+  const restoredIdentity = restoreAdministratorIdentity(state, firebaseUser);
+  let user = restoredIdentity.user;
   if (!user) {
     const configuredAdmins = String(process.env.DSCC_ADMIN_UIDS || "").split(",").map((value) => value.trim()).filter(Boolean);
     user = {
@@ -766,7 +815,7 @@ export async function getOrCreateUser(firebaseUser) {
     state.users[user.uid] = user;
     await saveState();
   } else {
-    let restoredAdministrator = false;
+    let restoredAdministrator = restoredIdentity.changed;
     if (shouldRestoreAdministrator && (user.role !== "administrator" || !user.active)) {
       user.role = "administrator";
       user.active = true;
