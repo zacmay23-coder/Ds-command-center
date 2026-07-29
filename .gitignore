@@ -40,6 +40,12 @@ Desktop.ini
 # Local Docker state
 .docker/
 
+# Local app runtime data and archive drops
+ds-jaja/data/*.json
+ds-jaja/Archive/
+ds-jaja/Archive.zip
+ds-jaja/*.traineddata
+
 # Temporary files
 *.tmp
 *.temp

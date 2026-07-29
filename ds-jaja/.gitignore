@@ -13,6 +13,11 @@ server.err.log
 .DS_Store
 Thumbs.db
 
+data/*.json
+Archive/
+Archive.zip
+*.traineddata
+
 coverage/
 dist/
 build/

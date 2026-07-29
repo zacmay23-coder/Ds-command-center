@@ -17,7 +17,7 @@
     "firebase:login": "firebase login",
     "firebase:deploy:rules": "firebase deploy --only database",
     "test": "node --test",
-    "check": "node --check server.js && node --check src/dataStore.js && node --check src/firebasePersistence.js && node --check src/domain.js && node --check src/permissions.js && node --check src/validation.js && node --check src/resultScreenshotReader.js && node --check scripts/seed-from-legacy.js && node --check scripts/migrate-v1-events.js && node --check public/app.js && node --check public/auth.js && node --check public/login.js && node --check public/register.js"
+    "check": "node --check server.js && node --check src/http/apiRouter.js && node --check src/dataStore.js && node --check src/firebasePersistence.js && node --check src/domain.js && node --check src/permissions.js && node --check src/validation.js && node --check src/resultScreenshotReader.js && node --check scripts/seed-from-legacy.js && node --check scripts/migrate-v1-events.js && node --check public/api.js && node --check public/app.js && node --check public/auth.js && node --check public/login.js && node --check public/register.js"
   },
   "engines": {
     "node": ">=18"
