@@ -252,7 +252,7 @@ export function normalizeThemeWeek(theme = {}) {
     weekOf: theme.weekOf || new Date().toISOString().slice(0, 10),
     description: String(theme.description || ""),
     rules: String(theme.rules || ""),
-    status: ["open", "voting", "archived"].includes(theme.status) ? theme.status : "open",
+    status: ["open", "finalists", "voting", "finalized", "archived"].includes(theme.status) ? theme.status : "open",
     finalistIds: Array.isArray(theme.finalistIds) ? theme.finalistIds : [],
     submissions: theme.submissions || {},
     votes: theme.votes || {},

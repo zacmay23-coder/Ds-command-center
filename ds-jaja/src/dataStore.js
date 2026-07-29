@@ -171,7 +171,7 @@ export async function getClientState(user) {
       .filter((item) => item.active)
       .sort((left, right) => `${left.date}T${left.time}`.localeCompare(`${right.date}T${right.time}`)),
     themeWeeks: Object.values(state.themeWeeks)
-      .filter((theme) => user.role !== "member" || theme.status !== "archived")
+      .filter((theme) => theme.status !== "archived")
       .sort((left, right) => right.weekOf.localeCompare(left.weekOf))
       .map((theme) => publicThemeWeek(theme, user)),
     archivedThemeWeeks: Object.values(state.themeWeeks)
@@ -621,9 +621,16 @@ export async function updateThemeWeek(themeId, patch, actor) {
   }
   if (!next.title.trim()) throw statusError(422, "Enter a theme title");
   if (!next.weekOf) throw statusError(422, "Choose the theme week date");
-  if (!["open", "voting", "archived"].includes(next.status)) throw statusError(422, "Choose a valid theme status");
+  if (!["open", "finalists", "voting", "finalized", "archived"].includes(next.status)) throw statusError(422, "Choose a valid theme status");
+  if (Object.hasOwn(patch, "status") && patch.status !== theme.status) {
+    const allowedNext = { open: ["finalists"], finalists: ["open", "voting"], voting: ["finalized"], finalized: ["archived"], archived: [] };
+    if (!allowedNext[theme.status]?.includes(patch.status)) throw statusError(409, `Theme Week cannot move from ${theme.status} to ${patch.status}`);
+  }
+  if (next.status === "voting" && !(theme.finalistIds || []).length) throw statusError(409, "Select finalists before opening voting");
+  if (next.status === "finalized" && !Object.keys(theme.votes || {}).length) throw statusError(409, "At least one member vote is required before finalizing");
   Object.assign(theme, next);
   if (Object.hasOwn(patch, "finalistIds")) {
+    if (theme.status !== "finalists") throw statusError(409, "Finalists can only be selected during the finalist stage");
     theme.finalistIds = [...new Set(patch.finalistIds)].filter((id) => theme.submissions[id]);
   }
   theme.updatedAt = now();
@@ -637,10 +644,11 @@ export async function submitThemeEntry(themeId, input, actor) {
   const theme = state.themeWeeks[themeId];
   if (!theme || theme.status !== "open") throw statusError(409, "This theme week is not accepting submissions");
   if (!actor.playerId || !state.players[actor.playerId]) throw statusError(422, "Confirm your roster profile before submitting");
+  const image = validateThemeImage(input.image || theme.submissions[actor.playerId]?.image);
   theme.submissions[actor.playerId] = {
     playerId: actor.playerId,
     text: String(input.text || "").slice(0, 4000),
-    image: String(input.image || ""),
+    image,
     submittedAt: now(),
     updatedAt: now()
   };
@@ -649,12 +657,41 @@ export async function submitThemeEntry(themeId, input, actor) {
   return theme.submissions[actor.playerId];
 }
 
+export async function submitThemeEntryForPlayer(themeId, input, actor) {
+  const state = await getState();
+  const theme = state.themeWeeks[themeId];
+  if (!theme || theme.status !== "open") throw statusError(409, "This theme week is not accepting submissions");
+  const playerId = String(input.playerId || "");
+  if (!state.players[playerId]?.active) throw statusError(422, "Choose an active Master Roster member");
+  const image = validateThemeImage(input.image || theme.submissions[playerId]?.image);
+  theme.submissions[playerId] = {
+    playerId,
+    text: String(input.text || "").trim().slice(0, 4000),
+    image,
+    submittedAt: theme.submissions[playerId]?.submittedAt || now(),
+    updatedAt: now(),
+    submittedByOfficer: actor.uid
+  };
+  theme.updatedAt = now();
+  await saveState();
+  return theme.submissions[playerId];
+}
+
+function validateThemeImage(value) {
+  const image = String(value || "");
+  if (!image) throw statusError(422, "Attach a profile-picture submission");
+  if (image.length > 750000) throw statusError(422, "Theme submission image is too large");
+  if (!/^data:image\/(jpeg|png|webp|gif);base64,/.test(image)) throw statusError(422, "Choose a JPG, PNG, WebP, or GIF submission");
+  return image;
+}
+
 export async function voteThemeWeek(themeId, finalistId, actor) {
   const state = await getState();
   const theme = state.themeWeeks[themeId];
   if (!theme || theme.status !== "voting") throw statusError(409, "Voting is not open");
   if (!actor.playerId) throw statusError(422, "Confirm your roster profile before voting");
   if (!theme.finalistIds.includes(finalistId)) throw statusError(422, "Choose a listed finalist");
+  if (theme.votes[actor.playerId]) throw statusError(409, "You have already used your one vote for this Theme Week");
   theme.votes[actor.playerId] = finalistId;
   theme.updatedAt = now();
   await saveState();
@@ -1559,11 +1596,23 @@ function publicThemeWeek(theme, user) {
     counts[playerId] = (counts[playerId] || 0) + 1;
     return counts;
   }, {});
+  const resultsVisible = ["finalized", "archived"].includes(theme.status);
+  const rankings = resultsVisible
+    ? (theme.finalistIds || []).map((playerId) => ({
+      playerId,
+      votes: tally[playerId] || 0,
+      playerName: state?.players?.[playerId]?.gameName || "Alliance member",
+      profileImage: state?.players?.[playerId]?.profileImage || "",
+      submissionImage: submissions[playerId]?.image || ""
+    })).sort((left, right) => right.votes - left.votes || left.playerName.localeCompare(right.playerName))
+    : [];
   return {
     ...theme,
     submissions,
     comments,
-    tally,
+    tally: resultsVisible ? tally : undefined,
+    rankings,
+    winner: rankings[0] || null,
     myVote: user.playerId ? theme.votes?.[user.playerId] || null : null,
     acknowledgedAt: user.playerId ? theme.acknowledgements?.[user.playerId] || null : null,
     votes: undefined,

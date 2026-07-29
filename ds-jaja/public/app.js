@@ -189,6 +189,12 @@ const api = {
   async acknowledgeAnnouncement(id) {
     return request(`/api/announcements/${encodeURIComponent(id)}/acknowledge`, { method: "POST", body: "{}" });
   },
+  async addThemeSubmissionForMember(id, payload) {
+    return request(`/api/theme-weeks/${encodeURIComponent(id)}/officer-submission`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
   async replyToAnnouncement(id, text) {
     return request(`/api/announcements/${encodeURIComponent(id)}/replies`, {
       method: "POST",
@@ -516,6 +522,7 @@ function bindControls() {
   elements.createdDsManagement.addEventListener("change", handleEventFieldChange);
   elements.createdAllianceManagement.addEventListener("click", handleAllianceEventClick);
   elements.createdThemeManagement.addEventListener("click", handleThemeWeekClick);
+  elements.createdThemeManagement.addEventListener("submit", handleOfficerThemeSubmission);
   elements.publishDsSetupButton.addEventListener("click", publishDsSetup);
   elements.announcementForm.addEventListener("submit", postAnnouncement);
   elements.announcementList.addEventListener("click", handleAnnouncementClick);
@@ -1116,6 +1123,11 @@ function renderMyAssignment() {
   const todayKey = new Date().toISOString().slice(0, 10);
   const today = new Date().toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
   const activeThemes = (state.themeWeeks || []).filter((theme) => theme.status !== "archived");
+  const concludedThemes = [...new Map([...(state.themeWeeks || []), ...(state.archivedThemeWeeks || [])]
+    .filter((theme) => ["finalized", "archived"].includes(theme.status) && theme.winner)
+    .map((theme) => [theme.id, theme])).values()]
+    .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)))
+    .slice(0, 3);
   const pendingThemes = activeThemes.filter((theme) => !theme.acknowledgedAt);
   const pendingAnnouncements = (state.announcements || []).filter((announcement) => !announcement.acknowledgedAt);
   const todayAllianceEvents = (state.allianceWeeklyEvents || []).filter((item) => item.date === todayKey);
@@ -1126,6 +1138,13 @@ function renderMyAssignment() {
       <div><p class="eyebrow">${escapeHtml(today)}</p><h3>Welcome back, ${escapeHtml(player.gameName)}!</h3>
       <p>Today's plan highlights your scheduled events and current assignments.</p></div>
     </article>
+    ${concludedThemes.map((theme) => theme.winner.playerId === playerId ? `<article class="panel theme-winner-briefing personal-winner">
+      ${theme.winner.submissionImage ? `<img src="${theme.winner.submissionImage}" alt="${escapeHtml(theme.winner.playerName)} winning profile-picture submission">` : ""}
+      <div><p class="eyebrow">Theme Week winner</p><h3>Congrats ${escapeHtml(theme.winner.playerName)}, you've won ${escapeHtml(theme.title)}!</h3><p>We loved your PFP submission just as much as the team—so much so you've been added as a conductor for the upcoming train! Pick a VIP of your choice, and enjoy the ride on the golden train!</p></div>
+    </article>` : `<article class="panel theme-winner-briefing">
+      ${theme.winner.submissionImage ? `<img src="${theme.winner.submissionImage}" alt="${escapeHtml(theme.winner.playerName)} winning profile-picture submission">` : ""}
+      <div><p class="eyebrow">${escapeHtml(theme.title)} concluded</p><h3>${escapeHtml(theme.winner.playerName)} won Theme Week</h3><p>The winning profile-picture submission received ${theme.winner.votes} vote${theme.winner.votes === 1 ? "" : "s"}.</p></div>
+    </article>`).join("")}
     <section class="today-strip">
       ${dsIsToday && participant ? `<article><strong>DS · Team ${escapeHtml(participant.team)}</strong><span>${escapeHtml(battleTime)} server · ${escapeHtml(serverToLocal(event.date, battleTime))} local</span></article>` : ""}
       ${todayAllianceEvents.map((item) => `<article><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.time)} server · ${escapeHtml(serverToLocal(item.date, item.time))} local</span></article>`).join("")}
@@ -1725,10 +1744,13 @@ function renderThemeWeeks() {
   const renderTheme = (theme, archived = false) => {
     const entries = Object.values(theme.submissions || {});
     const finalists = theme.finalistIds || [];
-    const ranked = finalists.map((id) => ({ id, entry: theme.submissions[id], votes: theme.tally?.[id] || 0 }))
-      .filter((item) => item.entry).sort((left, right) => right.votes - left.votes);
+    const visibleEntries = theme.status === "voting"
+      ? entries.filter((entry) => finalists.includes(entry.playerId))
+      : entries;
+    const stages = [["open", "1. Submissions"], ["finalists", "2. Finalists"], ["voting", "3. Vote"], ["finalized", "4. Results"]];
     return `<article class="panel theme-week-card">
       <div class="assignment-profile-heading"><div><p class="eyebrow">${escapeHtml(theme.weekOf)} · ${escapeHtml(theme.status)}</p><h3>${escapeHtml(theme.title)}</h3></div>${statusBadge(theme.status)}</div>
+      <div class="theme-stage-track">${stages.map(([key, label]) => `<span class="${theme.status === key || (theme.status === "archived" && key === "finalized") ? "active" : ""}">${label}</span>`).join("")}</div>
       <div data-theme-display="${escapeHtml(theme.id)}"><p>${escapeHtml(theme.description)}</p><div class="important-instructions"><strong>Rules</strong><p>${escapeHtml(theme.rules)}</p></div></div>
       ${false ? `<form class="inline-edit-form" data-theme-edit-form="${escapeHtml(theme.id)}" hidden>
         <label>Theme title<input name="title" value="${escapeHtml(theme.title)}" maxlength="100" required></label>
@@ -1742,12 +1764,13 @@ function renderThemeWeeks() {
         <label>Submission entry and OCR text<textarea data-theme-entry="${escapeHtml(theme.id)}" maxlength="4000" placeholder="Upload a screenshot to extract text, then review before submitting.">${escapeHtml(theme.submissions?.[state.me.playerId]?.text || "")}</textarea></label>
         <button class="primary-button" type="button" data-theme-submit="${escapeHtml(theme.id)}">Post my submission</button>
       </form>` : ""}
-      <div class="theme-submission-grid">${entries.map((entry) => `<article class="theme-entry">
+      <div class="theme-submission-grid">${visibleEntries.map((entry) => `<article class="theme-entry">
         ${memberMiniProfile({ id: entry.playerId, name: entry.playerName, profileImage: entry.profileImage }, "Theme submission")}
+        ${finalists.includes(entry.playerId) && theme.status !== "open" ? `<span class="status-badge">Finalist</span>` : ""}
         ${entry.image ? `<img src="${entry.image}" alt="${escapeHtml(entry.playerName)} submission">` : ""}
         <p>${escapeHtml(entry.text)}</p>
         ${false ? `<label class="finalist-toggle"><input type="checkbox" data-theme-finalist="${escapeHtml(theme.id)}" value="${escapeHtml(entry.playerId)}" ${finalists.includes(entry.playerId) ? "checked" : ""}> Finalist</label>` : ""}
-        ${theme.status === "voting" && finalists.includes(entry.playerId) ? `<button class="${theme.myVote === entry.playerId ? "primary-button" : "secondary-button"}" type="button" data-theme-vote="${escapeHtml(theme.id)}" data-finalist="${escapeHtml(entry.playerId)}">${theme.myVote === entry.playerId ? "Your vote" : "Vote"} · ${theme.tally?.[entry.playerId] || 0}</button>` : ""}
+        ${theme.status === "voting" && finalists.includes(entry.playerId) ? `<button class="${theme.myVote === entry.playerId ? "primary-button" : "secondary-button"}" type="button" data-theme-vote="${escapeHtml(theme.id)}" data-finalist="${escapeHtml(entry.playerId)}" ${theme.myVote ? "disabled" : ""}>${theme.myVote === entry.playerId ? "Your vote is locked" : theme.myVote ? "Vote already submitted" : "Cast my one vote"}</button>` : ""}
       </article>`).join("") || `<p class="muted">No submissions yet.</p>`}</div>
       ${false ? `<div class="theme-officer-actions">
         <button class="secondary-button" type="button" data-edit-theme="${escapeHtml(theme.id)}">Edit details</button>
@@ -1759,7 +1782,7 @@ function renderThemeWeeks() {
         <button class="danger-button" type="button" data-delete-theme="${escapeHtml(theme.id)}">Delete</button>
       </div>` : ""}
       ${false ? `<div class="theme-officer-actions"><button class="danger-button" type="button" data-delete-theme="${escapeHtml(theme.id)}">Delete archived theme</button></div>` : ""}
-      ${ranked.length ? `<div class="theme-results"><h4>Results</h4>${ranked.slice(0, 3).map((item, index) => `<p><strong>${index + 1}${index === 0 ? "st" : index === 1 ? "nd" : "rd"} · ${escapeHtml(item.entry.playerName)}</strong> — ${item.votes} vote${item.votes === 1 ? "" : "s"}</p>`).join("")}</div>` : ""}
+      ${(theme.rankings || []).length ? `<div class="theme-results"><h4>Final Rankings</h4><div class="theme-podium">${theme.rankings.slice(0, 3).map((item, index) => `<article class="theme-place theme-place-${index + 1}">${item.submissionImage ? `<img src="${item.submissionImage}" alt="${escapeHtml(item.playerName)} submission">` : ""}<span>${index + 1}${index === 0 ? "st" : index === 1 ? "nd" : "rd"} place</span><strong>${escapeHtml(item.playerName)}</strong><small>${item.votes} vote${item.votes === 1 ? "" : "s"}</small></article>`).join("")}</div><ol class="theme-remaining-ranks">${theme.rankings.slice(3).map((item) => `<li><strong>${escapeHtml(item.playerName)}</strong><span>${item.votes} vote${item.votes === 1 ? "" : "s"}</span></li>`).join("")}</ol></div>` : ""}
       ${!archived ? `<div class="theme-comments"><h4>Member discussion</h4>${(theme.comments || []).map((comment) => `<div>${memberMiniProfile({ id: comment.playerId, name: comment.playerName, profileImage: comment.profileImage }, formatDateTime(comment.createdAt))}<p>${escapeHtml(comment.text)}</p></div>`).join("")}<label>Comment<input data-theme-comment-text="${escapeHtml(theme.id)}" maxlength="500"></label><button class="secondary-button" type="button" data-theme-comment="${escapeHtml(theme.id)}">Post comment</button></div>` : ""}
     </article>`;
   };
@@ -1821,8 +1844,9 @@ function renderCreateManagement() {
       <label>Title<input name="title" value="${escapeHtml(theme.title)}"></label><label>Week<input name="weekOf" type="date" value="${escapeHtml(theme.weekOf)}"></label>
       <label class="wide-field">Description<textarea name="description">${escapeHtml(theme.description)}</textarea></label><label class="wide-field">Rules<textarea name="rules">${escapeHtml(theme.rules)}</textarea></label>
     </form>
-    <div class="compact-finalist-picker">${Object.values(theme.submissions || {}).map((entry) => `<label>${memberMiniProfile(entry.playerId, "Submission")}<input type="checkbox" data-theme-finalist="${escapeHtml(theme.id)}" value="${escapeHtml(entry.playerId)}" ${(theme.finalistIds || []).includes(entry.playerId) ? "checked" : ""}> Finalist</label>`).join("") || `<p class="muted">No submissions available for finalist selection.</p>`}</div>
-    <div class="record-actions"><button class="secondary-button" data-edit-theme="${escapeHtml(theme.id)}" type="button">Edit</button><button class="primary-button" data-save-theme="${escapeHtml(theme.id)}" type="button" hidden>Save</button><button class="secondary-button" data-cancel-theme="${escapeHtml(theme.id)}" type="button" hidden>Cancel</button><button class="secondary-button" data-theme-status="${escapeHtml(theme.id)}" data-status="voting" type="button">Open voting</button><button class="primary-button" data-theme-status="${escapeHtml(theme.id)}" data-status="archived" type="button">Close vote &amp; finalize</button><button class="danger-button" data-delete-theme="${escapeHtml(theme.id)}" type="button">Delete</button></div>
+    ${theme.status === "open" ? `<form class="theme-officer-submission" data-theme-officer-submission="${escapeHtml(theme.id)}"><h5>Add a member submission</h5><label>Roster member<select name="playerId" required><option value="">Choose member</option>${state.players.filter((player) => player.active !== false).sort((a, b) => a.gameName.localeCompare(b.gameName)).map((player) => `<option value="${escapeHtml(player.id)}">${escapeHtml(player.gameName)}</option>`).join("")}</select></label><label>Profile-picture submission<input name="imageFile" type="file" accept="image/*" required></label><label>Submission note<textarea name="text" maxlength="4000" placeholder="Optional submission details"></textarea></label><button class="primary-button">Add submission</button></form>` : ""}
+    ${theme.status === "finalists" ? `<div class="compact-finalist-picker">${Object.values(theme.submissions || {}).map((entry) => `<label>${memberMiniProfile(entry.playerId, "Submission")}<input type="checkbox" data-theme-finalist="${escapeHtml(theme.id)}" value="${escapeHtml(entry.playerId)}" ${(theme.finalistIds || []).includes(entry.playerId) ? "checked" : ""}> Finalist</label>`).join("") || `<p class="muted">No submissions available for finalist selection.</p>`}</div>` : ""}
+    <div class="record-actions"><button class="secondary-button" data-edit-theme="${escapeHtml(theme.id)}" type="button">Edit</button><button class="primary-button" data-save-theme="${escapeHtml(theme.id)}" type="button" hidden>Save</button><button class="secondary-button" data-cancel-theme="${escapeHtml(theme.id)}" type="button" hidden>Cancel</button>${theme.status === "open" ? `<button class="secondary-button" data-theme-status="${escapeHtml(theme.id)}" data-status="finalists" type="button">Close submissions &amp; select finalists</button>` : ""}${theme.status === "finalists" ? `<button class="secondary-button" data-theme-status="${escapeHtml(theme.id)}" data-status="voting" type="button">Open secret voting</button>` : ""}${theme.status === "voting" ? `<button class="primary-button" data-theme-status="${escapeHtml(theme.id)}" data-status="finalized" type="button">Finalize voting &amp; reveal results</button>` : ""}${theme.status === "finalized" ? `<button class="primary-button" data-theme-status="${escapeHtml(theme.id)}" data-status="archived" type="button">Archive rankings to History</button>` : ""}<button class="danger-button" data-delete-theme="${escapeHtml(theme.id)}" type="button">Delete</button></div>
   </article>`).join("") || emptyState("No theme weeks created.");
 }
 
@@ -1885,6 +1909,26 @@ async function handleThemeScreenshotChange(event) {
     const textarea = elements.themeWeekContent.querySelector(`[data-theme-entry="${CSS.escape(themeId)}"]`);
     if (result.text) textarea.value = result.text;
     setStatus("Screenshot ready; review the extracted text");
+  } catch (error) { setStatus(error.message, true); }
+}
+
+async function handleOfficerThemeSubmission(event) {
+  const form = event.target.closest("[data-theme-officer-submission]");
+  if (!form) return;
+  event.preventDefault();
+  const formData = new FormData(form);
+  const file = formData.get("imageFile");
+  if (!file?.size) return setStatus("Choose the member's profile-picture submission", true);
+  try {
+    setStatus("Preparing member Theme Week submission...");
+    await api.addThemeSubmissionForMember(form.dataset.themeOfficerSubmission, {
+      playerId: formData.get("playerId"),
+      text: formData.get("text"),
+      image: await compressProfileImage(file)
+    });
+    form.reset();
+    await refreshState();
+    setStatus("Member submission added by officer");
   } catch (error) { setStatus(error.message, true); }
 }
 

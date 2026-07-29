@@ -49,6 +49,7 @@ import {
   createThemeWeek,
   updateThemeWeek,
   submitThemeEntry,
+  submitThemeEntryForPlayer,
   voteThemeWeek,
   commentThemeWeek,
   acknowledgeThemeWeek,
@@ -293,6 +294,16 @@ async function handleApi(request, response, url) {
       : action === "comment" ? await commentThemeWeek(themeId, body.text, user)
       : await acknowledgeThemeWeek(themeId, user);
     sendJson(response, 200, result);
+    return;
+  }
+  const themeOfficerSubmissionRoute = url.pathname.match(/^\/api\/theme-weeks\/([^/]+)\/officer-submission$/);
+  if (themeOfficerSubmissionRoute && request.method === "POST") {
+    requireRole(user, ROLES.OFFICER);
+    sendJson(response, 200, await submitThemeEntryForPlayer(
+      decodeURIComponent(themeOfficerSubmissionRoute[1]),
+      await readJsonBody(request),
+      user
+    ));
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/theme-weeks/ocr") {
