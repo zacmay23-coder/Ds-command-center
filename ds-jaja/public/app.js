@@ -2483,8 +2483,10 @@ function renderVsScores() {
       <small>Weekly total Â· ${weeklyTeamTotals.opponent.toLocaleString()}</small>
     </div>
   </article>` : emptyState("Create a VS week in the Create tab to begin scoring.");
-  elements.vsDailyResultForm.querySelector("[name='ourScore']").value = Number(result.ourScore || 0);
-  elements.vsDailyResultForm.querySelector("[name='opponentScore']").value = Number(result.opponentScore || 0);
+  const ourScoreInput = elements.vsDailyResultForm.querySelector("[name='ourScore']");
+  const opponentScoreInput = elements.vsDailyResultForm.querySelector("[name='opponentScore']");
+  if (ourScoreInput) ourScoreInput.value = Number(result.ourScore || 0);
+  if (opponentScoreInput) opponentScoreInput.value = Number(result.opponentScore || 0);
   elements.vsDailyResultForm.querySelectorAll("input, button").forEach((control) => {
     control.disabled = !week || published || !state.permissions.isOfficer;
   });

@@ -9,6 +9,32 @@ export function isFirebasePersistenceEnabled() {
   return String(process.env.DSCC_DATA_BACKEND || "").trim().toLowerCase() === "firebase";
 }
 
+export async function getFirebasePersistenceStatus() {
+  const enabled = isFirebasePersistenceEnabled();
+  const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS || "";
+  const status = {
+    enabled,
+    databaseUrl,
+    statePath,
+    hasGoogleApplicationCredentials: Boolean(credentialsPath),
+    credentialsPath: credentialsPath ? "[set]" : "",
+    connected: false,
+    stateExists: false
+  };
+
+  if (!enabled) return status;
+
+  try {
+    const snapshot = await stateReference().get();
+    status.connected = true;
+    status.stateExists = snapshot.exists();
+    return status;
+  } catch (error) {
+    status.error = error.message || "Firebase connection failed";
+    return status;
+  }
+}
+
 function stateReference() {
   if (!getApps().length) {
     initializeApp({

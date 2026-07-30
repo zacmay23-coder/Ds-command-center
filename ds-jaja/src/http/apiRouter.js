@@ -79,6 +79,7 @@ import {
 } from "../dataStore.js";
 import { parseDuelLeagueStandings, readResultScreenshot, readScreenshotText } from "../resultScreenshotReader.js";
 import { canEditOwnAvailability, requireRole, ROLES } from "../permissions.js";
+import { getFirebasePersistenceStatus } from "../firebasePersistence.js";
 
 const firebaseApiKey = "AIzaSyCnccjJ6h-RlTU1Qbp3Zgd2WQag0YVwsWs";
 
@@ -97,7 +98,11 @@ export async function handleApi(request, response, url) {
   }
 
   if (request.method === "GET" && url.pathname === "/api/health") {
-    sendJson(response, 200, { ok: true, service: "ds-command-center" });
+    sendJson(response, 200, {
+      ok: true,
+      service: "ds-command-center",
+      persistence: await getFirebasePersistenceStatus()
+    });
     return;
   }
 
