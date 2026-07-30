@@ -7,6 +7,7 @@
   ],
   "scripts": {
     "start": "npm --workspace ds-jaja start",
+    "start:firebase": "npm --workspace ds-jaja run start:firebase",
     "dev": "npm --workspace ds-jaja run dev",
     "test": "npm --workspace ds-jaja test",
     "check": "npm --workspace ds-jaja run check"

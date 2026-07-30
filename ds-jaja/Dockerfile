@@ -15,7 +15,6 @@ COPY ds-jaja/server.js ./
 COPY ds-jaja/src ./src
 COPY ds-jaja/public ./public
 COPY ds-jaja/scripts ./scripts
-COPY ds-jaja/data ./data
 
 RUN mkdir -p /app/ds-jaja/data && chown -R node:node /app
 
