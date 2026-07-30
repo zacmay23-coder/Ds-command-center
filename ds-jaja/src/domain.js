@@ -136,6 +136,11 @@ export function migrateLegacyState(input, actor = {}) {
       privateMessages: input?.privateMessages || [],
       dailyChats: input?.dailyChats || {},
       userJournals: input?.userJournals || {},
+      userGoals: input?.userGoals || {},
+      userAchievements: input?.userAchievements || {},
+      achievementDefinitions: input?.achievementDefinitions || {},
+      privateMigrationBackups: input?.privateMigrationBackups || {},
+      privateDataQuarantine: input?.privateDataQuarantine || {},
       leadership: input?.leadership || { meetings: {}, posts: [], requests: [] },
       systemSettings: input?.systemSettings || { invitationCodes: [] },
       migrations: { ...(input?.migrations || {}), [MIGRATION_ID]: { completedAt: timestamp, report } }
@@ -169,6 +174,11 @@ export function normalizeState(input = {}) {
     privateMessages: Array.isArray(input.privateMessages) ? input.privateMessages : [],
     dailyChats: input.dailyChats && typeof input.dailyChats === "object" ? input.dailyChats : {},
     userJournals: input.userJournals && typeof input.userJournals === "object" ? input.userJournals : {},
+    userGoals: input.userGoals && typeof input.userGoals === "object" ? input.userGoals : {},
+    userAchievements: input.userAchievements && typeof input.userAchievements === "object" ? input.userAchievements : {},
+    achievementDefinitions: input.achievementDefinitions && typeof input.achievementDefinitions === "object" ? input.achievementDefinitions : {},
+    privateMigrationBackups: input.privateMigrationBackups && typeof input.privateMigrationBackups === "object" ? input.privateMigrationBackups : {},
+    privateDataQuarantine: input.privateDataQuarantine && typeof input.privateDataQuarantine === "object" ? input.privateDataQuarantine : {},
     leadership: input.leadership && typeof input.leadership === "object" ? input.leadership : { meetings: {}, posts: [], requests: [] },
     systemSettings: input.systemSettings || { invitationCodes: [] },
     migrations: input.migrations || {}

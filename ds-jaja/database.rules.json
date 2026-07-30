@@ -7,6 +7,37 @@
     "appState": {
       ".read": false,
       ".write": false
+    },
+    "userPrivate": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "journalEntries": {
+          "$entryId": {
+            ".validate": "newData.hasChildren(['id', 'ownerUid', 'title', 'body', 'entryType']) && newData.child('ownerUid').val() === auth.uid"
+          }
+        },
+        "goals": {
+          "$goalId": {
+            ".validate": "newData.hasChildren(['id', 'ownerUid', 'title', 'goalType', 'status']) && newData.child('ownerUid').val() === auth.uid"
+          }
+        },
+        "achievements": {
+          "$achievementId": {
+            ".validate": "newData.child('userUid').val() === auth.uid"
+          }
+        },
+        "briefingState": {
+          "$itemId": {
+            ".validate": "newData.child('userUid').val() === auth.uid"
+          }
+        },
+        "reminders": {
+          "$reminderId": {
+            ".validate": "newData.child('ownerUid').val() === auth.uid"
+          }
+        }
+      }
     }
   }
 }

@@ -28,6 +28,8 @@ import {
   transitionEvent,
   validateEventForPublish
 } from "./domain.js";
+import { sanitizeTextFields } from "./textSanitization.js";
+import { awardAchievement, awardTopThree, goalsForUser, isFinalResultStatus, normalizeGoal, normalizePrivateJournal } from "./personalCompanion.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.join(__dirname, "..");
@@ -189,6 +191,10 @@ function normalizeStrategyAction(action) {
 
 export async function saveState() {
   const state = await getState();
+  applyGoalDeadlines(state);
+  const sanitized = sanitizeTextFields(state);
+  for (const key of Object.keys(state)) delete state[key];
+  Object.assign(state, sanitized);
   state.updatedAt = now();
   if (isFirebasePersistenceEnabled()) {
     await saveFirebaseState(state);
@@ -198,6 +204,134 @@ export async function saveState() {
   }
   notifySubscribers(state);
   return state;
+}
+
+export function applyGoalDeadlines(state) {
+  const today = new Date().toISOString().slice(0, 10);
+  for (const [uid, goals] of Object.entries(state.userGoals || {})) {
+    if (!Array.isArray(goals)) continue;
+    for (const goal of [...goals]) {
+      if (goal.dueDate && goal.dueDate < today && !["completed", "archived", "missed"].includes(goal.status)) {
+        goal.status = "missed";
+        goal.updatedAt = now();
+      }
+      if (!goal.dueDate || goal.dueDate >= today || !["daily", "weekdays", "weekly"].includes(goal.recurrence)) continue;
+      const nextDate = nextRecurringDate(goal.dueDate, goal.recurrence, today);
+      const seriesId = goal.recurrenceSeriesId || goal.id;
+      goal.recurrenceSeriesId = seriesId;
+      if (goals.some((candidate) => candidate.recurrenceSeriesId === seriesId && candidate.dueDate === nextDate)) continue;
+      goals.unshift(normalizeGoal({
+        ...goal,
+        id: "",
+        ownerUid: uid,
+        status: "not_started",
+        currentValue: 0,
+        startDate: nextDate,
+        dueDate: nextDate,
+        recurrenceSeriesId: seriesId,
+        recurrenceFromGoalId: goal.id,
+        createdAt: undefined,
+        updatedAt: undefined,
+        completedAt: null,
+        archivedAt: null
+      }, uid));
+    }
+  }
+}
+
+function nextRecurringDate(sourceDate, recurrence, minimumDate) {
+  const next = new Date(`${sourceDate}T12:00:00Z`);
+  const advance = () => {
+    next.setUTCDate(next.getUTCDate() + (recurrence === "weekly" ? 7 : 1));
+    if (recurrence === "weekdays") {
+      while ([0, 6].includes(next.getUTCDay())) next.setUTCDate(next.getUTCDate() + 1);
+    }
+  };
+  do advance(); while (next.toISOString().slice(0, 10) < minimumDate);
+  return next.toISOString().slice(0, 10);
+}
+
+export async function sanitizeLegacyText({ dryRun = true } = {}, actor) {
+  const state = await getState();
+  const changes = [];
+  const sanitized = sanitizeTextFields(state, { collectChanges: changes });
+  if (!dryRun && changes.length) {
+    for (const key of Object.keys(state)) delete state[key];
+    Object.assign(state, sanitized);
+    addAudit(state, actor, {
+      action: "legacy_text_sanitized",
+      recordType: "maintenance",
+      recordId: "text-sanitization",
+      after: { changedValues: changes.length }
+    });
+    await saveState();
+  }
+  return {
+    dryRun: Boolean(dryRun),
+    changedValues: changes.length,
+    affectedRecords: new Set(changes.map((item) => item.path.split(".").slice(0, 3).join("."))).size,
+    paths: changes.slice(0, 100).map((item) => item.path)
+  };
+}
+
+export async function migratePrivateMemberData({ dryRun = true } = {}, actor) {
+  const state = await getState();
+  const nextJournals = structuredClone(state.userJournals || {});
+  let journalEntriesChanged = 0;
+  let quarantinedEntries = 0;
+  const quarantine = [];
+  for (const [uid, entries] of Object.entries(nextJournals)) {
+    if (!state.users[uid] || !Array.isArray(entries)) {
+      quarantinedEntries += Array.isArray(entries) ? entries.length : 1;
+      quarantine.push({ uid, count: Array.isArray(entries) ? entries.length : 1 });
+      delete nextJournals[uid];
+      continue;
+    }
+    nextJournals[uid] = entries.map((entry) => {
+      const normalized = normalizePrivateJournal(entry, uid);
+      if (JSON.stringify(firebaseComparable(normalized)) !== JSON.stringify(firebaseComparable(entry))) journalEntriesChanged += 1;
+      return normalized;
+    });
+  }
+  if (!dryRun) {
+    state.privateMigrationBackups ||= {};
+    state.privateMigrationBackups["journal-v1"] ||= {
+      createdAt: now(),
+      userJournals: structuredClone(state.userJournals || {})
+    };
+    state.userJournals = nextJournals;
+    state.userGoals ||= {};
+    state.privateDataQuarantine ||= {};
+    if (quarantine.length) state.privateDataQuarantine.journals = quarantine;
+    addAudit(state, actor, {
+      action: "private_member_data_migrated",
+      recordType: "maintenance",
+      recordId: "private-member-data",
+      after: { journalEntriesChanged, quarantinedEntries }
+    });
+    await saveState();
+  }
+  return {
+    dryRun: Boolean(dryRun),
+    journalEntriesChanged,
+    quarantinedEntries,
+    backupKey: dryRun ? null : "journal-v1"
+  };
+}
+
+function firebaseComparable(value) {
+  if (Array.isArray(value)) {
+    const items = value.map(firebaseComparable).filter((item) => item !== undefined);
+    return items.length ? items : undefined;
+  }
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value)
+      .map(([key, item]) => [key, firebaseComparable(item)])
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return entries.length ? Object.fromEntries(entries) : undefined;
+  }
+  return value === null || value === undefined ? undefined : value;
 }
 
 export function subscribe(listener) {
@@ -287,7 +421,11 @@ export async function getClientState(user) {
       profileImage: state.players[message.playerId]?.profileImage || ""
     })),
     dailyChatDate: localDateKey(),
-    myJournal: Array.isArray(state.userJournals[user.uid]) ? state.userJournals[user.uid] : [],
+    myJournal: (Array.isArray(state.userJournals[user.uid]) ? state.userJournals[user.uid] : [])
+      .map((item) => normalizePrivateJournal(item, user.uid)),
+    myGoals: goalsForUser(state.userGoals, user.uid),
+    myAchievements: Array.isArray(state.userAchievements?.[user.uid]) ? state.userAchievements[user.uid] : [],
+    achievementDefinitions: user.role === "administrator" ? state.achievementDefinitions || {} : undefined,
     leadership: ["officer", "administrator"].includes(user.role) ? publicLeadership(state, user) : undefined,
     officerRecipients: Object.values(state.users)
       .filter((account) => account.active && ["officer", "administrator"].includes(account.role))
@@ -430,10 +568,21 @@ export async function sendPrivateMessage(input, actor) {
     senderUid: actor.uid,
     recipientUid,
     text,
+    priority: ["officer", "administrator"].includes(actor.role) && ["standard", "important", "action_required", "assignment_change", "event_reminder"].includes(input.priority) ? input.priority : "standard",
+    readAtByRecipient: null,
     createdAt: now()
   };
   state.privateMessages.push(message);
   state.privateMessages = state.privateMessages.slice(-5000);
+  await saveState();
+  return publicPrivateMessage(state, message, actor);
+}
+
+export async function markPrivateMessageRead(messageId, actor) {
+  const state = await getState();
+  const message = state.privateMessages.find((item) => item.id === messageId && item.recipientUid === actor.uid);
+  if (!message) throw statusError(404, "Private message was not found");
+  message.readAtByRecipient ||= now();
   await saveState();
   return publicPrivateMessage(state, message, actor);
 }
@@ -461,27 +610,93 @@ export async function postDailyChatMessage(input, actor) {
 export async function saveJournalItem(input, actor) {
   const state = await getState();
   if (!actor.playerId) throw statusError(422, "Confirm your roster profile before using the journal");
-  const type = ["note", "plan", "goal"].includes(input.type) ? input.type : "note";
-  const title = String(input.title || "").trim().slice(0, 120);
-  const text = String(input.text || "").trim().slice(0, 4000);
-  if (!title || !text) throw statusError(422, "Enter a journal title and details");
   state.userJournals[actor.uid] ||= [];
   const existing = input.id && state.userJournals[actor.uid].find((item) => item.id === input.id);
-  const item = existing || {
-    id: newId("journal"),
-    createdAt: now()
-  };
-  Object.assign(item, {
-    type,
-    title,
-    text,
-    vsWeekId: type === "plan" ? String(input.vsWeekId || "") : "",
-    updatedAt: now()
-  });
+  if (input.id && !existing) throw statusError(404, "Journal entry was not found");
+  const item = normalizePrivateJournal({ ...existing, ...input, body: input.body ?? input.text, entryType: input.entryType || input.type }, actor.uid);
+  if (!item.title || !item.body) throw statusError(422, "Enter a journal title and details");
   if (!existing) state.userJournals[actor.uid].unshift(item);
+  else Object.assign(existing, item);
   state.userJournals[actor.uid] = state.userJournals[actor.uid].slice(0, 500);
   await saveState();
   return item;
+}
+
+export async function saveGoal(input, actor) {
+  const state = await getState();
+  if (!actor.playerId) throw statusError(422, "Confirm your roster profile before creating goals");
+  state.userGoals ||= {};
+  state.userGoals[actor.uid] ||= [];
+  const existing = input.id && state.userGoals[actor.uid].find((item) => item.id === input.id);
+  if (input.id && !existing) throw statusError(404, "Goal was not found");
+  const goal = normalizeGoal(input, actor.uid, existing);
+  if (existing) Object.assign(existing, goal);
+  else state.userGoals[actor.uid].unshift(goal);
+  await saveState();
+  return goal;
+}
+
+export async function deleteGoal(goalId, actor) {
+  const state = await getState();
+  state.userGoals ||= {};
+  state.userGoals[actor.uid] ||= [];
+  const goals = state.userGoals[actor.uid];
+  const index = goals.findIndex((goal) => goal.id === goalId && goal.ownerUid === actor.uid);
+  if (index < 0) throw statusError(404, "Goal was not found");
+  goals.splice(index, 1);
+  for (const entry of state.userJournals?.[actor.uid] || []) {
+    entry.goalIds = (entry.goalIds || []).filter((id) => id !== goalId);
+  }
+  await saveState();
+  return { deleted: true };
+}
+
+export async function updateAchievement(achievementId, input, actor) {
+  const state = await getState();
+  const achievements = state.userAchievements?.[actor.uid] || [];
+  const achievement = achievements.find((item) => item.id === achievementId && item.userUid === actor.uid);
+  if (!achievement) throw statusError(404, "Achievement was not found");
+  if (input.seen === true && !achievement.seenAt) achievement.seenAt = now();
+  if (input.dismissed === true && !achievement.dismissedAt) achievement.dismissedAt = now();
+  if (input.dismissed === false) achievement.dismissedAt = null;
+  await saveState();
+  return achievement;
+}
+
+export async function updateAchievementDefinitions(input, actor) {
+  const state = await getState();
+  state.achievementDefinitions ||= {};
+  state.achievementDefinitions.vsDailyThreshold = Math.max(0, Number(input.vsDailyThreshold || 0));
+  state.achievementDefinitions.vsWeeklyThreshold = Math.max(0, Number(input.vsWeeklyThreshold || 0));
+  state.achievementDefinitions.topThreeEnabled = input.topThreeEnabled !== false;
+  state.achievementDefinitions.publicAnnouncements = Boolean(input.publicAnnouncements);
+  state.achievementDefinitions.icon = ["star", "trophy", "shield", "trend"].includes(input.icon) ? input.icon : "star";
+  state.achievementDefinitions.badgeStyle = ["gold", "blue", "success"].includes(input.badgeStyle) ? input.badgeStyle : "gold";
+  state.achievementDefinitions.messageTemplate = String(input.messageTemplate || "You reached {value} in {event}.").slice(0, 240);
+  state.achievementDefinitions.updatedAt = now();
+  state.achievementDefinitions.updatedBy = actor.uid;
+  const existingRules = Object.fromEntries((state.achievementDefinitions.rules || []).map((rule) => [rule.key, rule]));
+  const rule = (key, title, category, triggerType, enabled, thresholdRules = null) => ({
+    id: existingRules[key]?.id || `achievement-definition-${key}`,
+    key, title, category, triggerType, enabled, audience: "private",
+    placementRules: triggerType === "placement" ? [1, 2, 3] : null,
+    thresholdRules,
+    icon: state.achievementDefinitions.icon,
+    badgeStyle: state.achievementDefinitions.badgeStyle,
+    priority: "informational",
+    createdAt: existingRules[key]?.createdAt || state.achievementDefinitions.updatedAt,
+    updatedAt: state.achievementDefinitions.updatedAt
+  });
+  state.achievementDefinitions.rules = [
+    rule("theme_week_top_three", "Theme Week top three", "theme_week", "placement", state.achievementDefinitions.topThreeEnabled),
+    rule("vs_daily_top_three", "VS daily top three", "vs_daily", "placement", state.achievementDefinitions.topThreeEnabled),
+    rule("vs_weekly_top_three", "VS weekly top three", "vs_weekly", "placement", state.achievementDefinitions.topThreeEnabled),
+    rule("vs_daily_threshold", "VS daily threshold", "vs_daily", "threshold", state.achievementDefinitions.vsDailyThreshold > 0, { minimum: state.achievementDefinitions.vsDailyThreshold }),
+    rule("vs_weekly_threshold", "VS weekly threshold", "vs_weekly", "threshold", state.achievementDefinitions.vsWeeklyThreshold > 0, { minimum: state.achievementDefinitions.vsWeeklyThreshold })
+  ];
+  addAudit(state, actor, { action: "achievement_definitions_updated", recordType: "achievementDefinition", recordId: "global", after: { ...state.achievementDefinitions, updatedBy: actor.uid } });
+  await saveState();
+  return state.achievementDefinitions;
 }
 
 export async function deleteJournalItem(itemId, actor) {
@@ -490,13 +705,16 @@ export async function deleteJournalItem(itemId, actor) {
   const index = journal.findIndex((item) => item.id === itemId);
   if (index < 0) throw statusError(404, "Journal entry was not found");
   journal.splice(index, 1);
+  for (const goal of state.userGoals?.[actor.uid] || []) {
+    if (goal.relatedJournalId === itemId) goal.relatedJournalId = "";
+  }
   await saveState();
   return { deleted: true };
 }
 
 export async function scheduleLeadershipMeeting(input, actor) {
   const state = await getState();
-  const category = ["strategy", "weekly"].includes(input.category) ? input.category : "";
+  const category = ["strategy", "weekly", "other"].includes(input.category) ? input.category : "";
   if (!category) throw statusError(422, "Choose a valid leadership meeting");
   const date = String(input.date || "");
   const time = String(input.time || "");
@@ -620,6 +838,7 @@ function publicPrivateMessage(state, message, viewer) {
     ...message,
     direction: message.senderUid === viewer.uid ? "sent" : "received",
     senderName: senderPlayer?.gameName || sender?.displayName || "Alliance member",
+    senderRole: sender?.role || "member",
     recipientName: recipientPlayer?.gameName || recipient?.displayName || "Alliance member"
   };
 }
@@ -747,6 +966,51 @@ export async function submitThemeEntryForPlayer(themeId, input, actor) {
     submittedByOfficer: actor.uid
   };
   theme.updatedAt = now();
+  if (next.status === "finalized" && theme.status === "finalized") {
+    const counts = Object.values(theme.votes || {}).reduce((result, playerId) => {
+      result[playerId] = (result[playerId] || 0) + 1;
+      return result;
+    }, {});
+    const ranking = (theme.finalistIds || []).map((playerId) => ({ playerId, value: counts[playerId] || 0 }))
+      .sort((a, b) => b.value - a.value);
+    for (const submission of Object.values(theme.submissions || {})) {
+      const account = Object.values(state.users || {}).find((user) => user.playerId === submission.playerId);
+      const priorAchievements = account ? state.userAchievements?.[account.uid] || [] : [];
+      const currentPlacement = ranking.findIndex((record) => record.playerId === submission.playerId) + 1;
+      const priorPlacements = priorAchievements
+        .filter((item) => item.eventType === "theme_week" && item.placement)
+        .map((item) => Number(item.placement));
+      if (!priorAchievements.some((item) => item.eventType === "theme_week")) {
+        awardAchievement(state, submission.playerId, {
+          key: "theme_week_first_submission", eventId: theme.id, eventType: "theme_week", periodId: theme.weekOf,
+          title: "First Theme Week submission", message: `You completed your first published Theme Week entry in ${theme.title}.`
+        });
+      }
+      if (currentPlacement === 1 && priorPlacements[0] === 1) {
+        awardAchievement(state, submission.playerId, {
+          key: "theme_week_winning_streak", eventId: theme.id, eventType: "theme_week", periodId: theme.weekOf,
+          placement: 1, title: "Theme Week winning streak", message: `You earned another first-place finish in ${theme.title}.`
+        });
+      }
+      if (currentPlacement > 0 && priorPlacements.length && currentPlacement < Math.min(...priorPlacements)) {
+        awardAchievement(state, submission.playerId, {
+          key: "theme_week_improved_placement", eventId: theme.id, eventType: "theme_week", periodId: theme.weekOf,
+          placement: currentPlacement, value: Math.min(...priorPlacements) - currentPlacement,
+          title: "Most improved Theme Week placement", message: `You improved to placement ${currentPlacement} in ${theme.title}.`
+        });
+      }
+    }
+    if (state.achievementDefinitions?.topThreeEnabled !== false) awardTopThree(state, ranking, {
+      type: "theme_week", label: "Theme Week", eventId: theme.id, periodId: theme.weekOf,
+      message: (record, placement) => `Your submission placed ${placement} in ${theme.title} with ${record.value} vote${record.value === 1 ? "" : "s"}.`
+    });
+    for (const submission of Object.values(theme.submissions || {})) {
+      awardAchievement(state, submission.playerId, {
+        key: "theme_week_participant", eventId: theme.id, eventType: "theme_week", periodId: theme.weekOf,
+        title: "Theme Week participant", message: `You submitted an entry for ${theme.title}.`
+      });
+    }
+  }
   await saveState();
   return theme.submissions[playerId];
 }
@@ -917,6 +1181,7 @@ export async function changeEventStatus(eventId, action, actor, reason = "") {
   const state = await getState();
   const before = structuredClone(state.events[eventId]);
   const event = transitionEvent(state, eventId, action, actor, reason);
+  if (action === "archive") updateParticipationGoals(state);
   addAudit(state, actor, {
     eventId, action: `event_${action}ed`, recordType: "event", recordId: eventId,
     before: before?.status, after: event.status, reason
@@ -1583,6 +1848,132 @@ export async function publishVsDay(weekId, date, actor) {
     publishedBy: actor.uid,
     audit: structuredClone(audit)
   };
+  const ranking = state.vsScores.filter((score) => score.vsWeekId === weekId && score.date === date)
+    .map((score) => ({ playerId: score.playerId, value: Number(score.score || 0) }))
+    .sort((a, b) => b.value - a.value);
+  if (state.achievementDefinitions?.topThreeEnabled !== false) awardTopThree(state, ranking, {
+    type: "vs_daily", label: "VS Daily", eventId: weekId, periodId: date,
+    message: (record, placement) => `You finished ${placement} in the ${date} VS standings with ${record.value.toLocaleString()} points.`
+  });
+  if (state.achievementDefinitions?.publicAnnouncements && ranking.length && !state.announcements.some((item) => item.sourceKey === `vs-top-three:${weekId}:${date}`)) {
+    state.announcements.unshift({
+      id: newId("announcement"), sourceKey: `vs-top-three:${weekId}:${date}`,
+      title: `VS top performers Â· ${date}`,
+      summary: ranking.slice(0, 3).map((record, index) => `${index + 1}. ${state.players[record.playerId]?.gameName || "Alliance member"}`).join("\n"),
+      attachment: "", attachmentName: "", acknowledgements: {}, replies: [], helpful: {},
+      createdAt: now(), createdBy: actor.uid
+    });
+  }
+  for (const record of ranking) {
+    const priorPublishedScores = state.vsScores.filter((score) => score.playerId === record.playerId && score.date < date)
+      .filter((score) => state.vsWeeks[score.vsWeekId]?.publishedDays?.[score.date])
+      .sort((left, right) => String(left.date).localeCompare(String(right.date)));
+    const previousBest = priorPublishedScores.reduce((best, score) => Math.max(best, Number(score.score || 0)), 0);
+    if (!priorPublishedScores.length) awardAchievement(state, record.playerId, {
+      key: "vs_daily_first_submission", eventId: weekId, eventType: "vs_daily", periodId: date,
+      value: record.value, title: "First published VS score", message: `Your first published VS score was ${record.value.toLocaleString()} points.`
+    });
+    if (record.value > previousBest) awardAchievement(state, record.playerId, {
+      key: "vs_daily_personal_record", eventId: weekId, eventType: "vs_daily", periodId: date,
+      value: record.value, title: "New VS daily record",
+      message: `You set a new published daily record with ${record.value.toLocaleString()} points.`
+    });
+    const currentOffset = Math.round((new Date(`${date}T12:00:00Z`) - new Date(`${week.beginDate}T12:00:00Z`)) / 86400000);
+    const previousMatchingScore = Object.values(state.vsWeeks || {})
+      .filter((candidate) => candidate.id !== weekId && candidate.beginDate < week.beginDate)
+      .sort((left, right) => String(right.beginDate).localeCompare(String(left.beginDate)))
+      .map((candidate) => {
+        const matchingDate = new Date(`${candidate.beginDate}T12:00:00Z`);
+        matchingDate.setUTCDate(matchingDate.getUTCDate() + currentOffset);
+        const key = matchingDate.toISOString().slice(0, 10);
+        if (!candidate.publishedDays?.[key]) return null;
+        return state.vsScores.find((score) => score.vsWeekId === candidate.id && score.playerId === record.playerId && score.date === key);
+      })
+      .find(Boolean);
+    if (previousMatchingScore && record.value > Number(previousMatchingScore.score || 0)) awardAchievement(state, record.playerId, {
+      key: "vs_daily_matching_day_improvement", eventId: weekId, eventType: "vs_daily", periodId: date,
+      value: record.value - Number(previousMatchingScore.score || 0), title: "VS day improvement",
+      message: `You improved this VS day by ${(record.value - Number(previousMatchingScore.score || 0)).toLocaleString()} points over the prior matching day.`
+    });
+    const publishedDateSet = new Set([...priorPublishedScores.map((score) => score.date), date]);
+    let streak = 0;
+    const cursor = new Date(`${date}T12:00:00Z`);
+    while (publishedDateSet.has(cursor.toISOString().slice(0, 10))) {
+      streak += 1;
+      cursor.setUTCDate(cursor.getUTCDate() - 1);
+    }
+    if (streak >= 3) awardAchievement(state, record.playerId, {
+      key: `vs_daily_streak_${streak}`, eventId: weekId, eventType: "vs_daily", periodId: date,
+      value: streak, title: `${streak}-day VS scoring streak`, message: `You recorded published VS scores on ${streak} consecutive days.`
+    });
+    const dailyThreshold = Number(state.achievementDefinitions?.vsDailyThreshold || 80_000_000);
+    if (dailyThreshold > 0 && record.value >= dailyThreshold) awardAchievement(state, record.playerId, {
+      key: `vs_daily_threshold_${dailyThreshold}`, eventId: weekId, eventType: "vs_daily", periodId: date,
+      value: record.value, title: "VS daily milestone", message: `You reached ${record.value.toLocaleString()} points in a published VS day.`
+    });
+  }
+  const expectedDates = Array.from({ length: 6 }, (_, offset) => {
+    const day = new Date(`${week.beginDate}T12:00:00`);
+    day.setDate(day.getDate() + offset);
+    return day.toISOString().slice(0, 10);
+  });
+  if (expectedDates.every((day) => week.publishedDays?.[day])) {
+    const totals = new Map();
+    for (const score of state.vsScores.filter((item) => item.vsWeekId === weekId && expectedDates.includes(item.date))) {
+      totals.set(score.playerId, (totals.get(score.playerId) || 0) + Number(score.score || 0));
+    }
+    const weeklyRanking = [...totals.entries()].map(([playerId, value]) => ({ playerId, value })).sort((a, b) => b.value - a.value);
+    if (state.achievementDefinitions?.topThreeEnabled !== false) awardTopThree(state, weeklyRanking, {
+      type: "vs_weekly", label: "VS Weekly", eventId: weekId, periodId: week.beginDate,
+      message: (record, placement) => `You finished ${placement} for the VS week with ${record.value.toLocaleString()} points.`
+    });
+    const weeklyImprovements = [];
+    for (const record of weeklyRanking) {
+      const priorPublishedWeeklyTotals = Object.values(state.vsWeeks || {})
+        .filter((candidate) => candidate.id !== weekId && candidate.beginDate < week.beginDate)
+        .sort((left, right) => String(left.beginDate).localeCompare(String(right.beginDate)))
+        .map((candidate) => {
+          const publishedDates = Object.keys(candidate.publishedDays || {});
+          if (publishedDates.length < 6) return null;
+          return state.vsScores
+            .filter((item) => item.vsWeekId === candidate.id && item.playerId === record.playerId && publishedDates.includes(item.date))
+            .reduce((sum, item) => sum + Number(item.score || 0), 0);
+        })
+        .filter((value) => value !== null);
+      const priorBest = priorPublishedWeeklyTotals.length ? Math.max(...priorPublishedWeeklyTotals) : 0;
+      const priorMostRecent = priorPublishedWeeklyTotals.at(-1) || 0;
+      if (record.value > priorBest) awardAchievement(state, record.playerId, {
+        key: "vs_weekly_personal_record", eventId: weekId, eventType: "vs_weekly", periodId: week.beginDate,
+        value: record.value, title: "New VS weekly record",
+        message: `You set a new published weekly record with ${record.value.toLocaleString()} points.`
+      });
+      if (priorMostRecent > 0 && record.value > priorMostRecent) awardAchievement(state, record.playerId, {
+        key: "vs_weekly_improvement", eventId: weekId, eventType: "vs_weekly", periodId: week.beginDate,
+        value: record.value - priorMostRecent, title: "VS weekly improvement",
+        message: `You improved by ${(record.value - priorMostRecent).toLocaleString()} points over your previous published week.`
+      });
+      if (priorMostRecent > 0 && record.value > priorMostRecent) {
+        weeklyImprovements.push({ playerId: record.playerId, value: record.value - priorMostRecent });
+      }
+      const weeklyThreshold = Number(state.achievementDefinitions?.vsWeeklyThreshold || 500_000_000);
+      if (weeklyThreshold > 0 && record.value >= weeklyThreshold) awardAchievement(state, record.playerId, {
+        key: `vs_weekly_threshold_${weeklyThreshold}`, eventId: weekId, eventType: "vs_weekly", periodId: week.beginDate,
+        value: record.value, title: "VS weekly milestone", message: `You reached ${record.value.toLocaleString()} points in the published VS week.`
+      });
+      const submissions = state.vsScores.filter((item) => item.vsWeekId === weekId && item.playerId === record.playerId && expectedDates.includes(item.date));
+      if (new Set(submissions.map((item) => item.date)).size === 6) awardAchievement(state, record.playerId, {
+        key: "vs_weekly_complete_submissions", eventId: weekId, eventType: "vs_weekly", periodId: week.beginDate,
+        value: record.value, title: "Complete VS week", message: "You submitted a published score for every VS day this week."
+      });
+    }
+    const highestImprovement = weeklyImprovements.sort((left, right) => right.value - left.value)[0];
+    if (highestImprovement) awardAchievement(state, highestImprovement.playerId, {
+      key: "vs_weekly_highest_improvement", eventId: weekId, eventType: "vs_weekly", periodId: week.beginDate,
+      value: highestImprovement.value, title: "Highest VS weekly improvement",
+      message: `You posted the alliance's highest week-over-week improvement: ${highestImprovement.value.toLocaleString()} points.`
+    });
+  }
+  updateVsGoals(state, week, weekId, date, ranking);
   addAudit(state, actor, {
     action: "vs_day_published",
     recordType: "vsDay",
@@ -1591,6 +1982,52 @@ export async function publishVsDay(weekId, date, actor) {
   });
   await saveState();
   return week.publishedDays[date];
+}
+
+export function updateVsGoals(state, week, weekId, date, ranking) {
+  for (const account of Object.values(state.users || {})) {
+    if (!account.playerId) continue;
+    const dailyScore = ranking.find((record) => record.playerId === account.playerId)?.value || 0;
+    const weeklyScore = state.vsScores.filter((score) => score.vsWeekId === weekId && score.playerId === account.playerId)
+      .filter((score) => week.publishedDays?.[score.date]).reduce((sum, score) => sum + Number(score.score || 0), 0);
+    for (const goal of state.userGoals?.[account.uid] || []) {
+      if (goal.progressSource !== "automatic" && goal.progressMode !== "automatic") continue;
+      if (goal.goalType === "vs_daily" && (!goal.dueDate || goal.dueDate === date)) {
+        goal.currentValue = dailyScore;
+        goal.updatedAt = now();
+      }
+      if (goal.goalType === "vs_weekly") {
+        goal.currentValue = weeklyScore;
+        goal.updatedAt = now();
+      }
+      if (Number(goal.targetValue) > 0 && Number(goal.currentValue) >= Number(goal.targetValue)) {
+        goal.status = "completed";
+        goal.completedAt ||= now();
+      }
+    }
+  }
+}
+
+export function updateParticipationGoals(state) {
+  for (const account of Object.values(state.users || {})) {
+    if (!account.playerId) continue;
+    const archivedIds = Object.values(state.events || {}).filter((event) => event.status === "archived").map((event) => event.id);
+    const records = archivedIds.map((id) => state.eventParticipants[id]?.[account.playerId]).filter(Boolean);
+    const attendance = records.filter((record) => ["Present", "Late"].includes(record.attendance)).length;
+    const confirmations = records.filter((record) => record.availability === "Confirmed" || record.confirmedAt).length;
+    for (const goal of state.userGoals?.[account.uid] || []) {
+      if (goal.progressSource !== "automatic") continue;
+      if (goal.automationMetric === "attendance") goal.currentValue = attendance;
+      if (goal.automationMetric === "confirmation") goal.currentValue = confirmations;
+      if (["attendance", "confirmation"].includes(goal.automationMetric)) {
+        goal.updatedAt = now();
+        if (Number(goal.targetValue) > 0 && Number(goal.currentValue) >= Number(goal.targetValue)) {
+          goal.status = "completed";
+          goal.completedAt ||= now();
+        }
+      }
+    }
+  }
 }
 
 export async function deleteVsWeek(weekId, actor) {

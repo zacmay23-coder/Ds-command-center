@@ -1,5 +1,6 @@
 import { authFetch, clearSession, liveUpdatesUrl, requireSession } from "./auth.js";
 import { battlePhases, objectivePositions, strategyPlans, tacticalGroups } from "./battle-plan.js";
+import { chooseBriefingPriority } from "./briefing-priority.js";
 
 const api = {
   async getState() {
@@ -207,6 +208,7 @@ const api = {
   async sendPrivateMessage(payload) {
     return request("/api/private-messages", { method: "POST", body: JSON.stringify(payload) });
   },
+  async markPrivateMessageRead(id) { return request(`/api/private-messages/${encodeURIComponent(id)}/read`, { method: "PATCH", body: "{}" }); },
   async postDailyChat(text) {
     return request("/api/daily-chat", { method: "POST", body: JSON.stringify({ text }) });
   },
@@ -230,7 +232,14 @@ const api = {
   },
   async deleteAnnouncement(id) {
     return request(`/api/announcements/${encodeURIComponent(id)}`, { method: "DELETE" });
-  }
+  },
+  async sanitizeLegacyText(dryRun = true) {
+    return request("/api/admin/sanitize-text", { method: "POST", body: JSON.stringify({ dryRun }) });
+  },
+  async saveGoal(payload) { return request("/api/goals", { method: "POST", body: JSON.stringify(payload) }); },
+  async deleteGoal(id) { return request(`/api/goals/${encodeURIComponent(id)}`, { method: "DELETE" }); }
+  ,async updateAchievement(id, patch) { return request(`/api/achievements/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }); }
+  ,async updateAchievementDefinitions(patch) { return request("/api/admin/achievement-definitions", { method: "PATCH", body: JSON.stringify(patch) }); }
 };
 
 const strategies = [
@@ -273,6 +282,7 @@ const unitResponsibilities = {
 };
 
 let state = null;
+let selectedGoalTab = "today";
 let timelineTeam = "A";
 let timelinePhaseIndex = 0;
 let timelinePlaybackTimer = null;
@@ -394,6 +404,15 @@ elements.journalEntries = document.querySelector("#journalEntries");
 elements.journalTabButton = document.querySelector("#journalTabButton");
 elements.planVsWeekButton = document.querySelector("#planVsWeekButton");
 elements.leadership = document.querySelector("#leadership");
+elements.goalForm = document.querySelector("#goalForm");
+elements.journalSearch = document.querySelector("#journalSearch");
+elements.journalTypeFilter = document.querySelector("#journalTypeFilter");
+elements.journalDateFilter = document.querySelector("#journalDateFilter");
+elements.journalStateFilter = document.querySelector("#journalStateFilter");
+elements.journalGoalLinks = document.querySelector("#journalGoalLinks");
+elements.goalJournalLink = document.querySelector("#goalJournalLink");
+elements.allGoalList = document.querySelector("#allGoalList");
+elements.achievementSettingsForm = document.querySelector("#achievementSettingsForm");
 const expandedPlayers = new Set();
 let liveSource = null;
 
@@ -418,10 +437,16 @@ async function initialize() {
     showView("userProfile");
     setStatus("Complete your member title and bio to finish profile setup");
   } else {
-    const requestedView = new URLSearchParams(window.location.search).get("view");
+    const params = new URLSearchParams(window.location.search);
+    const requestedView = params.get("view");
     const requestedButton = requestedView && document.querySelector(`.sidebar button[data-view="${requestedView}"]`);
     const requestedPanel = requestedView && document.querySelector(`#${requestedView}`);
     if (requestedButton && requestedPanel && !requestedButton.hidden) showView(requestedView);
+    else if (state.me.role === "member") showView("myAssignment");
+    if (requestedView === "events") {
+      const eventView = { ds: "events", theme: "themeWeek", alliance: "allianceWeeklyEvents", vs: "vsEvents" }[params.get("tab") || "ds"];
+      if (eventView) showView(eventView);
+    }
   }
   connectLiveUpdates();
 }
@@ -453,6 +478,12 @@ async function refreshState() {
 }
 
 function bindNavigation() {
+  const navigation = document.querySelector("#primaryNavigation");
+  const navigationToggle = document.querySelector("#navigationToggle");
+  navigationToggle.addEventListener("click", () => {
+    const open = navigation.classList.toggle("open");
+    navigationToggle.setAttribute("aria-expanded", String(open));
+  });
   document.querySelector(".sidebar").addEventListener("click", (event) => {
     const button = event.target.closest("button[data-view]");
     if (!button) return;
@@ -462,6 +493,8 @@ function bindNavigation() {
     button.classList.add("active");
     document.querySelector(`#${button.dataset.view}`).classList.add("active");
     history.replaceState(null, "", `?view=${encodeURIComponent(button.dataset.view)}`);
+    navigation.classList.remove("open");
+    navigationToggle.setAttribute("aria-expanded", "false");
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
 }
@@ -475,6 +508,16 @@ function bindControls() {
   elements.journalForm.addEventListener("submit", saveJournalEntry);
   elements.journalForm.addEventListener("reset", () => window.setTimeout(resetJournalEditor));
   elements.journalEntries.addEventListener("click", handleJournalEntryClick);
+  elements.journalSearch.addEventListener("input", renderJournal);
+  elements.journalTypeFilter.addEventListener("change", renderJournal);
+  elements.journalDateFilter.addEventListener("change", renderJournal);
+  elements.journalStateFilter.addEventListener("change", renderJournal);
+  elements.goalForm.addEventListener("submit", saveGoal);
+  elements.allGoalList.addEventListener("click", handleGoalClick);
+  elements.goalForm.addEventListener("reset", () => window.setTimeout(() => { elements.goalForm.elements.id.value = ""; }));
+  elements.myAssignmentContent.addEventListener("click", handleGoalClick);
+  elements.myAssignmentContent.addEventListener("click", handleAchievementClick);
+  elements.myAssignmentContent.addEventListener("click", handleBriefingMessageClick);
   elements.leadership.addEventListener("submit", handleLeadershipSubmit);
   elements.leadership.addEventListener("click", handleLeadershipClick);
   elements.searchInput.addEventListener("input", renderDirectory);
@@ -517,6 +560,8 @@ function bindControls() {
   document.body.addEventListener("click", handleMiniProfileClick);
   document.body.addEventListener("click", handleEventSubviewClick);
   document.body.addEventListener("click", handleNestedSubviewClick);
+  document.body.addEventListener("click", handleWorkflowNavigation);
+  document.body.addEventListener("change", handleWorkflowFieldSync);
   elements.myAssignmentContent.addEventListener("submit", handleBriefingAction);
   elements.createdDsManagement.addEventListener("click", handleEventAction);
   elements.createdDsManagement.addEventListener("click", handleEventListClick);
@@ -558,6 +603,10 @@ function bindControls() {
   elements.vsStandingsClearButton.addEventListener("click", clearVsStandings);
   elements.vsStandingsFillButton.addEventListener("click", fillVsStandingsFromPaste);
   elements.vsStandingsSaveButton.addEventListener("click", saveManualVsStandings);
+  document.querySelector("#sanitizeTextDryRun")?.addEventListener("click", () => runTextSanitization(true));
+  document.querySelector("#sanitizeTextApply")?.addEventListener("click", () => runTextSanitization(false));
+  elements.achievementSettingsForm?.addEventListener("submit", saveAchievementSettings);
+  elements.achievementSettingsForm?.querySelector("[data-achievement-dry-run]")?.addEventListener("click", previewAchievementTrigger);
 }
 
 function logout() {
@@ -630,6 +679,21 @@ function handleEventSubviewClick(event) {
   if (!button) return;
   showView(button.dataset.eventSubview);
   document.querySelector("[data-view='events']")?.classList.add("active");
+  const tab = { events: "ds", themeWeek: "theme", allianceWeeklyEvents: "alliance", vsEvents: "vs" }[button.dataset.eventSubview];
+  history.replaceState(null, "", `?view=events&tab=${tab}`);
+}
+
+async function runTextSanitization(dryRun) {
+  if (!dryRun && !window.confirm("Clean malformed control characters from legacy text records? This action will be audited.")) return;
+  const status = document.querySelector("#sanitizeTextStatus");
+  status.textContent = dryRun ? "Scanning records…" : "Cleaning affected records…";
+  try {
+    const result = await api.sanitizeLegacyText(dryRun);
+    status.textContent = `${result.changedValues} affected text values across ${result.affectedRecords} records${dryRun ? " found. No data changed." : " cleaned."}`;
+    if (!dryRun) await refreshState();
+  } catch (error) {
+    status.textContent = error.message;
+  }
 }
 
 function handleNestedSubviewClick(event) {
@@ -782,25 +846,203 @@ function renderUserProfile() {
   `;
 }
 
+function handleWorkflowNavigation(event) {
+  const shortcut = event.target.closest("[data-view-shortcut]");
+  if (shortcut) {
+    showView(shortcut.dataset.viewShortcut);
+    history.replaceState(null, "", `?view=${encodeURIComponent(shortcut.dataset.viewShortcut)}`);
+    return;
+  }
+
+  const trigger = event.target.closest("[data-workflow-tab], [data-workflow-next]");
+  if (!trigger) return;
+  const targetId = trigger.dataset.workflowTab || trigger.dataset.workflowNext;
+  const target = document.querySelector(`[data-workflow-panel="${CSS.escape(targetId)}"]`);
+  if (!target) return;
+  const scope = targetId.startsWith("vs-") ? "vs-" : "result-";
+  document.querySelectorAll(`[data-workflow-panel^="${scope}"]`).forEach((panel) => panel.classList.remove("active"));
+  document.querySelectorAll(`[data-workflow-tab^="${scope}"]`).forEach((button) => {
+    const selected = button.dataset.workflowTab === targetId;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-selected", String(selected));
+    button.closest("li")?.classList.toggle("active", selected);
+  });
+  target.classList.add("active");
+}
+
+function handleWorkflowFieldSync(event) {
+  if (!event.target.matches("[data-result-team-proxy]")) return;
+  elements.screenshotTeam.value = event.target.value;
+}
+
 function renderJournal() {
-  const entries = state.myJournal || [];
+  const search = elements.journalSearch.value.trim().toLowerCase();
+  const typeFilter = elements.journalTypeFilter.value;
+  const dateFilter = elements.journalDateFilter.value;
+  const stateFilter = elements.journalStateFilter.value;
+  const entries = (state.myJournal || []).filter((entry) => {
+    if (typeFilter && entry.entryType !== typeFilter) return false;
+    if (dateFilter && String(entry.createdAt || "").slice(0, 10) !== dateFilter) return false;
+    if (stateFilter === "active" && entry.archivedAt) return false;
+    if (stateFilter === "archived" && !entry.archivedAt) return false;
+    if (stateFilter === "pinned" && (!entry.isPinned || entry.archivedAt)) return false;
+    const haystack = `${entry.title} ${entry.body} ${(entry.tags || []).join(" ")}`.toLowerCase();
+    return !search || haystack.includes(search);
+  }).sort((a, b) => Number(b.isPinned) - Number(a.isPinned) || String(b.updatedAt).localeCompare(String(a.updatedAt)));
+  elements.journalGoalLinks.innerHTML = (state.myGoals || []).map((goal) => `<option value="${escapeHtml(goal.id)}">${escapeHtml(goal.title)}</option>`).join("");
+  elements.goalJournalLink.innerHTML = `<option value="">No linked entry</option>${(state.myJournal || []).filter((entry) => !entry.archivedAt).map((entry) => `<option value="${escapeHtml(entry.id)}">${escapeHtml(entry.title)}</option>`).join("")}`;
   elements.journalEntries.innerHTML = entries.map((entry) => {
     const week = (state.vsWeeks || []).find((item) => item.id === entry.vsWeekId);
     const schedule = entry.type === "plan" && week
       ? `<p class="journal-schedule">${vsWeekDays(week.beginDate).map((day) => `${day.label} ${day.shortDate}`).join(" · ")}</p><small>EWAR vs ${escapeHtml(week.opponent)}</small>`
       : "";
-    const label = entry.type === "plan" ? "VS Week Plan" : entry.type === "goal" ? "Goal" : "Note";
+    const label = humanize(entry.entryType || entry.type);
     return `<article class="panel journal-entry journal-${escapeHtml(entry.type)}">
-      <div class="journal-entry-heading"><span>${label}</span><small>Updated ${escapeHtml(formatDateTime(entry.updatedAt))}</small></div>
+      <div class="journal-entry-heading"><span>${entry.isPinned ? "Pinned Â· " : ""}${label}${entry.archivedAt ? " Â· Archived" : ""}</span><small>Updated ${escapeHtml(formatDateTime(entry.updatedAt))}</small></div>
       <h3>${escapeHtml(entry.title)}</h3>
       ${schedule}
-      <p>${escapeHtml(entry.text)}</p>
+      <p>${escapeHtml(entry.body || entry.text)}</p>
+      ${(entry.tags || []).length ? `<div class="journal-tags">${entry.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
+      ${entry.reminderAt ? `<small>Reminder: ${escapeHtml(formatDateTime(entry.reminderAt))}</small>` : ""}
       <div class="journal-actions">
         <button class="secondary-button" type="button" data-edit-journal="${escapeHtml(entry.id)}">Edit</button>
+        <button class="secondary-button" type="button" data-pin-journal="${escapeHtml(entry.id)}">${entry.isPinned ? "Unpin" : "Pin"}</button>
+        <button class="secondary-button" type="button" data-duplicate-journal="${escapeHtml(entry.id)}">Duplicate</button>
+        <button class="secondary-button" type="button" data-archive-journal="${escapeHtml(entry.id)}">${entry.archivedAt ? "Restore" : "Archive"}</button>
         <button class="danger-button" type="button" data-delete-journal="${escapeHtml(entry.id)}">Delete</button>
       </div>
     </article>`;
   }).join("") || `<div class="panel journal-empty"><h3>Your journal is ready.</h3><p>Create a private note, plan your VS week, or set a personal goal.</p></div>`;
+  elements.allGoalList.innerHTML = (state.myGoals || []).map(goalCard).join("")
+    || `<div class="empty-state"><strong>No goals yet.</strong><p>Create a daily, weekly, VS, event, or personal goal.</p></div>`;
+}
+
+function goalCard(goal) {
+  const target = Math.max(1, Number(goal.targetValue || 1));
+  const current = Math.max(0, Number(goal.currentValue || 0));
+  const percent = goal.status === "completed" ? 100 : Math.min(100, Math.round(current / target * 100));
+  return `<article class="goal-card">
+    <div><span class="status-badge">${escapeHtml(humanize(goal.goalType))}</span><small>${escapeHtml(goal.dueDate || "No due date")}</small></div>
+    <h3>${escapeHtml(goal.title)}</h3>
+    <p>${escapeHtml(goal.description || "")}</p>
+    <div class="goal-progress" aria-label="${percent}% complete"><i style="width:${percent}%"></i></div>
+    <strong>${goal.progressMode === "checkbox" ? escapeHtml(humanize(goal.status)) : `${current.toLocaleString()} / ${target.toLocaleString()} Â· ${percent}%`}</strong>
+    <div class="action-row">
+      ${goal.status !== "completed" ? `<button class="primary-button" type="button" data-complete-goal="${escapeHtml(goal.id)}">Complete</button>` : ""}
+      ${goal.status === "paused"
+        ? `<button class="secondary-button" type="button" data-resume-goal="${escapeHtml(goal.id)}">Reopen</button>`
+        : goal.status !== "completed" ? `<button class="secondary-button" type="button" data-pause-goal="${escapeHtml(goal.id)}">Pause</button>` : ""}
+      <button class="secondary-button" type="button" data-edit-goal="${escapeHtml(goal.id)}">Edit</button>
+      ${goal.relatedJournalId ? `<button class="secondary-button" type="button" data-open-related-journal="${escapeHtml(goal.relatedJournalId)}">Open Journal</button>` : ""}
+      <button class="danger-button" type="button" data-delete-goal="${escapeHtml(goal.id)}">Delete</button>
+    </div>
+  </article>`;
+}
+
+async function saveGoal(event) {
+  event.preventDefault();
+  try {
+    await api.saveGoal(Object.fromEntries(new FormData(event.currentTarget)));
+    event.currentTarget.reset();
+    await refreshState();
+    showView("playerJournal");
+    setStatus("Private goal saved");
+  } catch (error) { setStatus(error.message, true); }
+}
+
+async function handleGoalClick(event) {
+  const relatedJournal = event.target.closest("[data-open-related-journal]");
+  if (relatedJournal) {
+    const entry = (state.myJournal || []).find((item) => item.id === relatedJournal.dataset.openRelatedJournal);
+    if (!entry) return;
+    elements.journalSearch.value = entry.title;
+    elements.journalTypeFilter.value = "";
+    elements.journalDateFilter.value = "";
+    elements.journalStateFilter.value = "all";
+    showView("playerJournal");
+    renderJournal();
+    elements.journalEntries.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  const reminder = event.target.closest("[data-dismiss-reminder]");
+  if (reminder) {
+    const entry = (state.myJournal || []).find((item) => item.id === reminder.dataset.dismissReminder);
+    if (!entry) return;
+    try {
+      await api.saveJournalItem({ ...entry, reminderAt: null });
+      await refreshState();
+      showView("myAssignment");
+      setStatus("Private reminder dismissed");
+    } catch (error) { setStatus(error.message, true); }
+    return;
+  }
+  const edit = event.target.closest("[data-edit-goal]");
+  const complete = event.target.closest("[data-complete-goal]");
+  const pause = event.target.closest("[data-pause-goal]");
+  const resume = event.target.closest("[data-resume-goal]");
+  const remove = event.target.closest("[data-delete-goal]");
+  const tab = event.target.closest("[data-goal-tab]");
+  if (tab) {
+    selectedGoalTab = tab.dataset.goalTab;
+    renderMyAssignment();
+    return;
+  }
+  const id = edit?.dataset.editGoal || complete?.dataset.completeGoal || pause?.dataset.pauseGoal
+    || resume?.dataset.resumeGoal || remove?.dataset.deleteGoal;
+  if (!id) return;
+  const goal = (state.myGoals || []).find((item) => item.id === id);
+  if (!goal) return;
+  try {
+    if (remove) {
+      if (!confirm(`Delete "${goal.title}"?`)) return;
+      await api.deleteGoal(id);
+    } else if (complete) {
+      await api.saveGoal({ ...goal, status: "completed", currentValue: goal.targetValue });
+    } else if (pause || resume) {
+      await api.saveGoal({ ...goal, status: pause ? "paused" : "in_progress" });
+    } else {
+      showView("playerJournal");
+      for (const [key, value] of Object.entries(goal)) {
+        if (elements.goalForm.elements[key] && value !== null) elements.goalForm.elements[key].value = value;
+      }
+      elements.goalForm.closest("details").open = true;
+      elements.goalForm.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    await refreshState();
+    showView("myAssignment");
+  } catch (error) { setStatus(error.message, true); }
+}
+
+async function handleAchievementClick(event) {
+  const seen = event.target.closest("[data-see-achievement]");
+  const dismiss = event.target.closest("[data-dismiss-achievement]");
+  const restore = event.target.closest("[data-restore-achievement]");
+  const id = seen?.dataset.seeAchievement || dismiss?.dataset.dismissAchievement || restore?.dataset.restoreAchievement;
+  if (!id) return;
+  try {
+    await api.updateAchievement(id, seen ? { seen: true } : { dismissed: !restore });
+    await refreshState();
+    showView("myAssignment");
+  } catch (error) { setStatus(error.message, true); }
+}
+
+async function handleBriefingMessageClick(event) {
+  const read = event.target.closest("[data-read-message]");
+  const reply = event.target.closest("[data-reply-message]");
+  if (reply) {
+    showView("dashboard");
+    elements.privateMessageRecipient.value = reply.dataset.replyMessage;
+    elements.privateMessageForm.scrollIntoView({ behavior: "smooth", block: "start" });
+    elements.privateMessageForm.querySelector("textarea, input[name='message']")?.focus();
+    return;
+  }
+  if (!read) return;
+  try {
+    await api.markPrivateMessageRead(read.dataset.readMessage);
+    await refreshState();
+    showView("myAssignment");
+  } catch (error) { setStatus(error.message, true); }
 }
 
 function openVsWeekPlan() {
@@ -809,17 +1051,21 @@ function openVsWeekPlan() {
   showView("playerJournal");
   const form = elements.journalForm;
   form.reset();
-  form.elements.type.value = "plan";
+  form.elements.entryType.value = "plan";
   form.elements.vsWeekId.value = week.id;
   form.elements.title.value = `EWAR vs ${week.opponent} · Week plan`;
-  form.elements.text.value = `Scoring focus for ${vsWeekDays(week.beginDate).map((day) => `${day.label} ${day.shortDate}`).join(", ")}:\n`;
-  form.elements.text.focus();
+  form.elements.body.value = `Scoring focus for ${vsWeekDays(week.beginDate).map((day) => `${day.label} ${day.shortDate}`).join(", ")}:\n`;
+  form.elements.body.focus();
 }
 
 async function saveJournalEntry(event) {
   event.preventDefault();
   try {
-    await api.saveJournalItem(Object.fromEntries(new FormData(event.currentTarget)));
+    const payload = Object.fromEntries(new FormData(event.currentTarget));
+    payload.goalIds = new FormData(event.currentTarget).getAll("goalIds");
+    payload.tags = String(payload.tags || "").split(",").map((tag) => tag.trim()).filter(Boolean);
+    payload.isPinned = event.currentTarget.elements.isPinned.checked;
+    await api.saveJournalItem(payload);
     event.currentTarget.reset();
     await refreshState();
     showView("playerJournal");
@@ -835,7 +1081,10 @@ function resetJournalEditor() {
 async function handleJournalEntryClick(event) {
   const editButton = event.target.closest("[data-edit-journal]");
   const deleteButton = event.target.closest("[data-delete-journal]");
-  const id = editButton?.dataset.editJournal || deleteButton?.dataset.deleteJournal;
+  const pinButton = event.target.closest("[data-pin-journal]");
+  const duplicateButton = event.target.closest("[data-duplicate-journal]");
+  const archiveButton = event.target.closest("[data-archive-journal]");
+  const id = editButton?.dataset.editJournal || deleteButton?.dataset.deleteJournal || pinButton?.dataset.pinJournal || duplicateButton?.dataset.duplicateJournal || archiveButton?.dataset.archiveJournal;
   if (!id) return;
   const entry = (state.myJournal || []).find((item) => item.id === id);
   if (!entry) return;
@@ -849,12 +1098,29 @@ async function handleJournalEntryClick(event) {
     } catch (error) { setStatus(error.message, true); }
     return;
   }
+  if (pinButton || archiveButton || duplicateButton) {
+    try {
+      const patch = duplicateButton
+        ? { ...entry, id: "", title: `${entry.title} copy`, createdAt: undefined, updatedAt: undefined }
+        : archiveButton ? { ...entry, archivedAt: entry.archivedAt ? null : new Date().toISOString() }
+          : { ...entry, isPinned: !entry.isPinned };
+      await api.saveJournalItem(patch);
+      await refreshState();
+      showView("playerJournal");
+      setStatus(duplicateButton ? "Journal entry duplicated" : archiveButton ? (entry.archivedAt ? "Journal entry restored" : "Journal entry archived") : "Journal pin updated");
+    } catch (error) { setStatus(error.message, true); }
+    return;
+  }
   const form = elements.journalForm;
   form.elements.id.value = entry.id;
   form.elements.vsWeekId.value = entry.vsWeekId || "";
-  form.elements.type.value = entry.type;
+  form.elements.entryType.value = entry.entryType || entry.type;
   form.elements.title.value = entry.title;
-  form.elements.text.value = entry.text;
+  form.elements.body.value = entry.body || entry.text;
+  form.elements.tags.value = (entry.tags || []).join(", ");
+  form.elements.reminderAt.value = entry.reminderAt ? String(entry.reminderAt).slice(0, 16) : "";
+  form.elements.isPinned.checked = Boolean(entry.isPinned);
+  [...form.elements.goalIds.options].forEach((option) => { option.selected = (entry.goalIds || []).includes(option.value); });
   form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -883,37 +1149,33 @@ function renderLeadership() {
       ${post.userId === state.me.uid || state.permissions.isAdministrator ? `<button class="danger-button" type="button" data-delete-leadership-post="${escapeHtml(post.id)}">Delete</button>` : ""}
     </article>`).join("") || `<p class="muted">No shared leadership notes yet.</p>`;
   }
-  for (const category of ["strategy", "weekly"]) {
+  for (const category of ["strategy", "weekly", "other"]) {
     const meeting = state.leadership.meetings?.[category];
     const card = elements.leadership.querySelector(`[data-leadership-meeting-card="${category}"]`);
     card.innerHTML = meeting ? `<article class="leadership-meeting-card">
       <span>Scheduled leadership session</span><strong>${escapeHtml(meeting.date)} · ${escapeHtml(meeting.time)}</strong>
       <small>20 minutes</small><p>${escapeHtml(meeting.agenda || "Agenda to be confirmed.")}</p>
     </article>` : `<p class="muted">No meeting scheduled.</p>`;
-    const form = elements.leadership.querySelector(`[data-leadership-meeting="${category}"]`);
-    if (meeting) {
-      form.elements.date.value = meeting.date;
-      form.elements.time.value = meeting.time;
-      form.elements.agenda.value = meeting.agenda || "";
-    }
   }
 }
 
 async function handleLeadershipSubmit(event) {
   const meetingForm = event.target.closest("[data-leadership-meeting]");
+  const schedulerForm = event.target.closest("[data-leadership-scheduler]");
   const postForm = event.target.closest("[data-leadership-post]");
   const requestForm = event.target.closest("[data-leadership-request-form]");
-  if (!meetingForm && !postForm && !requestForm) return;
+  if (!meetingForm && !schedulerForm && !postForm && !requestForm) return;
   event.preventDefault();
   try {
     const form = Object.fromEntries(new FormData(event.target));
-    if (meetingForm) await api.scheduleLeadershipMeeting({ ...form, category: meetingForm.dataset.leadershipMeeting });
+    if (schedulerForm) await api.scheduleLeadershipMeeting(form);
+    else if (meetingForm) await api.scheduleLeadershipMeeting({ ...form, category: meetingForm.dataset.leadershipMeeting });
     else if (requestForm) await api.requestLeadershipMeeting({ ...form, category: requestForm.dataset.leadershipRequestForm });
     else await api.addLeadershipPost({ ...form, category: postForm.dataset.leadershipPost });
-    if (postForm || requestForm) event.target.reset();
+    if (postForm || requestForm || schedulerForm) event.target.reset();
     await refreshState();
     showView("leadership");
-    setStatus(meetingForm ? "20-minute leadership meeting scheduled" : requestForm ? "Leadership meeting request sent" : "Leadership collaboration updated");
+    setStatus(meetingForm || schedulerForm ? "Leadership meeting scheduled" : requestForm ? "Leadership meeting request sent" : "Leadership collaboration updated");
   } catch (error) { setStatus(error.message, true); }
 }
 
@@ -1015,6 +1277,16 @@ async function handleOwnProfileClick(event) {
 
 async function renderAdministration() {
   try {
+    const definitions = state.achievementDefinitions || {};
+    if (elements.achievementSettingsForm) {
+      elements.achievementSettingsForm.elements.vsDailyThreshold.value = definitions.vsDailyThreshold || 80000000;
+      elements.achievementSettingsForm.elements.vsWeeklyThreshold.value = definitions.vsWeeklyThreshold || 500000000;
+      elements.achievementSettingsForm.elements.topThreeEnabled.checked = definitions.topThreeEnabled !== false;
+      elements.achievementSettingsForm.elements.publicAnnouncements.checked = Boolean(definitions.publicAnnouncements);
+      elements.achievementSettingsForm.elements.icon.value = definitions.icon || "star";
+      elements.achievementSettingsForm.elements.badgeStyle.value = definitions.badgeStyle || "gold";
+      elements.achievementSettingsForm.elements.messageTemplate.value = definitions.messageTemplate || "You reached {value} in {event}.";
+    }
     const [users, quality] = await Promise.all([api.getUsers(), api.getDataQuality()]);
     const qualityGroups = [
       ["Duplicate names", quality.duplicatePlayerNames],
@@ -1132,11 +1404,12 @@ function renderMyAssignment() {
   const pendingThemes = activeThemes.filter((theme) => !theme.acknowledgedAt);
   const pendingAnnouncements = (state.announcements || []).filter((announcement) => !announcement.acknowledgedAt);
   const todayAllianceEvents = (state.allianceWeeklyEvents || []).filter((item) => item.date === todayKey);
+  const upcomingAllianceEvents = (state.allianceWeeklyEvents || []).filter((item) => item.date >= todayKey);
   const dsIsToday = event?.date === todayKey;
   const availabilityEventOptions = [
     ...(event ? [{ value: `DS · ${event.date} · ${event.opponent || "Opponent pending"}`, label: `Desert Storm · ${event.date}` }] : []),
     ...activeThemes.map((theme) => ({ value: `Theme Week · ${theme.title}`, label: `Theme Week · ${theme.title}` })),
-    ...(state.allianceWeeklyEvents || []).map((item) => ({ value: `${item.name} · ${item.date} · ${item.time}`, label: `${item.name} · ${item.date}` }))
+    ...upcomingAllianceEvents.map((item) => ({ value: `${item.name} · ${item.date} · ${item.time}`, label: `${item.name} · ${item.date}` }))
   ];
   const briefingUpdates = [
     ...(state.announcements || []).map((announcement) => ({
@@ -1146,7 +1419,7 @@ function renderMyAssignment() {
       timestamp: announcement.createdAt,
       tone: "announcement"
     })),
-    ...(state.allianceWeeklyEvents || []).map((item) => ({
+    ...upcomingAllianceEvents.map((item) => ({
       type: "Alliance Event",
       title: `${item.name} · ${item.date}`,
       detail: `${item.time} server · ${item.overview}`,
@@ -1170,12 +1443,96 @@ function renderMyAssignment() {
   ].filter((item) => item.timestamp)
     .sort((left, right) => String(right.timestamp).localeCompare(String(left.timestamp)))
     .slice(0, 12);
+  const allGoals = state.myGoals || [];
+  const activeGoals = allGoals.filter((goal) => !["archived", "missed", "completed"].includes(goal.status));
+  const weekEnd = new Date();
+  weekEnd.setDate(weekEnd.getDate() + 7);
+  const weekEndKey = weekEnd.toISOString().slice(0, 10);
+  const activeVsWeek = (state.vsWeeks || []).find((candidate) => {
+    const end = new Date(`${candidate.beginDate}T12:00:00`);
+    end.setDate(end.getDate() + 6);
+    return todayKey >= candidate.beginDate && todayKey <= end.toISOString().slice(0, 10);
+  });
+  const goalsByTab = {
+    today: activeGoals.filter((goal) => ["daily", "vs_daily"].includes(goal.goalType)
+      ? (!goal.startDate || goal.startDate <= todayKey) && (!goal.dueDate || goal.dueDate >= todayKey)
+      : goal.dueDate === todayKey),
+    week: activeGoals.filter((goal) => !goal.dueDate || goal.dueDate <= weekEndKey),
+    vs: activeGoals.filter((goal) => ["vs_daily", "vs_weekly"].includes(goal.goalType)
+      && (!activeVsWeek || !goal.relatedEventId || goal.relatedEventId === activeVsWeek.id)),
+    event: activeGoals.filter((goal) => ["desert_storm", "theme_week", "alliance_event"].includes(goal.goalType)),
+    completed: allGoals.filter((goal) => goal.status === "completed")
+  };
+  const visibleGoals = goalsByTab[selectedGoalTab] || goalsByTab.today;
+  const recentAchievements = (state.myAchievements || []).filter((item) => !item.dismissedAt).slice(0, 5);
+  const dueReminders = (state.myJournal || []).filter((entry) => entry.reminderAt && !entry.archivedAt && new Date(entry.reminderAt) <= new Date());
+  const receivedMessages = (state.privateMessages || []).filter((message) => message.direction === "received");
+  const unreadMessages = receivedMessages.filter((message) => !message.readAtByRecipient);
+  const latestLeadershipMessage = [...receivedMessages]
+    .filter((message) => ["officer", "administrator"].includes(message.senderRole))
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))[0];
+  const actionableGoals = activeGoals.filter((goal) => goal.status !== "paused");
+  const priorityGoal = actionableGoals.find((goal) => goal.priority === "critical")
+    || actionableGoals.find((goal) => goal.priority === "high")
+    || actionableGoals.find((goal) => goal.status !== "completed");
+  let priorityAction = pendingAnnouncements[0]
+    ? { label: "Leadership update", title: pendingAnnouncements[0].title, detail: pendingAnnouncements[0].summary, action: "Review updates" }
+    : participant && participant.availability !== "Confirmed"
+      ? { label: "Attendance confirmation", title: "Confirm your Desert Storm availability", detail: `${event?.date || "Upcoming battle"} Â· Team ${participant.team}`, action: "Review assignment" }
+      : priorityGoal
+        ? { label: "Personal goal", title: priorityGoal.title, detail: priorityGoal.dueDate ? `Due ${priorityGoal.dueDate}` : "Continue your active goal", action: "Update goal" }
+        : { label: "All caught up", title: "No required action right now", detail: "Review the upcoming schedule when you are ready.", action: "View schedule" };
+  const urgentLeadershipMessage = unreadMessages.find((message) => ["action_required", "assignment_change"].includes(message.priority));
+  const eventDaysAway = event?.date ? Math.ceil((new Date(`${event.date}T23:59:59`) - new Date()) / 86400000) : null;
+  const eventBeginsSoon = eventDaysAway !== null && eventDaysAway >= 0 && eventDaysAway <= 1;
+  const priorityType = chooseBriefingPriority({
+    urgentLeadershipMessage, eventBeginsSoon,
+    attendanceUnconfirmed: participant && participant.availability !== "Confirmed",
+    assignmentChanged: false,
+    incompleteDailyGoal: actionableGoals.find((goal) => ["daily", "vs_daily"].includes(goal.goalType) && goal.status !== "completed"),
+    incompleteWeeklyGoal: priorityGoal,
+    unreadMessage: unreadMessages[0],
+    pendingAnnouncement: pendingAnnouncements[0]
+  });
+  if (priorityType === "urgent_leadership") priorityAction = { label: "Leadership action required", title: urgentLeadershipMessage.senderName, detail: urgentLeadershipMessage.text, action: "Read message", target: "dashboard" };
+  else if (priorityType === "event_soon") priorityAction = { label: "Event beginning soon", title: `Desert Storm Â· ${event.date}`, detail: `Team ${participant?.team || "pending"} Â· ${battleTime} server`, action: "Review operation", target: "events" };
+  else if (priorityType === "attendance") priorityAction.target = "myAssignment";
+  else if (["daily_goal", "weekly_goal"].includes(priorityType)) priorityAction.target = "playerJournal";
+  else if (priorityType === "message") priorityAction = { label: "Unread message", title: unreadMessages[0].senderName, detail: unreadMessages[0].text, action: "Open messages", target: "dashboard" };
+  else priorityAction.target ||= priorityType === "announcement" ? "dashboard" : "events";
   elements.myAssignmentContent.innerHTML = `
     <article class="weekly-welcome panel">
       ${memberMiniProfile(player, state.me.profileTitle || "Alliance Member")}
       <div><p class="eyebrow">${escapeHtml(today)}</p><h3>Welcome back, ${escapeHtml(player.gameName)}!</h3>
       <p>Today's plan highlights your scheduled events and current assignments.</p></div>
     </article>
+    <article class="priority-action-card panel">
+      <p class="eyebrow">${escapeHtml(priorityAction.label)}</p><h3>${escapeHtml(priorityAction.title)}</h3>
+      <p>${escapeHtml(priorityAction.detail)}</p><button class="primary-button" type="button" data-view-shortcut="${escapeHtml(priorityAction.target)}">${escapeHtml(priorityAction.action)}</button>
+    </article>
+    <section class="panel briefing-goals">
+      <div class="assignment-heading"><div><p class="eyebrow">Private progress</p><h3>My Goals</h3></div><button class="secondary-button" type="button" data-view-shortcut="playerJournal">Add Goal</button></div>
+      <div class="local-tabs" role="tablist" aria-label="Goal time range">
+        ${[["today", "Today"], ["week", "This Week"], ["vs", "VS Week"], ["event", "Event Goals"], ["completed", "Completed"]]
+          .map(([key, label]) => `<button type="button" role="tab" data-goal-tab="${key}" aria-selected="${selectedGoalTab === key}" class="${selectedGoalTab === key ? "active" : ""}">${label}</button>`).join("")}
+      </div>
+      <div class="goal-grid">${visibleGoals.slice(0, 5).map(goalCard).join("") || `<div class="empty-state"><strong>No goals in this view.</strong><p>Create a goal or choose another time range.</p></div>`}</div>
+      ${visibleGoals.length > 5 ? `<button class="secondary-button" type="button" data-view-shortcut="playerJournal">View all ${visibleGoals.length} goals</button>` : ""}
+    </section>
+    <section class="panel briefing-achievements">
+      <div class="assignment-heading"><div><p class="eyebrow">Personal milestones</p><h3>Recent Achievements</h3></div></div>
+      <div class="achievement-grid">${recentAchievements.map((item) => `<article class="achievement-card">
+        <span>${escapeHtml(humanize(item.icon || "star"))} · ${escapeHtml(humanize(item.eventType))}</span><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.message)}</p>
+        <small>${escapeHtml(formatDateTime(item.earnedAt))}</small>
+        <div class="action-row"><button class="secondary-button" type="button" data-view-shortcut="${item.eventType === "theme_week" ? "themeWeek" : "vsEvents"}">View Results</button>${!item.seenAt ? `<button class="secondary-button" type="button" data-see-achievement="${escapeHtml(item.id)}">Mark seen</button>` : ""}<button class="secondary-button" type="button" data-dismiss-achievement="${escapeHtml(item.id)}">Dismiss</button></div>
+      </article>`).join("") || `<div class="empty-state"><p>Your achievements will appear here as alliance events and results are finalized.</p></div>`}</div>
+      ${(state.myAchievements || []).some((item) => item.dismissedAt) ? `<details class="achievement-history"><summary>Achievement history</summary><div class="achievement-grid">${(state.myAchievements || []).map((item) => `<article class="achievement-card"><span>${escapeHtml(humanize(item.eventType))}</span><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.message)}</p>${item.dismissedAt ? `<button class="secondary-button" type="button" data-restore-achievement="${escapeHtml(item.id)}">Show on briefing</button>` : ""}</article>`).join("")}</div></details>` : ""}
+    </section>
+    ${dueReminders.length ? `<section class="panel"><div class="assignment-heading"><h3>Private Reminders</h3><span>${dueReminders.length} due</span></div>${dueReminders.slice(0, 5).map((entry) => `<article class="briefing-update"><span>Journal reminder</span><strong>${escapeHtml(entry.title)}</strong><small>${escapeHtml(formatDateTime(entry.reminderAt))}</small><div class="action-row"><button class="secondary-button" type="button" data-view-shortcut="playerJournal">Open Journal</button><button class="secondary-button" type="button" data-dismiss-reminder="${escapeHtml(entry.id)}">Dismiss</button></div></article>`).join("")}</section>` : ""}
+    <section class="panel briefing-messages"><div class="assignment-heading"><div><p class="eyebrow">Private communication</p><h3>Messages &amp; Questions</h3></div><span>${unreadMessages.length} unread</span></div>
+      ${latestLeadershipMessage ? `<article class="briefing-update"><span>${escapeHtml(humanize(latestLeadershipMessage.priority || "standard"))}</span><strong>${escapeHtml(latestLeadershipMessage.senderName)}</strong><p>${escapeHtml(latestLeadershipMessage.text)}</p><div class="action-row">${!latestLeadershipMessage.readAtByRecipient ? `<button class="secondary-button" type="button" data-read-message="${escapeHtml(latestLeadershipMessage.id)}">Mark read</button>` : ""}<button class="secondary-button" type="button" data-reply-message="${escapeHtml(latestLeadershipMessage.senderUid)}">Reply</button></div></article>` : `<p class="muted">No recent leadership messages.</p>`}
+      <button class="secondary-button" type="button" data-view-shortcut="dashboard">Open private messages</button>
+    </section>
     ${concludedThemes.map((theme) => theme.winner.playerId === playerId ? `<article class="panel theme-winner-briefing personal-winner">
       ${theme.winner.submissionImage ? `<img src="${theme.winner.submissionImage}" alt="${escapeHtml(theme.winner.playerName)} winning profile-picture submission">` : ""}
       <div><p class="eyebrow">Theme Week winner</p><h3>Congrats ${escapeHtml(theme.winner.playerName)}, you've won ${escapeHtml(theme.title)}!</h3><p>We loved your PFP submission just as much as the team—so much so you've been added as a conductor for the upcoming train! Pick a VIP of your choice, and enjoy the ride on the golden train!</p></div>
@@ -1210,9 +1567,11 @@ function renderMyAssignment() {
         <button class="primary-button" type="submit">Send availability message</button>
       </form>
       <form class="panel compact-action-form" data-briefing-action="question">
-        <strong>Quick ask</strong>
+        <strong>Need Help?</strong>
         <label>Send to<select name="recipient"><option value="administrator">Administrator</option>${(state.officerRecipients || []).filter((account) => account.role === "officer").map((account) => `<option value="${escapeHtml(account.uid)}">${escapeHtml(account.displayName)}</option>`).join("")}</select></label>
         <label>Question<input name="message" maxlength="600" required placeholder="Ask an officer or administrator…"></label>
+        <label>Topic<select name="subject"><option>General Question</option><option>Question About My Assignment</option><option>Question About an Event</option><option>Question About VS</option><option>Question About Strategy</option></select></label>
+        <input name="context" type="hidden" value="${escapeHtml(participant && event ? `Battle: ${event.date}; Team ${participant.team}; Unit: ${participant.tacticalGroup || "pending"}; Primary: ${participant.primaryAssignment || "pending"}; Strategy: ${strategy?.name || "pending"}` : "No active Desert Storm assignment")}">
         <button class="secondary-button" type="submit">Send question</button>
       </form>
     </section>
@@ -1247,7 +1606,7 @@ function renderMyAssignment() {
     </article>
     <section class="weekly-briefing-grid">
       <article class="panel"><h3>Alliance events this week</h3>
-        ${(state.allianceWeeklyEvents || []).map((item) => `<div class="briefing-line"><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.date)} · ${escapeHtml(item.time)} server · ${escapeHtml(serverToLocal(item.date, item.time))} local</span><p>${escapeHtml(item.overview)}</p></div>`).join("") || `<p class="muted">No alliance events have been posted.</p>`}
+        ${upcomingAllianceEvents.map((item) => `<div class="briefing-line"><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.date)} · ${escapeHtml(item.time)} server · ${escapeHtml(serverToLocal(item.date, item.time))} local</span><p>${escapeHtml(item.overview)}</p></div>`).join("") || `<p class="muted">No upcoming alliance events have been posted.</p>`}
       </article>
       <article class="panel"><h3>Theme-week updates</h3>
         ${activeThemes.map((theme) => `<div class="briefing-line ${theme.acknowledgedAt ? "" : "briefing-unread"}"><strong>${escapeHtml(theme.title)}</strong><span>${escapeHtml(theme.weekOf)} · ${escapeHtml(theme.status)}</span><p>${escapeHtml(theme.description)}</p>${theme.acknowledgedAt ? `<small>Acknowledged ${escapeHtml(formatDateTime(theme.acknowledgedAt))}</small>` : `<button class="primary-button" type="button" data-theme-acknowledge="${escapeHtml(theme.id)}">Acknowledge update</button>`}</div>`).join("") || `<p class="muted">No active theme week.</p>`}
@@ -1264,7 +1623,12 @@ async function handleBriefingAction(event) {
   const payload = Object.fromEntries(new FormData(form));
   try {
     if (form.dataset.briefingAction === "notice") await api.addMemberNotice(payload);
-    else await api.addOfficerQuestion(payload);
+    else {
+      payload.message = `${payload.subject}\n${payload.context}\n\n${payload.message}`;
+      delete payload.subject;
+      delete payload.context;
+      await api.addOfficerQuestion(payload);
+    }
     form.reset();
     await refreshState();
     setStatus(form.dataset.briefingAction === "notice" ? "Availability notice sent" : "Question sent");
@@ -1535,6 +1899,27 @@ async function handlePrivateMessageSubmit(event) {
     await refreshState();
     setStatus("Private message sent");
   } catch (error) { setStatus(error.message, true); }
+}
+
+async function saveAchievementSettings(event) {
+  event.preventDefault();
+  const payload = Object.fromEntries(new FormData(event.currentTarget));
+  payload.topThreeEnabled = event.currentTarget.elements.topThreeEnabled.checked;
+  payload.publicAnnouncements = event.currentTarget.elements.publicAnnouncements.checked;
+  try {
+    await api.updateAchievementDefinitions(payload);
+    await refreshState();
+    showView("administration");
+    document.querySelector("#achievementSettingsStatus").textContent = "Achievement rules saved.";
+  } catch (error) { document.querySelector("#achievementSettingsStatus").textContent = error.message; }
+}
+
+function previewAchievementTrigger() {
+  const form = elements.achievementSettingsForm;
+  const daily = Number(form.elements.vsDailyThreshold.value || 0).toLocaleString();
+  const weekly = Number(form.elements.vsWeeklyThreshold.value || 0).toLocaleString();
+  const preview = form.elements.messageTemplate.value.replace("{value}", daily).replace("{event}", "VS Daily");
+  document.querySelector("#achievementSettingsStatus").textContent = `Dry run only: top-three ${form.elements.topThreeEnabled.checked ? "enabled" : "disabled"}; daily threshold ${daily}; weekly threshold ${weekly}. Preview: ${preview} No awards created.`;
 }
 
 async function handleDailyChatSubmit(event) {
@@ -3359,10 +3744,22 @@ function setStatus(message, isError = false) {
 }
 
 function escapeHtml(value) {
-  return String(value ?? "").replace(/[&<>"]/g, (character) => ({
+  return sanitizeDisplayText(value).replace(/[&<>"]/g, (character) => ({
     "&": "&amp;",
     "<": "&lt;",
     ">": "&gt;",
     "\"": "&quot;"
   })[character]);
+}
+
+function sanitizeDisplayText(value) {
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replace(/\u0001/g, "")
+    .replace(/\^A/g, "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
