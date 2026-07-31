@@ -29,6 +29,8 @@ import {
   replaceState,
   resetWeek,
   saveState,
+  sanitizeLegacyText,
+  migratePrivateMemberData,
   subscribe,
   updateEvent,
   updateEventParticipant,
@@ -58,9 +60,14 @@ import {
   toggleAnnouncementHelpful,
   deleteAnnouncement,
   sendPrivateMessage,
+  markPrivateMessageRead,
   postDailyChatMessage,
   saveJournalItem,
   deleteJournalItem,
+  saveGoal,
+  deleteGoal,
+  updateAchievement,
+  updateAchievementDefinitions,
   scheduleLeadershipMeeting,
   addLeadershipPost,
   requestLeadershipMeeting,
@@ -77,6 +84,7 @@ import {
   updateVsWeekStandings,
   clearVsWeekStandings
 } from "../dataStore.js";
+import { sanitizeTextFields } from "../textSanitization.js";
 import { parseDuelLeagueStandings, readResultScreenshot, readScreenshotText } from "../resultScreenshotReader.js";
 import { canEditOwnAvailability, requireRole, ROLES } from "../permissions.js";
 import { getFirebasePersistenceStatus } from "../firebasePersistence.js";
@@ -188,6 +196,11 @@ export async function handleApi(request, response, url) {
     sendJson(response, 201, await sendPrivateMessage(await readJsonBody(request), user));
     return;
   }
+  const privateMessageRoute = url.pathname.match(/^\/api\/private-messages\/([^/]+)\/read$/);
+  if (privateMessageRoute && request.method === "PATCH") {
+    sendJson(response, 200, await markPrivateMessageRead(decodeURIComponent(privateMessageRoute[1]), user));
+    return;
+  }
   if (request.method === "POST" && url.pathname === "/api/daily-chat") {
     sendJson(response, 201, await postDailyChatMessage(await readJsonBody(request), user));
     return;
@@ -199,6 +212,25 @@ export async function handleApi(request, response, url) {
   const journalRoute = url.pathname.match(/^\/api\/journal\/([^/]+)$/);
   if (journalRoute && request.method === "DELETE") {
     sendJson(response, 200, await deleteJournalItem(decodeURIComponent(journalRoute[1]), user));
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/goals") {
+    sendJson(response, 201, await saveGoal(await readJsonBody(request), user));
+    return;
+  }
+  const goalRoute = url.pathname.match(/^\/api\/goals\/([^/]+)$/);
+  if (goalRoute && request.method === "DELETE") {
+    sendJson(response, 200, await deleteGoal(decodeURIComponent(goalRoute[1]), user));
+    return;
+  }
+  const achievementRoute = url.pathname.match(/^\/api\/achievements\/([^/]+)$/);
+  if (achievementRoute && request.method === "PATCH") {
+    sendJson(response, 200, await updateAchievement(decodeURIComponent(achievementRoute[1]), await readJsonBody(request), user));
+    return;
+  }
+  if (request.method === "PATCH" && url.pathname === "/api/admin/achievement-definitions") {
+    requireRole(user, ROLES.ADMIN);
+    sendJson(response, 200, await updateAchievementDefinitions(await readJsonBody(request), user));
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/leadership/meetings") {
@@ -653,6 +685,16 @@ export async function handleApi(request, response, url) {
     sendJson(response, 200, await saveState());
     return;
   }
+  if (request.method === "POST" && url.pathname === "/api/admin/sanitize-text") {
+    requireRole(user, ROLES.ADMIN);
+    sendJson(response, 200, await sanitizeLegacyText(await readJsonBody(request), user));
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/admin/migrate-private-data") {
+    requireRole(user, ROLES.ADMIN);
+    sendJson(response, 200, await migratePrivateMemberData(await readJsonBody(request), user));
+    return;
+  }
 
   sendJson(response, 404, {
     error: `API route not found: ${request.method} ${url.pathname}`,
@@ -777,7 +819,7 @@ async function readJsonBody(request) {
     }
   }
 
-  return raw ? JSON.parse(raw) : {};
+  return raw ? sanitizeTextFields(JSON.parse(raw)) : {};
 }
 
 async function readMultipartImage(request) {

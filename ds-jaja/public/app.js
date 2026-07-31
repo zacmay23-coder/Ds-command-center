@@ -1,8 +1,7 @@
-﻿import { clearSession, liveUpdatesUrl, requireSession } from "./auth.js";
+import { clearSession, liveUpdatesUrl, requireSession } from "./auth.js";
 import { api } from "./api.js";
 import { battlePhases, objectivePositions, strategyPlans, tacticalGroups } from "./battle-plan.js";
-
-
+import { chooseBriefingPriority } from "./briefing-priority.js";
 
 const strategies = [
   "Standard Control & Rotation",
@@ -44,6 +43,7 @@ const unitResponsibilities = {
 };
 
 let state = null;
+let selectedGoalTab = "today";
 let timelineTeam = "A";
 let timelinePhaseIndex = 0;
 let timelinePlaybackTimer = null;
@@ -165,6 +165,15 @@ elements.journalEntries = document.querySelector("#journalEntries");
 elements.journalTabButton = document.querySelector("#journalTabButton");
 elements.planVsWeekButton = document.querySelector("#planVsWeekButton");
 elements.leadership = document.querySelector("#leadership");
+elements.goalForm = document.querySelector("#goalForm");
+elements.journalSearch = document.querySelector("#journalSearch");
+elements.journalTypeFilter = document.querySelector("#journalTypeFilter");
+elements.journalDateFilter = document.querySelector("#journalDateFilter");
+elements.journalStateFilter = document.querySelector("#journalStateFilter");
+elements.journalGoalLinks = document.querySelector("#journalGoalLinks");
+elements.goalJournalLink = document.querySelector("#goalJournalLink");
+elements.allGoalList = document.querySelector("#allGoalList");
+elements.achievementSettingsForm = document.querySelector("#achievementSettingsForm");
 const expandedPlayers = new Set();
 let liveSource = null;
 
@@ -189,10 +198,16 @@ async function initialize() {
     showView("userProfile");
     setStatus("Complete your member title and bio to finish profile setup");
   } else {
-    const requestedView = new URLSearchParams(window.location.search).get("view");
+    const params = new URLSearchParams(window.location.search);
+    const requestedView = params.get("view");
     const requestedButton = requestedView && document.querySelector(`.sidebar button[data-view="${requestedView}"]`);
     const requestedPanel = requestedView && document.querySelector(`#${requestedView}`);
     if (requestedButton && requestedPanel && !requestedButton.hidden) showView(requestedView);
+    else if (state.me.role === "member") showView("myAssignment");
+    if (requestedView === "events") {
+      const eventView = { ds: "events", theme: "themeWeek", alliance: "allianceWeeklyEvents", vs: "vsEvents" }[params.get("tab") || "ds"];
+      if (eventView) showView(eventView);
+    }
   }
   connectLiveUpdates();
 }
@@ -209,6 +224,12 @@ async function refreshState() {
 }
 
 function bindNavigation() {
+  const navigation = document.querySelector("#primaryNavigation");
+  const navigationToggle = document.querySelector("#navigationToggle");
+  navigationToggle.addEventListener("click", () => {
+    const open = navigation.classList.toggle("open");
+    navigationToggle.setAttribute("aria-expanded", String(open));
+  });
   document.querySelector(".sidebar").addEventListener("click", (event) => {
     const button = event.target.closest("button[data-view]");
     if (!button) return;
@@ -218,6 +239,8 @@ function bindNavigation() {
     button.classList.add("active");
     document.querySelector(`#${button.dataset.view}`).classList.add("active");
     history.replaceState(null, "", `?view=${encodeURIComponent(button.dataset.view)}`);
+    navigation.classList.remove("open");
+    navigationToggle.setAttribute("aria-expanded", "false");
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
 }
@@ -231,6 +254,16 @@ function bindControls() {
   elements.journalForm.addEventListener("submit", saveJournalEntry);
   elements.journalForm.addEventListener("reset", () => window.setTimeout(resetJournalEditor));
   elements.journalEntries.addEventListener("click", handleJournalEntryClick);
+  elements.journalSearch.addEventListener("input", renderJournal);
+  elements.journalTypeFilter.addEventListener("change", renderJournal);
+  elements.journalDateFilter.addEventListener("change", renderJournal);
+  elements.journalStateFilter.addEventListener("change", renderJournal);
+  elements.goalForm.addEventListener("submit", saveGoal);
+  elements.allGoalList.addEventListener("click", handleGoalClick);
+  elements.goalForm.addEventListener("reset", () => window.setTimeout(() => { elements.goalForm.elements.id.value = ""; }));
+  elements.myAssignmentContent.addEventListener("click", handleGoalClick);
+  elements.myAssignmentContent.addEventListener("click", handleAchievementClick);
+  elements.myAssignmentContent.addEventListener("click", handleBriefingMessageClick);
   elements.leadership.addEventListener("submit", handleLeadershipSubmit);
   elements.leadership.addEventListener("click", handleLeadershipClick);
   elements.searchInput.addEventListener("input", renderDirectory);
@@ -273,6 +306,8 @@ function bindControls() {
   document.body.addEventListener("click", handleMiniProfileClick);
   document.body.addEventListener("click", handleEventSubviewClick);
   document.body.addEventListener("click", handleNestedSubviewClick);
+  document.body.addEventListener("click", handleWorkflowNavigation);
+  document.body.addEventListener("change", handleWorkflowFieldSync);
   elements.myAssignmentContent.addEventListener("submit", handleBriefingAction);
   elements.createdDsManagement.addEventListener("click", handleEventAction);
   elements.createdDsManagement.addEventListener("click", handleEventListClick);
@@ -314,6 +349,10 @@ function bindControls() {
   elements.vsStandingsClearButton.addEventListener("click", clearVsStandings);
   elements.vsStandingsFillButton.addEventListener("click", fillVsStandingsFromPaste);
   elements.vsStandingsSaveButton.addEventListener("click", saveManualVsStandings);
+  document.querySelector("#sanitizeTextDryRun")?.addEventListener("click", () => runTextSanitization(true));
+  document.querySelector("#sanitizeTextApply")?.addEventListener("click", () => runTextSanitization(false));
+  elements.achievementSettingsForm?.addEventListener("submit", saveAchievementSettings);
+  elements.achievementSettingsForm?.querySelector("[data-achievement-dry-run]")?.addEventListener("click", previewAchievementTrigger);
 }
 
 function logout() {
@@ -386,6 +425,21 @@ function handleEventSubviewClick(event) {
   if (!button) return;
   showView(button.dataset.eventSubview);
   document.querySelector("[data-view='events']")?.classList.add("active");
+  const tab = { events: "ds", themeWeek: "theme", allianceWeeklyEvents: "alliance", vsEvents: "vs" }[button.dataset.eventSubview];
+  history.replaceState(null, "", `?view=events&tab=${tab}`);
+}
+
+async function runTextSanitization(dryRun) {
+  if (!dryRun && !window.confirm("Clean malformed control characters from legacy text records? This action will be audited.")) return;
+  const status = document.querySelector("#sanitizeTextStatus");
+  status.textContent = dryRun ? "Scanning records…" : "Cleaning affected records…";
+  try {
+    const result = await api.sanitizeLegacyText(dryRun);
+    status.textContent = `${result.changedValues} affected text values across ${result.affectedRecords} records${dryRun ? " found. No data changed." : " cleaned."}`;
+    if (!dryRun) await refreshState();
+  } catch (error) {
+    status.textContent = error.message;
+  }
 }
 
 function handleNestedSubviewClick(event) {
@@ -538,25 +592,203 @@ function renderUserProfile() {
   `;
 }
 
+function handleWorkflowNavigation(event) {
+  const shortcut = event.target.closest("[data-view-shortcut]");
+  if (shortcut) {
+    showView(shortcut.dataset.viewShortcut);
+    history.replaceState(null, "", `?view=${encodeURIComponent(shortcut.dataset.viewShortcut)}`);
+    return;
+  }
+
+  const trigger = event.target.closest("[data-workflow-tab], [data-workflow-next]");
+  if (!trigger) return;
+  const targetId = trigger.dataset.workflowTab || trigger.dataset.workflowNext;
+  const target = document.querySelector(`[data-workflow-panel="${CSS.escape(targetId)}"]`);
+  if (!target) return;
+  const scope = targetId.startsWith("vs-") ? "vs-" : "result-";
+  document.querySelectorAll(`[data-workflow-panel^="${scope}"]`).forEach((panel) => panel.classList.remove("active"));
+  document.querySelectorAll(`[data-workflow-tab^="${scope}"]`).forEach((button) => {
+    const selected = button.dataset.workflowTab === targetId;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-selected", String(selected));
+    button.closest("li")?.classList.toggle("active", selected);
+  });
+  target.classList.add("active");
+}
+
+function handleWorkflowFieldSync(event) {
+  if (!event.target.matches("[data-result-team-proxy]")) return;
+  elements.screenshotTeam.value = event.target.value;
+}
+
 function renderJournal() {
-  const entries = state.myJournal || [];
+  const search = elements.journalSearch.value.trim().toLowerCase();
+  const typeFilter = elements.journalTypeFilter.value;
+  const dateFilter = elements.journalDateFilter.value;
+  const stateFilter = elements.journalStateFilter.value;
+  const entries = (state.myJournal || []).filter((entry) => {
+    if (typeFilter && entry.entryType !== typeFilter) return false;
+    if (dateFilter && String(entry.createdAt || "").slice(0, 10) !== dateFilter) return false;
+    if (stateFilter === "active" && entry.archivedAt) return false;
+    if (stateFilter === "archived" && !entry.archivedAt) return false;
+    if (stateFilter === "pinned" && (!entry.isPinned || entry.archivedAt)) return false;
+    const haystack = `${entry.title} ${entry.body} ${(entry.tags || []).join(" ")}`.toLowerCase();
+    return !search || haystack.includes(search);
+  }).sort((a, b) => Number(b.isPinned) - Number(a.isPinned) || String(b.updatedAt).localeCompare(String(a.updatedAt)));
+  elements.journalGoalLinks.innerHTML = (state.myGoals || []).map((goal) => `<option value="${escapeHtml(goal.id)}">${escapeHtml(goal.title)}</option>`).join("");
+  elements.goalJournalLink.innerHTML = `<option value="">No linked entry</option>${(state.myJournal || []).filter((entry) => !entry.archivedAt).map((entry) => `<option value="${escapeHtml(entry.id)}">${escapeHtml(entry.title)}</option>`).join("")}`;
   elements.journalEntries.innerHTML = entries.map((entry) => {
     const week = (state.vsWeeks || []).find((item) => item.id === entry.vsWeekId);
     const schedule = entry.type === "plan" && week
-      ? `<p class="journal-schedule">${vsWeekDays(week.beginDate).map((day) => `${day.label} ${day.shortDate}`).join(" Â· ")}</p><small>EWAR vs ${escapeHtml(week.opponent)}</small>`
+      ? `<p class="journal-schedule">${vsWeekDays(week.beginDate).map((day) => `${day.label} ${day.shortDate}`).join(" · ")}</p><small>EWAR vs ${escapeHtml(week.opponent)}</small>`
       : "";
-    const label = entry.type === "plan" ? "VS Week Plan" : entry.type === "goal" ? "Goal" : "Note";
+    const label = humanize(entry.entryType || entry.type);
     return `<article class="panel journal-entry journal-${escapeHtml(entry.type)}">
-      <div class="journal-entry-heading"><span>${label}</span><small>Updated ${escapeHtml(formatDateTime(entry.updatedAt))}</small></div>
+      <div class="journal-entry-heading"><span>${entry.isPinned ? "Pinned · " : ""}${label}${entry.archivedAt ? " · Archived" : ""}</span><small>Updated ${escapeHtml(formatDateTime(entry.updatedAt))}</small></div>
       <h3>${escapeHtml(entry.title)}</h3>
       ${schedule}
-      <p>${escapeHtml(entry.text)}</p>
+      <p>${escapeHtml(entry.body || entry.text)}</p>
+      ${(entry.tags || []).length ? `<div class="journal-tags">${entry.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
+      ${entry.reminderAt ? `<small>Reminder: ${escapeHtml(formatDateTime(entry.reminderAt))}</small>` : ""}
       <div class="journal-actions">
         <button class="secondary-button" type="button" data-edit-journal="${escapeHtml(entry.id)}">Edit</button>
+        <button class="secondary-button" type="button" data-pin-journal="${escapeHtml(entry.id)}">${entry.isPinned ? "Unpin" : "Pin"}</button>
+        <button class="secondary-button" type="button" data-duplicate-journal="${escapeHtml(entry.id)}">Duplicate</button>
+        <button class="secondary-button" type="button" data-archive-journal="${escapeHtml(entry.id)}">${entry.archivedAt ? "Restore" : "Archive"}</button>
         <button class="danger-button" type="button" data-delete-journal="${escapeHtml(entry.id)}">Delete</button>
       </div>
     </article>`;
   }).join("") || `<div class="panel journal-empty"><h3>Your journal is ready.</h3><p>Create a private note, plan your VS week, or set a personal goal.</p></div>`;
+  elements.allGoalList.innerHTML = (state.myGoals || []).map(goalCard).join("")
+    || `<div class="empty-state"><strong>No goals yet.</strong><p>Create a daily, weekly, VS, event, or personal goal.</p></div>`;
+}
+
+function goalCard(goal) {
+  const target = Math.max(1, Number(goal.targetValue || 1));
+  const current = Math.max(0, Number(goal.currentValue || 0));
+  const percent = goal.status === "completed" ? 100 : Math.min(100, Math.round(current / target * 100));
+  return `<article class="goal-card">
+    <div><span class="status-badge">${escapeHtml(humanize(goal.goalType))}</span><small>${escapeHtml(goal.dueDate || "No due date")}</small></div>
+    <h3>${escapeHtml(goal.title)}</h3>
+    <p>${escapeHtml(goal.description || "")}</p>
+    <div class="goal-progress" aria-label="${percent}% complete"><i style="width:${percent}%"></i></div>
+    <strong>${goal.progressMode === "checkbox" ? escapeHtml(humanize(goal.status)) : `${current.toLocaleString()} / ${target.toLocaleString()} · ${percent}%`}</strong>
+    <div class="action-row">
+      ${goal.status !== "completed" ? `<button class="primary-button" type="button" data-complete-goal="${escapeHtml(goal.id)}">Complete</button>` : ""}
+      ${goal.status === "paused"
+        ? `<button class="secondary-button" type="button" data-resume-goal="${escapeHtml(goal.id)}">Reopen</button>`
+        : goal.status !== "completed" ? `<button class="secondary-button" type="button" data-pause-goal="${escapeHtml(goal.id)}">Pause</button>` : ""}
+      <button class="secondary-button" type="button" data-edit-goal="${escapeHtml(goal.id)}">Edit</button>
+      ${goal.relatedJournalId ? `<button class="secondary-button" type="button" data-open-related-journal="${escapeHtml(goal.relatedJournalId)}">Open Journal</button>` : ""}
+      <button class="danger-button" type="button" data-delete-goal="${escapeHtml(goal.id)}">Delete</button>
+    </div>
+  </article>`;
+}
+
+async function saveGoal(event) {
+  event.preventDefault();
+  try {
+    await api.saveGoal(Object.fromEntries(new FormData(event.currentTarget)));
+    event.currentTarget.reset();
+    await refreshState();
+    showView("playerJournal");
+    setStatus("Private goal saved");
+  } catch (error) { setStatus(error.message, true); }
+}
+
+async function handleGoalClick(event) {
+  const relatedJournal = event.target.closest("[data-open-related-journal]");
+  if (relatedJournal) {
+    const entry = (state.myJournal || []).find((item) => item.id === relatedJournal.dataset.openRelatedJournal);
+    if (!entry) return;
+    elements.journalSearch.value = entry.title;
+    elements.journalTypeFilter.value = "";
+    elements.journalDateFilter.value = "";
+    elements.journalStateFilter.value = "all";
+    showView("playerJournal");
+    renderJournal();
+    elements.journalEntries.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  const reminder = event.target.closest("[data-dismiss-reminder]");
+  if (reminder) {
+    const entry = (state.myJournal || []).find((item) => item.id === reminder.dataset.dismissReminder);
+    if (!entry) return;
+    try {
+      await api.saveJournalItem({ ...entry, reminderAt: null });
+      await refreshState();
+      showView("myAssignment");
+      setStatus("Private reminder dismissed");
+    } catch (error) { setStatus(error.message, true); }
+    return;
+  }
+  const edit = event.target.closest("[data-edit-goal]");
+  const complete = event.target.closest("[data-complete-goal]");
+  const pause = event.target.closest("[data-pause-goal]");
+  const resume = event.target.closest("[data-resume-goal]");
+  const remove = event.target.closest("[data-delete-goal]");
+  const tab = event.target.closest("[data-goal-tab]");
+  if (tab) {
+    selectedGoalTab = tab.dataset.goalTab;
+    renderMyAssignment();
+    return;
+  }
+  const id = edit?.dataset.editGoal || complete?.dataset.completeGoal || pause?.dataset.pauseGoal
+    || resume?.dataset.resumeGoal || remove?.dataset.deleteGoal;
+  if (!id) return;
+  const goal = (state.myGoals || []).find((item) => item.id === id);
+  if (!goal) return;
+  try {
+    if (remove) {
+      if (!confirm(`Delete "${goal.title}"?`)) return;
+      await api.deleteGoal(id);
+    } else if (complete) {
+      await api.saveGoal({ ...goal, status: "completed", currentValue: goal.targetValue });
+    } else if (pause || resume) {
+      await api.saveGoal({ ...goal, status: pause ? "paused" : "in_progress" });
+    } else {
+      showView("playerJournal");
+      for (const [key, value] of Object.entries(goal)) {
+        if (elements.goalForm.elements[key] && value !== null) elements.goalForm.elements[key].value = value;
+      }
+      elements.goalForm.closest("details").open = true;
+      elements.goalForm.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    await refreshState();
+    showView("myAssignment");
+  } catch (error) { setStatus(error.message, true); }
+}
+
+async function handleAchievementClick(event) {
+  const seen = event.target.closest("[data-see-achievement]");
+  const dismiss = event.target.closest("[data-dismiss-achievement]");
+  const restore = event.target.closest("[data-restore-achievement]");
+  const id = seen?.dataset.seeAchievement || dismiss?.dataset.dismissAchievement || restore?.dataset.restoreAchievement;
+  if (!id) return;
+  try {
+    await api.updateAchievement(id, seen ? { seen: true } : { dismissed: !restore });
+    await refreshState();
+    showView("myAssignment");
+  } catch (error) { setStatus(error.message, true); }
+}
+
+async function handleBriefingMessageClick(event) {
+  const read = event.target.closest("[data-read-message]");
+  const reply = event.target.closest("[data-reply-message]");
+  if (reply) {
+    showView("dashboard");
+    elements.privateMessageRecipient.value = reply.dataset.replyMessage;
+    elements.privateMessageForm.scrollIntoView({ behavior: "smooth", block: "start" });
+    elements.privateMessageForm.querySelector("textarea, input[name='message']")?.focus();
+    return;
+  }
+  if (!read) return;
+  try {
+    await api.markPrivateMessageRead(read.dataset.readMessage);
+    await refreshState();
+    showView("myAssignment");
+  } catch (error) { setStatus(error.message, true); }
 }
 
 function openVsWeekPlan() {
@@ -565,17 +797,21 @@ function openVsWeekPlan() {
   showView("playerJournal");
   const form = elements.journalForm;
   form.reset();
-  form.elements.type.value = "plan";
+  form.elements.entryType.value = "plan";
   form.elements.vsWeekId.value = week.id;
-  form.elements.title.value = `EWAR vs ${week.opponent} Â· Week plan`;
-  form.elements.text.value = `Scoring focus for ${vsWeekDays(week.beginDate).map((day) => `${day.label} ${day.shortDate}`).join(", ")}:\n`;
-  form.elements.text.focus();
+  form.elements.title.value = `EWAR vs ${week.opponent} · Week plan`;
+  form.elements.body.value = `Scoring focus for ${vsWeekDays(week.beginDate).map((day) => `${day.label} ${day.shortDate}`).join(", ")}:\n`;
+  form.elements.body.focus();
 }
 
 async function saveJournalEntry(event) {
   event.preventDefault();
   try {
-    await api.saveJournalItem(Object.fromEntries(new FormData(event.currentTarget)));
+    const payload = Object.fromEntries(new FormData(event.currentTarget));
+    payload.goalIds = new FormData(event.currentTarget).getAll("goalIds");
+    payload.tags = String(payload.tags || "").split(",").map((tag) => tag.trim()).filter(Boolean);
+    payload.isPinned = event.currentTarget.elements.isPinned.checked;
+    await api.saveJournalItem(payload);
     event.currentTarget.reset();
     await refreshState();
     showView("playerJournal");
@@ -591,7 +827,10 @@ function resetJournalEditor() {
 async function handleJournalEntryClick(event) {
   const editButton = event.target.closest("[data-edit-journal]");
   const deleteButton = event.target.closest("[data-delete-journal]");
-  const id = editButton?.dataset.editJournal || deleteButton?.dataset.deleteJournal;
+  const pinButton = event.target.closest("[data-pin-journal]");
+  const duplicateButton = event.target.closest("[data-duplicate-journal]");
+  const archiveButton = event.target.closest("[data-archive-journal]");
+  const id = editButton?.dataset.editJournal || deleteButton?.dataset.deleteJournal || pinButton?.dataset.pinJournal || duplicateButton?.dataset.duplicateJournal || archiveButton?.dataset.archiveJournal;
   if (!id) return;
   const entry = (state.myJournal || []).find((item) => item.id === id);
   if (!entry) return;
@@ -605,12 +844,29 @@ async function handleJournalEntryClick(event) {
     } catch (error) { setStatus(error.message, true); }
     return;
   }
+  if (pinButton || archiveButton || duplicateButton) {
+    try {
+      const patch = duplicateButton
+        ? { ...entry, id: "", title: `${entry.title} copy`, createdAt: undefined, updatedAt: undefined }
+        : archiveButton ? { ...entry, archivedAt: entry.archivedAt ? null : new Date().toISOString() }
+          : { ...entry, isPinned: !entry.isPinned };
+      await api.saveJournalItem(patch);
+      await refreshState();
+      showView("playerJournal");
+      setStatus(duplicateButton ? "Journal entry duplicated" : archiveButton ? (entry.archivedAt ? "Journal entry restored" : "Journal entry archived") : "Journal pin updated");
+    } catch (error) { setStatus(error.message, true); }
+    return;
+  }
   const form = elements.journalForm;
   form.elements.id.value = entry.id;
   form.elements.vsWeekId.value = entry.vsWeekId || "";
-  form.elements.type.value = entry.type;
+  form.elements.entryType.value = entry.entryType || entry.type;
   form.elements.title.value = entry.title;
-  form.elements.text.value = entry.text;
+  form.elements.body.value = entry.body || entry.text;
+  form.elements.tags.value = (entry.tags || []).join(", ");
+  form.elements.reminderAt.value = entry.reminderAt ? String(entry.reminderAt).slice(0, 16) : "";
+  form.elements.isPinned.checked = Boolean(entry.isPinned);
+  [...form.elements.goalIds.options].forEach((option) => { option.selected = (entry.goalIds || []).includes(option.value); });
   form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -619,7 +875,7 @@ function renderLeadership() {
   for (const category of ["roles", "strategy", "improvements", "weekly"]) {
     const requestPanel = elements.leadership.querySelector(`[data-leadership-request="${category}"]`);
     const recipientOptions = (state.officerRecipients || []).map((recipient) =>
-      `<option value="${escapeHtml(recipient.uid)}">${escapeHtml(recipient.displayName)} Â· ${escapeHtml(recipient.role)}</option>`
+      `<option value="${escapeHtml(recipient.uid)}">${escapeHtml(recipient.displayName)} · ${escapeHtml(recipient.role)}</option>`
     ).join("");
     const requests = (state.leadership.requests || []).filter((request) => request.category === category);
     requestPanel.innerHTML = `<details class="leadership-request-box">
@@ -639,37 +895,33 @@ function renderLeadership() {
       ${post.userId === state.me.uid || state.permissions.isAdministrator ? `<button class="danger-button" type="button" data-delete-leadership-post="${escapeHtml(post.id)}">Delete</button>` : ""}
     </article>`).join("") || `<p class="muted">No shared leadership notes yet.</p>`;
   }
-  for (const category of ["strategy", "weekly"]) {
+  for (const category of ["strategy", "weekly", "other"]) {
     const meeting = state.leadership.meetings?.[category];
     const card = elements.leadership.querySelector(`[data-leadership-meeting-card="${category}"]`);
     card.innerHTML = meeting ? `<article class="leadership-meeting-card">
-      <span>Scheduled leadership session</span><strong>${escapeHtml(meeting.date)} Â· ${escapeHtml(meeting.time)}</strong>
+      <span>Scheduled leadership session</span><strong>${escapeHtml(meeting.date)} · ${escapeHtml(meeting.time)}</strong>
       <small>20 minutes</small><p>${escapeHtml(meeting.agenda || "Agenda to be confirmed.")}</p>
     </article>` : `<p class="muted">No meeting scheduled.</p>`;
-    const form = elements.leadership.querySelector(`[data-leadership-meeting="${category}"]`);
-    if (meeting) {
-      form.elements.date.value = meeting.date;
-      form.elements.time.value = meeting.time;
-      form.elements.agenda.value = meeting.agenda || "";
-    }
   }
 }
 
 async function handleLeadershipSubmit(event) {
   const meetingForm = event.target.closest("[data-leadership-meeting]");
+  const schedulerForm = event.target.closest("[data-leadership-scheduler]");
   const postForm = event.target.closest("[data-leadership-post]");
   const requestForm = event.target.closest("[data-leadership-request-form]");
-  if (!meetingForm && !postForm && !requestForm) return;
+  if (!meetingForm && !schedulerForm && !postForm && !requestForm) return;
   event.preventDefault();
   try {
     const form = Object.fromEntries(new FormData(event.target));
-    if (meetingForm) await api.scheduleLeadershipMeeting({ ...form, category: meetingForm.dataset.leadershipMeeting });
+    if (schedulerForm) await api.scheduleLeadershipMeeting(form);
+    else if (meetingForm) await api.scheduleLeadershipMeeting({ ...form, category: meetingForm.dataset.leadershipMeeting });
     else if (requestForm) await api.requestLeadershipMeeting({ ...form, category: requestForm.dataset.leadershipRequestForm });
     else await api.addLeadershipPost({ ...form, category: postForm.dataset.leadershipPost });
-    if (postForm || requestForm) event.target.reset();
+    if (postForm || requestForm || schedulerForm) event.target.reset();
     await refreshState();
     showView("leadership");
-    setStatus(meetingForm ? "20-minute leadership meeting scheduled" : requestForm ? "Leadership meeting request sent" : "Leadership collaboration updated");
+    setStatus(meetingForm || schedulerForm ? "Leadership meeting scheduled" : requestForm ? "Leadership meeting request sent" : "Leadership collaboration updated");
   } catch (error) { setStatus(error.message, true); }
 }
 
@@ -753,7 +1005,7 @@ function handleMiniProfileClick(event) {
         ? `<img src="${escapeHtml(player.profileImage)}" alt="${escapeHtml(player.gameName)}" style="object-fit:${escapeHtml(player.profileImageFit || "cover")};object-position:${escapeHtml(player.profileImagePosition || "center")}">`
         : `<span>${escapeHtml(player.gameName.slice(0, 1))}</span>`}
       <div><p class="eyebrow">${escapeHtml(player.rank || "Member")}</p><h3>${escapeHtml(player.gameName)}</h3>
-      <p>${escapeHtml(member ? `Team ${member.team} Â· ${member.tacticalGroup || "Reserve"} Â· ${member.unit || "Unassigned"}` : "")}</p></div>
+      <p>${escapeHtml(member ? `Team ${member.team} · ${member.tacticalGroup || "Reserve"} · ${member.unit || "Unassigned"}` : "")}</p></div>
     </div>`;
   elements.memberProfileDialog.showModal();
 }
@@ -771,6 +1023,16 @@ async function handleOwnProfileClick(event) {
 
 async function renderAdministration() {
   try {
+    const definitions = state.achievementDefinitions || {};
+    if (elements.achievementSettingsForm) {
+      elements.achievementSettingsForm.elements.vsDailyThreshold.value = definitions.vsDailyThreshold || 80000000;
+      elements.achievementSettingsForm.elements.vsWeeklyThreshold.value = definitions.vsWeeklyThreshold || 500000000;
+      elements.achievementSettingsForm.elements.topThreeEnabled.checked = definitions.topThreeEnabled !== false;
+      elements.achievementSettingsForm.elements.publicAnnouncements.checked = Boolean(definitions.publicAnnouncements);
+      elements.achievementSettingsForm.elements.icon.value = definitions.icon || "star";
+      elements.achievementSettingsForm.elements.badgeStyle.value = definitions.badgeStyle || "gold";
+      elements.achievementSettingsForm.elements.messageTemplate.value = definitions.messageTemplate || "You reached {value} in {event}.";
+    }
     const [users, quality] = await Promise.all([api.getUsers(), api.getDataQuality()]);
     const qualityGroups = [
       ["Duplicate names", quality.duplicatePlayerNames],
@@ -800,7 +1062,7 @@ async function renderAdministration() {
     `).join("") || emptyState("No application users have signed in yet.");
     const playerName = (id) => state.players.find((player) => player.id === id)?.gameName || "Linked member";
     elements.officerInbox.innerHTML = `
-      <article class="panel"><h3>Same-day availability notices</h3>${(state.memberNotices || []).map((notice) => `<div class="admin-message"><strong>${escapeHtml(playerName(notice.playerId))} Â· ${escapeHtml(notice.eventType)}</strong><span>${escapeHtml(formatDateTime(notice.createdAt))}</span><p>${escapeHtml(notice.message)}</p></div>`).join("") || `<p class="muted">No notices.</p>`}</article>
+      <article class="panel"><h3>Same-day availability notices</h3>${(state.memberNotices || []).map((notice) => `<div class="admin-message"><strong>${escapeHtml(playerName(notice.playerId))} · ${escapeHtml(notice.eventType)}</strong><span>${escapeHtml(formatDateTime(notice.createdAt))}</span><p>${escapeHtml(notice.message)}</p></div>`).join("") || `<p class="muted">No notices.</p>`}</article>
       <article class="panel"><h3>Member questions</h3>${(state.officerQuestions || []).map((question) => `<div class="admin-message"><strong>${escapeHtml(playerName(question.playerId))}</strong><span>${escapeHtml(formatDateTime(question.createdAt))}</span><p>${escapeHtml(question.message)}</p></div>`).join("") || `<p class="muted">No questions.</p>`}</article>`;
   } catch (error) {
     elements.userList.innerHTML = emptyState(error.message);
@@ -821,9 +1083,9 @@ function renderVsAuditPanel() {
   elements.vsAuditPanel.innerHTML = `<div class="vs-audit-controls">
     <label>Grouping / VS week<select data-vs-audit-week>${weeks.map((item) => {
       const itemGroup = (state.duelLeagueGroups || []).find((groupItem) => groupItem.id === item.duelLeagueGroupId);
-      return `<option value="${escapeHtml(item.id)}" ${item.id === week?.id ? "selected" : ""}>${escapeHtml(itemGroup?.code || "")} Â· ${item.duelLeagueWeek}/4 Â· vs ${escapeHtml(item.opponent)}</option>`;
+      return `<option value="${escapeHtml(item.id)}" ${item.id === week?.id ? "selected" : ""}>${escapeHtml(itemGroup?.code || "")} · ${item.duelLeagueWeek}/4 · vs ${escapeHtml(item.opponent)}</option>`;
     }).join("")}</select></label>
-    <label>Day<select data-vs-audit-date>${days.map((day) => `<option value="${day.date}" ${day.date === selectedDate ? "selected" : ""}>${day.label} Â· ${day.date}</option>`).join("")}</select></label>
+    <label>Day<select data-vs-audit-date>${days.map((day) => `<option value="${day.date}" ${day.date === selectedDate ? "selected" : ""}>${day.label} · ${day.date}</option>`).join("")}</select></label>
     <button class="secondary-button" type="button" data-run-vs-audit ${week ? "" : "disabled"}>Run Audit</button>
     ${audit?.passed && !audit.published ? `<button class="primary-button" type="button" data-publish-vs-day>Publish Daily Scores</button>` : ""}
   </div>
@@ -861,7 +1123,7 @@ function renderEventBanner() {
   elements.eventBanner.dataset.status = event.status;
   elements.eventBanner.innerHTML = `
     <strong>${eventStatusLabel(event.status)}</strong>
-    <span>${escapeHtml(event.date)}${event.opponent ? ` Â· vs ${escapeHtml(event.opponent)}` : ""}</span>
+    <span>${escapeHtml(event.date)}${event.opponent ? ` · vs ${escapeHtml(event.opponent)}` : ""}</span>
     <small>Updated ${escapeHtml(formatDateTime(event.updatedAt))}</small>
   `;
 }
@@ -888,11 +1150,12 @@ function renderMyAssignment() {
   const pendingThemes = activeThemes.filter((theme) => !theme.acknowledgedAt);
   const pendingAnnouncements = (state.announcements || []).filter((announcement) => !announcement.acknowledgedAt);
   const todayAllianceEvents = (state.allianceWeeklyEvents || []).filter((item) => item.date === todayKey);
+  const upcomingAllianceEvents = (state.allianceWeeklyEvents || []).filter((item) => item.date >= todayKey);
   const dsIsToday = event?.date === todayKey;
   const availabilityEventOptions = [
-    ...(event ? [{ value: `DS Â· ${event.date} Â· ${event.opponent || "Opponent pending"}`, label: `Desert Storm Â· ${event.date}` }] : []),
-    ...activeThemes.map((theme) => ({ value: `Theme Week Â· ${theme.title}`, label: `Theme Week Â· ${theme.title}` })),
-    ...(state.allianceWeeklyEvents || []).map((item) => ({ value: `${item.name} Â· ${item.date} Â· ${item.time}`, label: `${item.name} Â· ${item.date}` }))
+    ...(event ? [{ value: `DS · ${event.date} · ${event.opponent || "Opponent pending"}`, label: `Desert Storm · ${event.date}` }] : []),
+    ...activeThemes.map((theme) => ({ value: `Theme Week · ${theme.title}`, label: `Theme Week · ${theme.title}` })),
+    ...upcomingAllianceEvents.map((item) => ({ value: `${item.name} · ${item.date} · ${item.time}`, label: `${item.name} · ${item.date}` }))
   ];
   const briefingUpdates = [
     ...(state.announcements || []).map((announcement) => ({
@@ -902,39 +1165,123 @@ function renderMyAssignment() {
       timestamp: announcement.createdAt,
       tone: "announcement"
     })),
-    ...(state.allianceWeeklyEvents || []).map((item) => ({
+    ...upcomingAllianceEvents.map((item) => ({
       type: "Alliance Event",
-      title: `${item.name} Â· ${item.date}`,
-      detail: `${item.time} server Â· ${item.overview}`,
+      title: `${item.name} · ${item.date}`,
+      detail: `${item.time} server · ${item.overview}`,
       timestamp: item.updatedAt || item.createdAt || `${item.date}T${item.time}:00`,
       tone: "event"
     })),
     ...activeThemes.map((theme) => ({
       type: theme.status === "finalized" ? "Theme Week Result" : "Theme Week",
-      title: theme.status === "finalized" && theme.winner ? `${theme.winner.playerName} won ${theme.title}` : `${theme.title} Â· ${theme.status}`,
+      title: theme.status === "finalized" && theme.winner ? `${theme.winner.playerName} won ${theme.title}` : `${theme.title} · ${theme.status}`,
       detail: theme.status === "voting" ? "Secret voting is open. Cast your one vote." : theme.description,
       timestamp: theme.updatedAt,
       tone: theme.status === "finalized" ? "winner" : "theme"
     })),
     ...(event && participant ? [{
       type: "My DS Assignment",
-      title: `Team ${participant.team} Â· ${participant.tacticalGroup || "Unit pending"}`,
-      detail: `${event.date} vs ${event.opponent || "Opponent pending"} Â· ${battleTime} server Â· ${participant.role || "Role pending"}`,
+      title: `Team ${participant.team} · ${participant.tacticalGroup || "Unit pending"}`,
+      detail: `${event.date} vs ${event.opponent || "Opponent pending"} · ${battleTime} server · ${participant.role || "Role pending"}`,
       timestamp: participant.updatedAt || event.updatedAt,
       tone: "assignment"
     }] : [])
   ].filter((item) => item.timestamp)
     .sort((left, right) => String(right.timestamp).localeCompare(String(left.timestamp)))
     .slice(0, 12);
+  const allGoals = state.myGoals || [];
+  const activeGoals = allGoals.filter((goal) => !["archived", "missed", "completed"].includes(goal.status));
+  const weekEnd = new Date();
+  weekEnd.setDate(weekEnd.getDate() + 7);
+  const weekEndKey = weekEnd.toISOString().slice(0, 10);
+  const activeVsWeek = (state.vsWeeks || []).find((candidate) => {
+    const end = new Date(`${candidate.beginDate}T12:00:00`);
+    end.setDate(end.getDate() + 6);
+    return todayKey >= candidate.beginDate && todayKey <= end.toISOString().slice(0, 10);
+  });
+  const goalsByTab = {
+    today: activeGoals.filter((goal) => ["daily", "vs_daily"].includes(goal.goalType)
+      ? (!goal.startDate || goal.startDate <= todayKey) && (!goal.dueDate || goal.dueDate >= todayKey)
+      : goal.dueDate === todayKey),
+    week: activeGoals.filter((goal) => !goal.dueDate || goal.dueDate <= weekEndKey),
+    vs: activeGoals.filter((goal) => ["vs_daily", "vs_weekly"].includes(goal.goalType)
+      && (!activeVsWeek || !goal.relatedEventId || goal.relatedEventId === activeVsWeek.id)),
+    event: activeGoals.filter((goal) => ["desert_storm", "theme_week", "alliance_event"].includes(goal.goalType)),
+    completed: allGoals.filter((goal) => goal.status === "completed")
+  };
+  const visibleGoals = goalsByTab[selectedGoalTab] || goalsByTab.today;
+  const recentAchievements = (state.myAchievements || []).filter((item) => !item.dismissedAt).slice(0, 5);
+  const dueReminders = (state.myJournal || []).filter((entry) => entry.reminderAt && !entry.archivedAt && new Date(entry.reminderAt) <= new Date());
+  const receivedMessages = (state.privateMessages || []).filter((message) => message.direction === "received");
+  const unreadMessages = receivedMessages.filter((message) => !message.readAtByRecipient);
+  const latestLeadershipMessage = [...receivedMessages]
+    .filter((message) => ["officer", "administrator"].includes(message.senderRole))
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))[0];
+  const actionableGoals = activeGoals.filter((goal) => goal.status !== "paused");
+  const priorityGoal = actionableGoals.find((goal) => goal.priority === "critical")
+    || actionableGoals.find((goal) => goal.priority === "high")
+    || actionableGoals.find((goal) => goal.status !== "completed");
+  let priorityAction = pendingAnnouncements[0]
+    ? { label: "Leadership update", title: pendingAnnouncements[0].title, detail: pendingAnnouncements[0].summary, action: "Review updates" }
+    : participant && participant.availability !== "Confirmed"
+      ? { label: "Attendance confirmation", title: "Confirm your Desert Storm availability", detail: `${event?.date || "Upcoming battle"} · Team ${participant.team}`, action: "Review assignment" }
+      : priorityGoal
+        ? { label: "Personal goal", title: priorityGoal.title, detail: priorityGoal.dueDate ? `Due ${priorityGoal.dueDate}` : "Continue your active goal", action: "Update goal" }
+        : { label: "All caught up", title: "No required action right now", detail: "Review the upcoming schedule when you are ready.", action: "View schedule" };
+  const urgentLeadershipMessage = unreadMessages.find((message) => ["action_required", "assignment_change"].includes(message.priority));
+  const eventDaysAway = event?.date ? Math.ceil((new Date(`${event.date}T23:59:59`) - new Date()) / 86400000) : null;
+  const eventBeginsSoon = eventDaysAway !== null && eventDaysAway >= 0 && eventDaysAway <= 1;
+  const priorityType = chooseBriefingPriority({
+    urgentLeadershipMessage, eventBeginsSoon,
+    attendanceUnconfirmed: participant && participant.availability !== "Confirmed",
+    assignmentChanged: false,
+    incompleteDailyGoal: actionableGoals.find((goal) => ["daily", "vs_daily"].includes(goal.goalType) && goal.status !== "completed"),
+    incompleteWeeklyGoal: priorityGoal,
+    unreadMessage: unreadMessages[0],
+    pendingAnnouncement: pendingAnnouncements[0]
+  });
+  if (priorityType === "urgent_leadership") priorityAction = { label: "Leadership action required", title: urgentLeadershipMessage.senderName, detail: urgentLeadershipMessage.text, action: "Read message", target: "dashboard" };
+  else if (priorityType === "event_soon") priorityAction = { label: "Event beginning soon", title: `Desert Storm · ${event.date}`, detail: `Team ${participant?.team || "pending"} · ${battleTime} server`, action: "Review operation", target: "events" };
+  else if (priorityType === "attendance") priorityAction.target = "myAssignment";
+  else if (["daily_goal", "weekly_goal"].includes(priorityType)) priorityAction.target = "playerJournal";
+  else if (priorityType === "message") priorityAction = { label: "Unread message", title: unreadMessages[0].senderName, detail: unreadMessages[0].text, action: "Open messages", target: "dashboard" };
+  else priorityAction.target ||= priorityType === "announcement" ? "dashboard" : "events";
   elements.myAssignmentContent.innerHTML = `
     <article class="weekly-welcome panel">
       ${memberMiniProfile(player, state.me.profileTitle || "Alliance Member")}
       <div><p class="eyebrow">${escapeHtml(today)}</p><h3>Welcome back, ${escapeHtml(player.gameName)}!</h3>
       <p>Today's plan highlights your scheduled events and current assignments.</p></div>
     </article>
+    <article class="priority-action-card panel">
+      <p class="eyebrow">${escapeHtml(priorityAction.label)}</p><h3>${escapeHtml(priorityAction.title)}</h3>
+      <p>${escapeHtml(priorityAction.detail)}</p><button class="primary-button" type="button" data-view-shortcut="${escapeHtml(priorityAction.target)}">${escapeHtml(priorityAction.action)}</button>
+    </article>
+    <section class="panel briefing-goals">
+      <div class="assignment-heading"><div><p class="eyebrow">Private progress</p><h3>My Goals</h3></div><button class="secondary-button" type="button" data-view-shortcut="playerJournal">Add Goal</button></div>
+      <div class="local-tabs" role="tablist" aria-label="Goal time range">
+        ${[["today", "Today"], ["week", "This Week"], ["vs", "VS Week"], ["event", "Event Goals"], ["completed", "Completed"]]
+          .map(([key, label]) => `<button type="button" role="tab" data-goal-tab="${key}" aria-selected="${selectedGoalTab === key}" class="${selectedGoalTab === key ? "active" : ""}">${label}</button>`).join("")}
+      </div>
+      <div class="goal-grid">${visibleGoals.slice(0, 5).map(goalCard).join("") || `<div class="empty-state"><strong>No goals in this view.</strong><p>Create a goal or choose another time range.</p></div>`}</div>
+      ${visibleGoals.length > 5 ? `<button class="secondary-button" type="button" data-view-shortcut="playerJournal">View all ${visibleGoals.length} goals</button>` : ""}
+    </section>
+    <section class="panel briefing-achievements">
+      <div class="assignment-heading"><div><p class="eyebrow">Personal milestones</p><h3>Recent Achievements</h3></div></div>
+      <div class="achievement-grid">${recentAchievements.map((item) => `<article class="achievement-card">
+        <span>${escapeHtml(humanize(item.icon || "star"))} · ${escapeHtml(humanize(item.eventType))}</span><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.message)}</p>
+        <small>${escapeHtml(formatDateTime(item.earnedAt))}</small>
+        <div class="action-row"><button class="secondary-button" type="button" data-view-shortcut="${item.eventType === "theme_week" ? "themeWeek" : "vsEvents"}">View Results</button>${!item.seenAt ? `<button class="secondary-button" type="button" data-see-achievement="${escapeHtml(item.id)}">Mark seen</button>` : ""}<button class="secondary-button" type="button" data-dismiss-achievement="${escapeHtml(item.id)}">Dismiss</button></div>
+      </article>`).join("") || `<div class="empty-state"><p>Your achievements will appear here as alliance events and results are finalized.</p></div>`}</div>
+      ${(state.myAchievements || []).some((item) => item.dismissedAt) ? `<details class="achievement-history"><summary>Achievement history</summary><div class="achievement-grid">${(state.myAchievements || []).map((item) => `<article class="achievement-card"><span>${escapeHtml(humanize(item.eventType))}</span><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.message)}</p>${item.dismissedAt ? `<button class="secondary-button" type="button" data-restore-achievement="${escapeHtml(item.id)}">Show on briefing</button>` : ""}</article>`).join("")}</div></details>` : ""}
+    </section>
+    ${dueReminders.length ? `<section class="panel"><div class="assignment-heading"><h3>Private Reminders</h3><span>${dueReminders.length} due</span></div>${dueReminders.slice(0, 5).map((entry) => `<article class="briefing-update"><span>Journal reminder</span><strong>${escapeHtml(entry.title)}</strong><small>${escapeHtml(formatDateTime(entry.reminderAt))}</small><div class="action-row"><button class="secondary-button" type="button" data-view-shortcut="playerJournal">Open Journal</button><button class="secondary-button" type="button" data-dismiss-reminder="${escapeHtml(entry.id)}">Dismiss</button></div></article>`).join("")}</section>` : ""}
+    <section class="panel briefing-messages"><div class="assignment-heading"><div><p class="eyebrow">Private communication</p><h3>Messages &amp; Questions</h3></div><span>${unreadMessages.length} unread</span></div>
+      ${latestLeadershipMessage ? `<article class="briefing-update"><span>${escapeHtml(humanize(latestLeadershipMessage.priority || "standard"))}</span><strong>${escapeHtml(latestLeadershipMessage.senderName)}</strong><p>${escapeHtml(latestLeadershipMessage.text)}</p><div class="action-row">${!latestLeadershipMessage.readAtByRecipient ? `<button class="secondary-button" type="button" data-read-message="${escapeHtml(latestLeadershipMessage.id)}">Mark read</button>` : ""}<button class="secondary-button" type="button" data-reply-message="${escapeHtml(latestLeadershipMessage.senderUid)}">Reply</button></div></article>` : `<p class="muted">No recent leadership messages.</p>`}
+      <button class="secondary-button" type="button" data-view-shortcut="dashboard">Open private messages</button>
+    </section>
     ${concludedThemes.map((theme) => theme.winner.playerId === playerId ? `<article class="panel theme-winner-briefing personal-winner">
       ${theme.winner.submissionImage ? `<img src="${theme.winner.submissionImage}" alt="${escapeHtml(theme.winner.playerName)} winning profile-picture submission">` : ""}
-      <div><p class="eyebrow">Theme Week winner</p><h3>Congrats ${escapeHtml(theme.winner.playerName)}, you've won ${escapeHtml(theme.title)}!</h3><p>We loved your PFP submission just as much as the teamâ€”so much so you've been added as a conductor for the upcoming train! Pick a VIP of your choice, and enjoy the ride on the golden train!</p></div>
+      <div><p class="eyebrow">Theme Week winner</p><h3>Congrats ${escapeHtml(theme.winner.playerName)}, you've won ${escapeHtml(theme.title)}!</h3><p>We loved your PFP submission just as much as the team—so much so you've been added as a conductor for the upcoming train! Pick a VIP of your choice, and enjoy the ride on the golden train!</p></div>
     </article>` : `<article class="panel theme-winner-briefing">
       ${theme.winner.submissionImage ? `<img src="${theme.winner.submissionImage}" alt="${escapeHtml(theme.winner.playerName)} winning profile-picture submission">` : ""}
       <div><p class="eyebrow">${escapeHtml(theme.title)} concluded</p><h3>${escapeHtml(theme.winner.playerName)} won Theme Week</h3><p>The winning profile-picture submission received ${theme.winner.votes} vote${theme.winner.votes === 1 ? "" : "s"}.</p></div>
@@ -946,9 +1293,9 @@ function renderMyAssignment() {
       </article>`).join("") || `<p class="muted">No weekly updates have been posted yet.</p>`}</div>
     </section>
     <section class="today-strip">
-      ${dsIsToday && participant ? `<article><strong>DS Â· Team ${escapeHtml(participant.team)}</strong><span>${escapeHtml(battleTime)} server Â· ${escapeHtml(serverToLocal(event.date, battleTime))} local</span></article>` : ""}
-      ${todayAllianceEvents.map((item) => `<article><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.time)} server Â· ${escapeHtml(serverToLocal(item.date, item.time))} local</span></article>`).join("")}
-      ${activeThemes.map((theme) => `<article><strong>${escapeHtml(theme.title)}</strong><span>${theme.status === "voting" ? "Voting is open â€” cast your one vote" : `Theme reminder Â· ${escapeHtml(theme.status)}`}</span></article>`).join("")}
+      ${dsIsToday && participant ? `<article><strong>DS · Team ${escapeHtml(participant.team)}</strong><span>${escapeHtml(battleTime)} server · ${escapeHtml(serverToLocal(event.date, battleTime))} local</span></article>` : ""}
+      ${todayAllianceEvents.map((item) => `<article><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.time)} server · ${escapeHtml(serverToLocal(item.date, item.time))} local</span></article>`).join("")}
+      ${activeThemes.map((theme) => `<article><strong>${escapeHtml(theme.title)}</strong><span>${theme.status === "voting" ? "Voting is open — cast your one vote" : `Theme reminder · ${escapeHtml(theme.status)}`}</span></article>`).join("")}
       ${!dsIsToday && !todayAllianceEvents.length && !activeThemes.length ? `<article><strong>No timed events today</strong><span>Review the weekly plan below.</span></article>` : ""}
     </section>
     <section class="briefing-quick-actions">
@@ -962,25 +1309,27 @@ function renderMyAssignment() {
           <button class="secondary-button" type="button" data-availability-prompt="I'm unavailable for this event.">Unavailable</button>
           <button class="secondary-button" type="button" data-availability-prompt="">Clear</button>
         </div>
-        <label>Availability message<textarea name="message" maxlength="300" required placeholder="Type any availability update for officersâ€¦"></textarea></label>
+        <label>Availability message<textarea name="message" maxlength="300" required placeholder="Type any availability update for officers…"></textarea></label>
         <button class="primary-button" type="submit">Send availability message</button>
       </form>
-      <form class="panel compact-action-form" data-briefing-action="question">
-        <strong>Quick ask</strong>
-        <label>Send to<select name="recipient"><option value="administrator">Administrator</option>${(state.officerRecipients || []).filter((account) => account.role === "officer").map((account) => `<option value="${escapeHtml(account.uid)}">${escapeHtml(account.displayName)}</option>`).join("")}</select></label>
-        <label>Question<input name="message" maxlength="600" required placeholder="Ask an officer or administratorâ€¦"></label>
-        <button class="secondary-button" type="submit">Send question</button>
-      </form>
+        <form class="panel compact-action-form" data-briefing-action="question">
+         <strong>Need Help?</strong>
+         <label>Send to<select name="recipient"><option value="administrator">Administrator</option>${(state.officerRecipients || []).filter((account) => account.role === "officer").map((account) => `<option value="${escapeHtml(account.uid)}">${escapeHtml(account.displayName)}</option>`).join("")}</select></label>
+        <label>Question<input name="message" maxlength="600" required placeholder="Ask an officer or administrator…"></label>
+        <label>Topic<select name="subject"><option>General Question</option><option>Question About My Assignment</option><option>Question About an Event</option><option>Question About VS</option><option>Question About Strategy</option></select></label>
+        <input name="context" type="hidden" value="${escapeHtml(participant && event ? `Battle: ${event.date}; Team ${participant.team}; Unit: ${participant.tacticalGroup || "pending"}; Primary: ${participant.primaryAssignment || "pending"}; Strategy: ${strategy?.name || "pending"}` : "No active Desert Storm assignment")}">
+         <button class="secondary-button" type="submit">Send question</button>
+       </form>
     </section>
     ${pendingAnnouncements.length ? `<section class="briefing-announcements">${pendingAnnouncements.map((announcement) => `<article class="panel compact-announcement"><div><strong>${escapeHtml(announcement.title)}</strong><p>${escapeHtml(announcement.summary)}</p></div><button class="secondary-button" type="button" data-announcement-acknowledge="${escapeHtml(announcement.id)}">Acknowledge</button></article>`).join("")}</section>` : ""}
     <article class="assignment-profile panel">
       <div class="assignment-profile-heading">
-        <div><p class="eyebrow">Desert Storm weekly plan</p><h3>${event ? `${escapeHtml(event.date)} Â· ${escapeHtml(event.opponent || "Opponent pending")}` : "No published battle plan"}</h3></div>
+        <div><p class="eyebrow">Desert Storm weekly plan</p><h3>${event ? `${escapeHtml(event.date)} · ${escapeHtml(event.opponent || "Opponent pending")}` : "No published battle plan"}</h3></div>
         ${participant ? statusBadge(participant.availability) : ""}
       </div>
       ${event && participant ? `<div class="assignment-details">
-        ${detail("Battle", `${event.date} Â· ${event.opponent || "Opponent pending"}`)}
-        ${detail("Team / unit", `Team ${participant.team} Â· ${participant.tacticalGroup || "Not assigned"}`)}
+        ${detail("Battle", `${event.date} · ${event.opponent || "Opponent pending"}`)}
+        ${detail("Team / unit", `Team ${participant.team} · ${participant.tacticalGroup || "Not assigned"}`)}
         ${detail("Roster", participant.rosterStatus)}
         ${detail("Server time", battleTime)}
         ${detail("Your local time", serverToLocal(event.date, battleTime))}
@@ -1000,13 +1349,13 @@ function renderMyAssignment() {
         <label>Availability note<input id="availabilityNote" value="${escapeHtml(participant.availabilityNote || "")}" maxlength="180" placeholder="Optional short note"></label>
       </div>
       <p class="muted">Assignment updated ${escapeHtml(formatDateTime(participant.updatedAt))}</p>` : ""}
-    </article>
-    <section class="weekly-briefing-grid">
-      <article class="panel"><h3>Alliance events this week</h3>
-        ${(state.allianceWeeklyEvents || []).map((item) => `<div class="briefing-line"><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.date)} Â· ${escapeHtml(item.time)} server Â· ${escapeHtml(serverToLocal(item.date, item.time))} local</span><p>${escapeHtml(item.overview)}</p></div>`).join("") || `<p class="muted">No alliance events have been posted.</p>`}
       </article>
+      <section class="weekly-briefing-grid">
+        <article class="panel"><h3>Alliance events this week</h3>
+        ${upcomingAllianceEvents.map((item) => `<div class="briefing-line"><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.date)} · ${escapeHtml(item.time)} server · ${escapeHtml(serverToLocal(item.date, item.time))} local</span><p>${escapeHtml(item.overview)}</p></div>`).join("") || `<p class="muted">No upcoming alliance events have been posted.</p>`}
+        </article>
       <article class="panel"><h3>Theme-week updates</h3>
-        ${activeThemes.map((theme) => `<div class="briefing-line ${theme.acknowledgedAt ? "" : "briefing-unread"}"><strong>${escapeHtml(theme.title)}</strong><span>${escapeHtml(theme.weekOf)} Â· ${escapeHtml(theme.status)}</span><p>${escapeHtml(theme.description)}</p>${theme.acknowledgedAt ? `<small>Acknowledged ${escapeHtml(formatDateTime(theme.acknowledgedAt))}</small>` : `<button class="primary-button" type="button" data-theme-acknowledge="${escapeHtml(theme.id)}">Acknowledge update</button>`}</div>`).join("") || `<p class="muted">No active theme week.</p>`}
+        ${activeThemes.map((theme) => `<div class="briefing-line ${theme.acknowledgedAt ? "" : "briefing-unread"}"><strong>${escapeHtml(theme.title)}</strong><span>${escapeHtml(theme.weekOf)} · ${escapeHtml(theme.status)}</span><p>${escapeHtml(theme.description)}</p>${theme.acknowledgedAt ? `<small>Acknowledged ${escapeHtml(formatDateTime(theme.acknowledgedAt))}</small>` : `<button class="primary-button" type="button" data-theme-acknowledge="${escapeHtml(theme.id)}">Acknowledge update</button>`}</div>`).join("") || `<p class="muted">No active theme week.</p>`}
       </article>
     </section>
     ${pendingThemes.length ? `<p class="weekly-notice">${pendingThemes.length} theme-week update${pendingThemes.length === 1 ? "" : "s"} require acknowledgement.</p>` : ""}
@@ -1020,7 +1369,12 @@ async function handleBriefingAction(event) {
   const payload = Object.fromEntries(new FormData(form));
   try {
     if (form.dataset.briefingAction === "notice") await api.addMemberNotice(payload);
-    else await api.addOfficerQuestion(payload);
+    else {
+      payload.message = `${payload.subject}\n${payload.context}\n\n${payload.message}`;
+      delete payload.subject;
+      delete payload.context;
+      await api.addOfficerQuestion(payload);
+    }
     form.reset();
     await refreshState();
     setStatus(form.dataset.briefingAction === "notice" ? "Availability notice sent" : "Question sent");
@@ -1033,16 +1387,16 @@ function renderEvents() {
   const event = state.activeEvent;
   renderDsEventTeamOverview();
   elements.eventActions.innerHTML = event ? `
-    <div class="event-action-heading"><div><h3>${escapeHtml(event.date)} Â· ${escapeHtml(event.opponent || "Opponent pending")}</h3>
-    <p class="muted">${eventStatusLabel(event.status)} Â· Team A ${escapeHtml(event.battleTimeA)} server / ${escapeHtml(serverToLocal(event.date, event.battleTimeA))} local Â· Team B ${escapeHtml(event.battleTimeB)} server / ${escapeHtml(serverToLocal(event.date, event.battleTimeB))} local</p>
+    <div class="event-action-heading"><div><h3>${escapeHtml(event.date)} · ${escapeHtml(event.opponent || "Opponent pending")}</h3>
+    <p class="muted">${eventStatusLabel(event.status)} · Team A ${escapeHtml(event.battleTimeA)} server / ${escapeHtml(serverToLocal(event.date, event.battleTimeA))} local · Team B ${escapeHtml(event.battleTimeB)} server / ${escapeHtml(serverToLocal(event.date, event.battleTimeB))} local</p>
     <p>${escapeHtml(event.importantInstructions || "No additional DS instructions posted.")}</p></div>${statusBadge(event.status)}</div>
   ` : emptyState("No DS event has been published.");
   elements.publishReadiness.innerHTML = "";
-  elements.eventList.innerHTML = state.events.map((item) => `<article class="history-card"><h3>${escapeHtml(item.date)} Â· ${escapeHtml(item.opponent || "Opponent pending")}</h3><p>${escapeHtml(eventStatusLabel(item.status))}</p></article>`).join("");
+  elements.eventList.innerHTML = state.events.map((item) => `<article class="history-card"><h3>${escapeHtml(item.date)} · ${escapeHtml(item.opponent || "Opponent pending")}</h3><p>${escapeHtml(eventStatusLabel(item.status))}</p></article>`).join("");
   return;
   const validation = event ? validatePublishReadiness(event, state.participants) : { errors: [], warnings: [], passed: [] };
   elements.eventActions.innerHTML = event ? `
-    <div class="event-action-heading"><div><h3>${escapeHtml(event.date)} Â· ${escapeHtml(event.opponent || "Opponent pending")}</h3><p class="muted">${eventStatusLabel(event.status)} Â· version ${event.version}</p></div>${statusBadge(event.status)}</div>
+    <div class="event-action-heading"><div><h3>${escapeHtml(event.date)} · ${escapeHtml(event.opponent || "Opponent pending")}</h3><p class="muted">${eventStatusLabel(event.status)} · version ${event.version}</p></div>${statusBadge(event.status)}</div>
     <div class="event-editor">
       <label>Battle date<input data-event-field="date" type="date" value="${escapeHtml(event.date)}" ${event.status !== "draft" ? "disabled" : ""}></label>
       <label>Opponent<input data-event-field="opponent" value="${escapeHtml(event.opponent)}" placeholder="Opponent alliance" ${event.status !== "draft" ? "disabled" : ""}></label>
@@ -1064,7 +1418,7 @@ function renderEvents() {
   ].join("") : "";
   elements.eventList.innerHTML = state.events.map((item) => `
     <article class="history-card event-list-card">
-      <div><h3>${escapeHtml(item.date)} Â· ${escapeHtml(item.opponent || "Opponent pending")}</h3><p class="muted">Team A ${escapeHtml(item.battleTimeA)} Â· Team B ${escapeHtml(item.battleTimeB)}</p></div>
+      <div><h3>${escapeHtml(item.date)} · ${escapeHtml(item.opponent || "Opponent pending")}</h3><p class="muted">Team A ${escapeHtml(item.battleTimeA)} · Team B ${escapeHtml(item.battleTimeB)}</p></div>
       <div>${statusBadge(item.status)}${item.status === "draft" ? `<button class="danger-button" data-delete-event="${escapeHtml(item.id)}" type="button">Delete Draft</button>` : ""}</div>
     </article>
   `).join("");
@@ -1082,14 +1436,14 @@ function renderDsEventTeamOverview() {
     const groups = tacticalGroups.filter((group) => members.some((member) => member.tacticalGroup === group));
     const opening = [...(state.eventStrategy?.[team]?.phases || [])].sort((left, right) => Number(left.startMinute) - Number(right.startMinute))[0];
     return `<section class="panel ds-team-card">
-      <div class="assignment-profile-heading"><div><p class="eyebrow">Team ${team} roster</p><h3>${members.length} selected Â· ${escapeHtml(event[`battleTime${team}`])} server</h3></div><span class="status-badge">${escapeHtml(serverToLocal(event.date, event[`battleTime${team}`]))} local</span></div>
+      <div class="assignment-profile-heading"><div><p class="eyebrow">Team ${team} roster</p><h3>${members.length} selected · ${escapeHtml(event[`battleTime${team}`])} server</h3></div><span class="status-badge">${escapeHtml(serverToLocal(event.date, event[`battleTime${team}`]))} local</span></div>
       <p class="muted">${escapeHtml(state.eventStrategy?.[team]?.name || event[`strategy${team}`] || "Strategy pending")}</p>
       <div class="ds-unit-grid">${groups.map((group) => {
         const groupMembers = members.filter((member) => member.tacticalGroup === group);
         const order = opening?.groupOrders?.[group];
         return `<article class="ds-unit-card"><div class="assignment-heading"><h4>${escapeHtml(group)}</h4><span>${groupMembers.length}</span></div>
           <p>${escapeHtml(order?.goal || `${order?.primaryAction || "Support"} ${order?.primaryObjective || "the assigned objective"}.`)}</p>
-          <div class="mini-profile-list">${groupMembers.map((member) => memberMiniProfile(member, `${member.type} Â· ${member.availability}${member.unitLeader ? " Â· Unit leader" : ""}`)).join("")}</div>
+          <div class="mini-profile-list">${groupMembers.map((member) => memberMiniProfile(member, `${member.type} · ${member.availability}${member.unitLeader ? " · Unit leader" : ""}`)).join("")}</div>
         </article>`;
       }).join("") || `<p class="muted">No selected members assigned.</p>`}</div>
     </section>`;
@@ -1243,12 +1597,12 @@ function renderDashboard() {
   elements.readinessPanels.innerHTML = [readinessPanel("A", readinessA), readinessPanel("B", readinessB)].join("");
   elements.announcementList.innerHTML = (state.announcements || []).map((announcement) => `<article class="panel announcement-card">
     <div>
-      <p class="eyebrow">Posted by ${escapeHtml(announcement.createdByName || "EWAR Officer")} Â· ${escapeHtml(formatDateTime(announcement.createdAt))}</p>
+      <p class="eyebrow">Posted by ${escapeHtml(announcement.createdByName || "EWAR Officer")} · ${escapeHtml(formatDateTime(announcement.createdAt))}</p>
       <h3>${escapeHtml(announcement.title)}</h3><p>${escapeHtml(announcement.summary)}</p>
     </div>
     ${announcement.attachment ? (announcement.attachment.startsWith("data:image/") ? `<img src="${announcement.attachment}" alt="">` : `<a class="secondary-button" href="${announcement.attachment}" download="${escapeHtml(announcement.attachmentName || "attachment")}">Download attachment</a>`) : ""}
     <div class="announcement-feedback">
-      <button class="secondary-button ${announcement.markedHelpful ? "is-active" : ""}" type="button" data-announcement-helpful="${escapeHtml(announcement.id)}">Helpful Â· ${Number(announcement.helpfulCount || 0)}</button>
+      <button class="secondary-button ${announcement.markedHelpful ? "is-active" : ""}" type="button" data-announcement-helpful="${escapeHtml(announcement.id)}">Helpful · ${Number(announcement.helpfulCount || 0)}</button>
       <span>${(announcement.replies || []).length} ${(announcement.replies || []).length === 1 ? "reply" : "replies"}</span>
     </div>
     <div class="announcement-replies">
@@ -1266,7 +1620,7 @@ function renderDashboard() {
   elements.privateMessageList.innerHTML = [...(state.privateMessages || [])].reverse().map((message) =>
     `<div class="community-message ${message.direction}"><strong>${message.direction === "sent" ? `To ${escapeHtml(message.recipientName)}` : `From ${escapeHtml(message.senderName)}`}</strong><small>${escapeHtml(formatDateTime(message.createdAt))}</small><p>${escapeHtml(message.text)}</p></div>`
   ).join("") || `<p class="muted">No private messages yet.</p>`;
-  elements.dailyChatDate.textContent = `${state.dailyChatDate || "Today"} Â· resets daily`;
+  elements.dailyChatDate.textContent = `${state.dailyChatDate || "Today"} · resets daily`;
   elements.dailyChatList.innerHTML = (state.dailyChat || []).map((message) =>
     `<div class="community-message">${memberMiniProfile({ id: message.playerId, name: message.playerName, profileImage: message.profileImage }, formatDateTime(message.createdAt))}<p>${escapeHtml(message.text)}</p></div>`
   ).join("") || `<p class="muted">No team chat messages today.</p>`;
@@ -1291,6 +1645,27 @@ async function handlePrivateMessageSubmit(event) {
     await refreshState();
     setStatus("Private message sent");
   } catch (error) { setStatus(error.message, true); }
+}
+
+async function saveAchievementSettings(event) {
+  event.preventDefault();
+  const payload = Object.fromEntries(new FormData(event.currentTarget));
+  payload.topThreeEnabled = event.currentTarget.elements.topThreeEnabled.checked;
+  payload.publicAnnouncements = event.currentTarget.elements.publicAnnouncements.checked;
+  try {
+    await api.updateAchievementDefinitions(payload);
+    await refreshState();
+    showView("administration");
+    document.querySelector("#achievementSettingsStatus").textContent = "Achievement rules saved.";
+  } catch (error) { document.querySelector("#achievementSettingsStatus").textContent = error.message; }
+}
+
+function previewAchievementTrigger() {
+  const form = elements.achievementSettingsForm;
+  const daily = Number(form.elements.vsDailyThreshold.value || 0).toLocaleString();
+  const weekly = Number(form.elements.vsWeeklyThreshold.value || 0).toLocaleString();
+  const preview = form.elements.messageTemplate.value.replace("{value}", daily).replace("{event}", "VS Daily");
+  document.querySelector("#achievementSettingsStatus").textContent = `Dry run only: top-three ${form.elements.topThreeEnabled.checked ? "enabled" : "disabled"}; daily threshold ${daily}; weekly threshold ${weekly}. Preview: ${preview} No awards created.`;
 }
 
 async function handleDailyChatSubmit(event) {
@@ -1366,14 +1741,14 @@ function renderDirectory() {
   members.sort(masterRosterComparator);
   let previousGroup = "";
   const rows = members.map((member) => {
-    const group = `${member.team} Â· ${member.rank || "No rank"}`;
+    const group = `${member.team} · ${member.rank || "No rank"}`;
     const heading = group === previousGroup ? "" : `<tr class="directory-group-row"><th colspan="9">Team ${escapeHtml(group)}</th></tr>`;
     previousGroup = group;
     return `${heading}${directoryRow(member)}`;
   }).join("");
 
   const lockRow = !state.activeEvent?.setupPublishedAt
-    ? `<tr class="directory-group-row"><th colspan="9">Roster locked â€” create and publish Team A/B server times and strategies in Create.</th></tr>`
+    ? `<tr class="directory-group-row"><th colspan="9">Roster locked — create and publish Team A/B server times and strategies in Create.</th></tr>`
     : "";
   const selectedMembers = state.members.filter((member) => member.selected);
   const confirmedMembers = selectedMembers.filter((member) => member.availability === "Confirmed");
@@ -1407,7 +1782,7 @@ function renderTeams() {
       <article class="panel">
         <h3>Team ${team}</h3>
         <p class="team-battle-time">${escapeHtml(state.settings[`battleTime${team}`])} Server Time</p>
-        <p class="muted">${starters.length}/20 starters Â· ${subs.length}/10 substitutes</p>
+        <p class="muted">${starters.length}/20 starters · ${subs.length}/10 substitutes</p>
         ${teamList("Starters", starters)}
         ${teamList("Substitutes", subs)}
       </article>
@@ -1453,7 +1828,7 @@ function renderTeamAssignments(team, board) {
         ${(groups.get(unit) || []).map((member, index) => `
           <div class="assignment-item">
             <span class="assignment-number">${index + 1}</span>
-            ${memberMiniProfile(member, `${member.type} Â· ${member.availability}`)}
+            ${memberMiniProfile(member, `${member.type} · ${member.availability}`)}
           </div>
         `).join("")}
       </article>
@@ -1498,11 +1873,11 @@ function renderHistory() {
   elements.historyList.innerHTML = state.battles.map((battle) => `
     <article class="history-card">
       <div class="history-card-heading">
-        <h3>${escapeHtml(battle.date)} Â· ${escapeHtml(battle.outcome)} vs ${escapeHtml(battle.opponent)}</h3>
+        <h3>${escapeHtml(battle.date)} · ${escapeHtml(battle.outcome)} vs ${escapeHtml(battle.opponent)}</h3>
         ${state.permissions.isOfficer ? `<button class="danger-button history-delete-button" type="button" data-delete-battle="${escapeHtml(battle.id)}">Delete</button>` : ""}
       </div>
       <p>${Number(battle.scoreFor).toLocaleString()} - ${Number(battle.scoreAgainst).toLocaleString()}</p>
-      <p class="muted">${escapeHtml(battle.players.length)} players archived Â· ${escapeHtml(battle.notes || "No notes")}</p>
+      <p class="muted">${escapeHtml(battle.players.length)} players archived · ${escapeHtml(battle.notes || "No notes")}</p>
       <div class="history-score-table">
         <table>
           <thead>
@@ -1529,19 +1904,19 @@ function renderHistory() {
     )
   ).map((group) => {
     const weeks = (state.vsWeeks || []).filter((week) => week.duelLeagueGroupId === group.id).sort((left, right) => left.duelLeagueWeek - right.duelLeagueWeek);
-    return `<details class="history-card" data-duel-history-group="${escapeHtml(group.id)}"><summary><strong>Duel League ${escapeHtml(group.code)} Â· ${group.archived ? "Archived four-week cycle" : "Published daily history"}</strong></summary>
-      <label>Reference week<select data-history-duel-week>${weeks.map((week) => `<option value="${week.id}">Week ${week.duelLeagueWeek}/4 Â· vs ${escapeHtml(week.opponent)}</option>`).join("")}</select></label>
+    return `<details class="history-card" data-duel-history-group="${escapeHtml(group.id)}"><summary><strong>Duel League ${escapeHtml(group.code)} · ${group.archived ? "Archived four-week cycle" : "Published daily history"}</strong></summary>
+      <label>Reference week<select data-history-duel-week>${weeks.map((week) => `<option value="${week.id}">Week ${week.duelLeagueWeek}/4 · vs ${escapeHtml(week.opponent)}</option>`).join("")}</select></label>
       ${weeks.map((week, index) => {
         const dates = vsWeekDays(week.beginDate);
         return `<section data-history-week-panel="${escapeHtml(week.id)}" ${index ? "hidden" : ""}>
-          <h4>${escapeHtml(group.code)} Â· Week ${week.duelLeagueWeek}/4 Â· EWAR vs ${escapeHtml(week.opponent)}</h4>
-          <p class="muted">Server ${escapeHtml(week.server)} Â· ${week.opponentMembers} opponent members Â· begins ${escapeHtml(week.beginDate)}</p>
+          <h4>${escapeHtml(group.code)} · Week ${week.duelLeagueWeek}/4 · EWAR vs ${escapeHtml(week.opponent)}</h4>
+          <p class="muted">Server ${escapeHtml(week.server)} · ${week.opponentMembers} opponent members · begins ${escapeHtml(week.beginDate)}</p>
           ${duelRankingTable(week.standings)}
           <div class="history-score-table"><table><thead><tr><th>Day</th><th>Final</th><th>Result</th><th>Published</th></tr></thead><tbody>
           ${dates.map((day) => {
             const result = week.dailyResults?.[day.date] || {};
             const outcome = Number(result.ourScore) === Number(result.opponentScore) ? "Pending" : Number(result.ourScore) > Number(result.opponentScore) ? "Win" : "Loss";
-            return `<tr><td>${day.label}</td><td>${Number(result.ourScore || 0).toLocaleString()} â€“ ${Number(result.opponentScore || 0).toLocaleString()}</td><td>${outcome}</td><td>${week.publishedDays?.[day.date] ? formatDateTime(week.publishedDays[day.date].publishedAt) : "Not published"}</td></tr>`;
+            return `<tr><td>${day.label}</td><td>${Number(result.ourScore || 0).toLocaleString()} – ${Number(result.opponentScore || 0).toLocaleString()}</td><td>${outcome}</td><td>${week.publishedDays?.[day.date] ? formatDateTime(week.publishedDays[day.date].publishedAt) : "Not published"}</td></tr>`;
           }).join("")}</tbody></table></div>
         </section>`;
       }).join("")}
@@ -1552,7 +1927,7 @@ function renderHistory() {
 function renderAllianceWeeklyEvents() {
   elements.allianceEventList.innerHTML = (state.allianceWeeklyEvents || []).map((item) => `
     <article class="history-card weekly-manage-card">
-      <div data-alliance-display="${escapeHtml(item.id)}"><h3>${escapeHtml(item.name)} Â· ${escapeHtml(item.date)}</h3><p>${escapeHtml(item.time)} server Â· ${escapeHtml(item.overview)}</p></div>
+      <div data-alliance-display="${escapeHtml(item.id)}"><h3>${escapeHtml(item.name)} · ${escapeHtml(item.date)}</h3><p>${escapeHtml(item.time)} server · ${escapeHtml(item.overview)}</p></div>
     </article>
   `).join("") || emptyState("No alliance weekly events have been published.");
 }
@@ -1566,7 +1941,7 @@ function renderThemeWeeks() {
       : entries;
     const stages = [["open", "1. Submissions"], ["finalists", "2. Finalists"], ["voting", "3. Vote"], ["finalized", "4. Results"]];
     return `<article class="panel theme-week-card">
-      <div class="assignment-profile-heading"><div><p class="eyebrow">${escapeHtml(theme.weekOf)} Â· ${escapeHtml(theme.status)}</p><h3>${escapeHtml(theme.title)}</h3></div>${statusBadge(theme.status)}</div>
+      <div class="assignment-profile-heading"><div><p class="eyebrow">${escapeHtml(theme.weekOf)} · ${escapeHtml(theme.status)}</p><h3>${escapeHtml(theme.title)}</h3></div>${statusBadge(theme.status)}</div>
       <div class="theme-stage-track">${stages.map(([key, label]) => `<span class="${theme.status === key || (theme.status === "archived" && key === "finalized") ? "active" : ""}">${label}</span>`).join("")}</div>
       <div data-theme-display="${escapeHtml(theme.id)}"><p>${escapeHtml(theme.description)}</p><div class="important-instructions"><strong>Rules</strong><p>${escapeHtml(theme.rules)}</p></div></div>
       ${false ? `<form class="inline-edit-form" data-theme-edit-form="${escapeHtml(theme.id)}" hidden>
@@ -1611,7 +1986,7 @@ function renderCreateManagement() {
   if (!state.permissions.isOfficer) return;
   const event = state.activeEvent;
   elements.createdDsManagement.innerHTML = event ? `<article class="panel compact-management-card">
-    <div><p class="eyebrow">${escapeHtml(eventStatusLabel(event.status))}</p><h4>${escapeHtml(event.date)} Â· ${escapeHtml(event.opponent || "Opponent pending")}</h4></div>
+    <div><p class="eyebrow">${escapeHtml(eventStatusLabel(event.status))}</p><h4>${escapeHtml(event.date)} · ${escapeHtml(event.opponent || "Opponent pending")}</h4></div>
     <div class="inline-edit-form">
       <label>Date<input data-event-field="date" type="date" value="${escapeHtml(event.date)}" ${event.status !== "draft" ? "disabled" : ""}></label>
       <label>Opponent<input data-event-field="opponent" value="${escapeHtml(event.opponent)}"></label>
@@ -1626,7 +2001,7 @@ function renderCreateManagement() {
   </article>` : emptyState("No DS battle created.");
 
   elements.createdAllianceManagement.innerHTML = (state.allianceWeeklyEvents || []).map((item) => `<article class="panel compact-management-card">
-    <div data-alliance-display="${escapeHtml(item.id)}"><h4>${escapeHtml(item.name)} Â· ${escapeHtml(item.date)}</h4><p>${escapeHtml(item.time)} server Â· ${escapeHtml(item.overview)}</p></div>
+    <div data-alliance-display="${escapeHtml(item.id)}"><h4>${escapeHtml(item.name)} · ${escapeHtml(item.date)}</h4><p>${escapeHtml(item.time)} server · ${escapeHtml(item.overview)}</p></div>
     <form class="inline-edit-form" data-alliance-edit-form="${escapeHtml(item.id)}" hidden>
       <label>Event<select name="name">${["MG", "ZS", "Shark", "Blimp", "Shark Blimp", "Other"].map((name) => `<option ${name === item.name ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select></label>
       <label>Date<input name="date" type="date" value="${escapeHtml(item.date)}"></label>
@@ -1648,15 +2023,15 @@ function renderCreateManagement() {
     const group = (state.duelLeagueGroups || []).find((item) => item.id === week.duelLeagueGroupId);
     const completed = Object.values(week.dailyResults || {}).filter((result) => Number(result.ourScore) || Number(result.opponentScore)).length;
     return `<article class="panel compact-management-card">
-      <div><p class="eyebrow">${escapeHtml(group?.code || "Duel League")} Â· ${week.duelLeagueWeek}/4 Â· Week of ${escapeHtml(week.beginDate)}</p><h4>VS ${escapeHtml(week.opponent)}</h4>
-      <p>Server ${escapeHtml(week.server)} Â· ${week.opponentMembers} members Â· ${completed}/6 daily results</p></div>
+      <div><p class="eyebrow">${escapeHtml(group?.code || "Duel League")} · ${week.duelLeagueWeek}/4 · Week of ${escapeHtml(week.beginDate)}</p><h4>VS ${escapeHtml(week.opponent)}</h4>
+      <p>Server ${escapeHtml(week.server)} · ${week.opponentMembers} members · ${completed}/6 daily results</p></div>
       <div class="record-actions"><button class="danger-button" type="button" data-delete-vs-week="${escapeHtml(week.id)}">Delete</button></div>
     </article>`;
   }).join("");
   elements.createdVsManagement.innerHTML = duelGroups + vsWeeks || emptyState("No Duel League groups or VS weeks created.");
 
   elements.createdThemeManagement.innerHTML = (state.themeWeeks || []).map((theme) => `<article class="panel compact-management-card">
-    <div data-theme-display="${escapeHtml(theme.id)}"><h4>${escapeHtml(theme.title)} Â· ${escapeHtml(theme.weekOf)}</h4><p>${escapeHtml(theme.description)}</p></div>
+    <div data-theme-display="${escapeHtml(theme.id)}"><h4>${escapeHtml(theme.title)} · ${escapeHtml(theme.weekOf)}</h4><p>${escapeHtml(theme.description)}</p></div>
     <form class="inline-edit-form" data-theme-edit-form="${escapeHtml(theme.id)}" hidden>
       <label>Title<input name="title" value="${escapeHtml(theme.title)}"></label><label>Week<input name="weekOf" type="date" value="${escapeHtml(theme.weekOf)}"></label>
       <label class="wide-field">Description<textarea name="description">${escapeHtml(theme.description)}</textarea></label><label class="wide-field">Rules<textarea name="rules">${escapeHtml(theme.rules)}</textarea></label>
@@ -1875,17 +2250,17 @@ function renderStrategyTimeline() {
     <div class="tactical-command-shell">
     <div class="timeline-map-controls">
       <div class="timeline-team-switch" aria-label="Choose tactical team">${teams.map((team) => `<button type="button" data-timeline-team="${team}" class="${team === timelineTeam ? "active" : ""}"><small>Battle group</small><strong>Team ${team}</strong></button>`).join("")}</div>
-      <div class="tactical-strategy-identity"><span>Active strategy</span><strong>${escapeHtml(strategy?.name || event[`strategy${timelineTeam}`])}</strong><small>${escapeHtml(event[`battleTime${timelineTeam}`])} server time Â· ${escapeHtml(event.date || "Current battle")}</small></div>
+      <div class="tactical-strategy-identity"><span>Active strategy</span><strong>${escapeHtml(strategy?.name || event[`strategy${timelineTeam}`])}</strong><small>${escapeHtml(event[`battleTime${timelineTeam}`])} server time · ${escapeHtml(event.date || "Current battle")}</small></div>
     </div>
     ${phases.length ? `
       <div class="timeline-playback-bar">
         <button class="tactical-play-button" type="button" data-timeline-play><span>${timelinePlaybackTimer ? "â…¡" : "â–¶"}</span>${timelinePlaybackTimer ? "Pause playback" : "Play battle plan"}</button>
         <div><span>Battle progress</span><input aria-label="Battle timeline" data-timeline-scrubber type="range" min="0" max="5" step="1" value="${timelinePhaseIndex}"></div>
-        <strong><small>Live interval</small>${Number(phase.startMinute)}â€“${Number(phase.endMinute)} min</strong>
+        <strong><small>Live interval</small>${Number(phase.startMinute)}–${Number(phase.endMinute)} min</strong>
       </div>
-      <div class="timeline-phase-buttons">${phases.map((item, index) => `<button type="button" data-timeline-phase="${index}" class="${index === timelinePhaseIndex ? "active" : ""}"><small>Phase ${index + 1}</small><strong>${Number(item.startMinute)}â€“${Number(item.endMinute)}</strong></button>`).join("")}</div>
+      <div class="timeline-phase-buttons">${phases.map((item, index) => `<button type="button" data-timeline-phase="${index}" class="${index === timelinePhaseIndex ? "active" : ""}"><small>Phase ${index + 1}</small><strong>${Number(item.startMinute)}–${Number(item.endMinute)}</strong></button>`).join("")}</div>
       <article class="timeline-phase-summary panel">
-        <div class="phase-indicator"><span>Battle phase ${timelinePhaseIndex + 1} of ${phases.length}</span><strong>${Number(phase.startMinute)}â€“${Number(phase.endMinute)} minutes Â· ${escapeHtml(phase.name)}</strong></div>
+        <div class="phase-indicator"><span>Battle phase ${timelinePhaseIndex + 1} of ${phases.length}</span><strong>${Number(phase.startMinute)}–${Number(phase.endMinute)} minutes · ${escapeHtml(phase.name)}</strong></div>
         <div class="phase-explanation"><p>${escapeHtml(phase.instructions || "")}</p><small>${escapeHtml(phase.fallbackPlan ? `Fallback: ${phase.fallbackPlan}` : "Maintain the primary command until an officer calls the secondary objective.")}</small></div>
       </article>
       <div class="strategy-map-layout">
@@ -1921,20 +2296,20 @@ function timelineSelectedUnitPanel(order, phases) {
   const phaseRows = phases.map((phase, index) => {
     const phaseOrder = timelineGroupOrders(timelineTeam, phase, index).find((item) => item.group === order.group);
     return `<button type="button" data-timeline-phase="${index}" class="unit-phase-row ${index === timelinePhaseIndex ? "active" : ""}">
-      <span>${phase.startMinute}â€“${phase.endMinute}</span>
-      <strong>${escapeHtml(phaseOrder?.primaryAction || "Hold")} Â· ${escapeHtml(phaseOrder?.primaryObjective || "Officer call")}</strong>
-      <small>${escapeHtml(phaseOrder?.secondaryAction || "Support")} Â· ${escapeHtml(phaseOrder?.secondaryObjective || "Officer call")}</small>
+      <span>${phase.startMinute}–${phase.endMinute}</span>
+      <strong>${escapeHtml(phaseOrder?.primaryAction || "Hold")} · ${escapeHtml(phaseOrder?.primaryObjective || "Officer call")}</strong>
+      <small>${escapeHtml(phaseOrder?.secondaryAction || "Support")} · ${escapeHtml(phaseOrder?.secondaryObjective || "Officer call")}</small>
     </button>`;
   }).join("");
   return `<article class="map-unit-brief panel">
-    <div class="selected-unit-heading"><i style="background:${tacticalGroupColor(order.group)}"></i><div><p class="eyebrow">Team ${timelineTeam} Â· Active unit</p><h3>${escapeHtml(order.group)}</h3></div><span>${order.members.length} players</span></div>
-    <div class="selected-unit-phase"><span>Phase ${timelinePhaseIndex + 1} Â· ${battlePhases[timelinePhaseIndex]} min</span><p>${escapeHtml(order.goal || "Follow the active phase order.")}</p></div>
+    <div class="selected-unit-heading"><i style="background:${tacticalGroupColor(order.group)}"></i><div><p class="eyebrow">Team ${timelineTeam} · Active unit</p><h3>${escapeHtml(order.group)}</h3></div><span>${order.members.length} players</span></div>
+    <div class="selected-unit-phase"><span>Phase ${timelinePhaseIndex + 1} · ${battlePhases[timelinePhaseIndex]} min</span><p>${escapeHtml(order.goal || "Follow the active phase order.")}</p></div>
     <div class="unit-command-grid">
       <div><span>Primary command</span><strong>${escapeHtml(order.primaryAction)}</strong><small>${escapeHtml(order.primaryObjective || "Officer call")}</small></div>
       <div><span>Secondary command</span><strong>${escapeHtml(order.secondaryAction)}</strong><small>${escapeHtml(order.secondaryObjective || "Officer call")}</small></div>
     </div>
     ${state.permissions.isOfficer && timelineEditMode && state.eventStrategy?.[timelineTeam] ? timelineOrderEditor(order) : ""}
-    <details class="selected-unit-members"><summary>Assigned members (${order.members.length})</summary><div class="mini-profile-list">${order.members.map((member) => memberMiniProfile(member.playerId, `${member.rosterStatus} Â· Team ${timelineTeam}`)).join("") || "<small>No assigned players</small>"}</div></details>
+    <details class="selected-unit-members"><summary>Assigned members (${order.members.length})</summary><div class="mini-profile-list">${order.members.map((member) => memberMiniProfile(member.playerId, `${member.rosterStatus} · Team ${timelineTeam}`)).join("") || "<small>No assigned players</small>"}</div></details>
     <div class="unit-phase-breakdown"><div><strong>Full battle breakdown</strong><small>Primary and secondary command by phase</small></div>${phaseRows}</div>
   </article>`;
 }
@@ -1970,7 +2345,7 @@ function timelineOrderCard(order) {
   return `<details class="strategy-unit-order ${isSelected ? "highlighted" : ""}" ${isSelected ? "open" : ""}>
     <summary class="strategy-unit-summary">
       <span class="squad-color-dot" style="background:${tacticalGroupColor(order.group)}"></span>
-      <span><strong>${escapeHtml(order.group)}</strong><small>${escapeHtml(order.primaryAction)} Â· ${escapeHtml(order.primaryObjective || "Officer call")}</small></span>
+      <span><strong>${escapeHtml(order.group)}</strong><small>${escapeHtml(order.primaryAction)} · ${escapeHtml(order.primaryObjective || "Officer call")}</small></span>
       <em>${order.members.length} players</em>
     </summary>
     <dl class="strategy-order-details">
@@ -1981,7 +2356,7 @@ function timelineOrderCard(order) {
       <div><dt>Group goal</dt><dd>${escapeHtml(order.goal || "Follow officer direction for this interval.")}</dd></div>
     </dl>
     <div class="mini-profile-list">${order.members.length
-      ? order.members.map((member) => memberMiniProfile(member.playerId, `${order.group} Â· Team ${timelineTeam}`)).join("")
+      ? order.members.map((member) => memberMiniProfile(member.playerId, `${order.group} · Team ${timelineTeam}`)).join("")
       : "<small>No assigned members</small>"}</div>
     ${state.permissions.isOfficer && timelineEditMode && state.eventStrategy?.[timelineTeam] ? timelineOrderEditor(order) : ""}
   </details>`;
@@ -2160,8 +2535,8 @@ async function renderAudit() {
     elements.auditList.innerHTML = entries.slice(0, 200).map((entry) => `
       <article class="audit-entry panel">
         <div><strong>${escapeHtml(humanize(entry.action))}</strong><span>${escapeHtml(entry.userDisplayName)}</span></div>
-        <p>${escapeHtml(entry.recordType)} Â· ${escapeHtml(entry.field || entry.recordId || "")}</p>
-        <small>${escapeHtml(formatDateTime(entry.timestamp))}${entry.reason ? ` Â· ${escapeHtml(entry.reason)}` : ""}</small>
+        <p>${escapeHtml(entry.recordType)} · ${escapeHtml(entry.field || entry.recordId || "")}</p>
+        <small>${escapeHtml(formatDateTime(entry.timestamp))}${entry.reason ? ` · ${escapeHtml(entry.reason)}` : ""}</small>
       </article>
     `).join("") || emptyState("No important changes have been recorded.");
   } catch (error) {
@@ -2194,7 +2569,7 @@ async function handleHistoryClick(event) {
   const battle = state.battles.find((item) => item.id === battleId);
   if (!battle) return;
 
-  const description = `${battle.date} Â· ${battle.outcome} vs ${battle.opponent}`;
+  const description = `${battle.date} · ${battle.outcome} vs ${battle.opponent}`;
   if (!confirm(`Delete the archived battle "${description}"?\n\nThis cannot be undone. Its player participation totals will also be removed.`)) {
     return;
   }
@@ -2409,7 +2784,7 @@ function renderVsScores() {
   const week = weeks.find((item) => item.id === selectedVsWeekId);
   const duelGroup = (state.duelLeagueGroups || []).find((group) => group.id === week?.duelLeagueGroupId);
   elements.vsWeekSelect.innerHTML = weeks.map((item) =>
-    `<option value="${escapeHtml(item.id)}" ${item.id === selectedVsWeekId ? "selected" : ""}>${escapeHtml(item.beginDate)} Â· vs ${escapeHtml(item.opponent)}</option>`
+    `<option value="${escapeHtml(item.id)}" ${item.id === selectedVsWeekId ? "selected" : ""}>${escapeHtml(item.beginDate)} · vs ${escapeHtml(item.opponent)}</option>`
   ).join("") || `<option value="">No VS week created</option>`;
   const days = week ? vsWeekDays(week.beginDate) : [];
   if (!days.some((day) => day.date === selectedVsDate)) selectedVsDate = days[0]?.date || "";
@@ -2421,7 +2796,7 @@ function renderVsScores() {
     return `<button class="${day.date === selectedVsDate ? "primary-button" : "secondary-button"} ${resultStyle}" type="button" data-vs-day="${day.date}">${day.label}<small>${day.shortDate}</small></button>`;
   }).join("");
   elements.vsScoreDate.innerHTML = days.map((day) =>
-    `<option value="${day.date}" ${day.date === selectedVsDate ? "selected" : ""}>${day.label} Â· ${day.date}</option>`
+    `<option value="${day.date}" ${day.date === selectedVsDate ? "selected" : ""}>${day.label} · ${day.date}</option>`
   ).join("");
   const manualDate = elements.vsManualForm.querySelector("[name='date']");
   manualDate.value = selectedVsDate;
@@ -2432,7 +2807,7 @@ function renderVsScores() {
   elements.vsPlayerSelect.innerHTML = `<option value="">Choose roster player</option>${state.players
     .filter((player) => player.active !== false)
     .sort((left, right) => left.gameName.localeCompare(right.gameName))
-    .map((player) => `<option value="${escapeHtml(player.id)}">${escapeHtml(player.gameName)} Â· ${escapeHtml(player.rank || "Unranked")}</option>`).join("")}`;
+    .map((player) => `<option value="${escapeHtml(player.id)}">${escapeHtml(player.gameName)} · ${escapeHtml(player.rank || "Unranked")}</option>`).join("")}`;
 
   const scores = (state.vsScores || []).filter((entry) =>
     week && (entry.vsWeekId === week.id || (!entry.vsWeekId && days.some((day) => day.date === entry.date)))
@@ -2468,19 +2843,19 @@ function renderVsScores() {
   }, { ewar: 0, opponent: 0 });
   elements.vsMatchupHeader.innerHTML = week ? `<article class="panel vs-matchup-header ${resultClass}">
     <div class="vs-scoreboard-context">
-      <p class="eyebrow">${escapeHtml(duelGroup?.code || "Duel League")} Â· Week ${week.duelLeagueWeek}/4 Â· ${escapeHtml(days.find((day) => day.date === selectedVsDate)?.label || "")} Â· ${escapeHtml(selectedVsDate)}</p>
-      <span>Server ${escapeHtml(week.server)} Â· ${week.opponentMembers} opponent members${published ? " Â· Published" : ""}</span>
+      <p class="eyebrow">${escapeHtml(duelGroup?.code || "Duel League")} · Week ${week.duelLeagueWeek}/4 · ${escapeHtml(days.find((day) => day.date === selectedVsDate)?.label || "")} · ${escapeHtml(selectedVsDate)}</p>
+      <span>Server ${escapeHtml(week.server)} · ${week.opponentMembers} opponent members${published ? " · Published" : ""}</span>
     </div>
     <div class="vs-scoreboard-team vs-scoreboard-ewar ${outcome === "Win" ? "vs-team-leading" : outcome === "Loss" ? "vs-team-trailing" : ""}">
       <h3>EWAR</h3>
       <label>Daily team points<input name="ourScore" type="number" min="0" value="${Number(result.ourScore || 0)}" required aria-label="EWAR daily team points"></label>
-      <small>Weekly total Â· ${weeklyTeamTotals.ewar.toLocaleString()}</small>
+      <small>Weekly total · ${weeklyTeamTotals.ewar.toLocaleString()}</small>
     </div>
     <div class="vs-scoreboard-outcome"><span>${outcome}</span><small>Highest daily score wins</small>${state.permissions.isOfficer ? `<button class="primary-button" type="submit">${published ? "Scores locked" : "Save scores"}</button>` : ""}</div>
     <div class="vs-scoreboard-team vs-scoreboard-opponent ${outcome === "Loss" ? "vs-team-leading" : outcome === "Win" ? "vs-team-trailing" : ""}">
       <h3>${escapeHtml(week.opponent || "Opponent")}</h3>
       <label>Daily team points<input name="opponentScore" type="number" min="0" value="${Number(result.opponentScore || 0)}" required aria-label="${escapeHtml(week.opponent || "Opponent")} daily team points"></label>
-      <small>Weekly total Â· ${weeklyTeamTotals.opponent.toLocaleString()}</small>
+      <small>Weekly total · ${weeklyTeamTotals.opponent.toLocaleString()}</small>
     </div>
   </article>` : emptyState("Create a VS week in the Create tab to begin scoring.");
   const ourScoreInput = elements.vsDailyResultForm.querySelector("[name='ourScore']");
@@ -2493,7 +2868,7 @@ function renderVsScores() {
   elements.vsImportButton.disabled = !week || published;
   elements.vsManualForm.querySelectorAll("select, input, button").forEach((control) => { control.disabled = !week || published; });
   elements.vsDuelGroupReference.innerHTML = week
-    ? `<p class="muted">${escapeHtml(duelGroup?.code || "")} Â· VS Week ${week.duelLeagueWeek}/4 standings snapshot</p>${duelRankingTable(week.standings, state.permissions.isOfficer && !published)}`
+    ? `<p class="muted">${escapeHtml(duelGroup?.code || "")} · VS Week ${week.duelLeagueWeek}/4 standings snapshot</p>${duelRankingTable(week.standings, state.permissions.isOfficer && !published)}`
     : duelRankingTable([]);
   elements.vsStandingsImportButton.disabled = !week || published;
   elements.vsStandingsRefreshButton.disabled = !week;
@@ -2510,7 +2885,7 @@ function renderVsScores() {
     <article class="summary-card"><span>Members â‰¥ 7,200,000</span><strong>${averageAboveTarget.toFixed(1)}</strong><small>Average number per submitted day</small></article>
     <article class="summary-card"><span>Selected day entries</span><strong>${dailyScores.length}</strong><small>${escapeHtml(days.find((day) => day.date === selectedVsDate)?.label || "")}</small></article>`;
   elements.vsTopThree.innerHTML = ranking.slice(0, 3).map((record, index) =>
-    `<article><span>#${index + 1}</span><strong>${escapeHtml(record.name)}</strong><span>${record.total.toLocaleString()} total</span><small>${record.entries.length}/6 days Â· ${Math.round(record.total / record.entries.length).toLocaleString()} daily avg</small></article>`
+    `<article><span>#${index + 1}</span><strong>${escapeHtml(record.name)}</strong><span>${record.total.toLocaleString()} total</span><small>${record.entries.length}/6 days · ${Math.round(record.total / record.entries.length).toLocaleString()} daily avg</small></article>`
   ).join("") || `<p class="muted">Top members will appear after scores are submitted.</p>`;
   const daily = [...dailyScores].sort((left, right) => Number(right.score) - Number(left.score));
   const selectedDayAverage = daily.length ? daily.reduce((sum, entry) => sum + Number(entry.score), 0) / daily.length : 0;
@@ -2520,7 +2895,7 @@ function renderVsScores() {
     : selectedVsScoreFilter === "below-target" ? daily.filter((entry) => Number(entry.score) < 7_200_000)
     : daily;
   elements.vsScoreFilter.value = selectedVsScoreFilter;
-  elements.vsDailyTables.innerHTML = week ? `<section class="vs-daily-panel"><div class="assignment-heading"><h3>${escapeHtml(days.find((day) => day.date === selectedVsDate)?.label || "")} Member Scores</h3><span>${filteredDaily.length} shown Â· team avg ${Math.round(selectedDayAverage).toLocaleString()}</span></div>
+  elements.vsDailyTables.innerHTML = week ? `<section class="vs-daily-panel"><div class="assignment-heading"><h3>${escapeHtml(days.find((day) => day.date === selectedVsDate)?.label || "")} Member Scores</h3><span>${filteredDaily.length} shown · team avg ${Math.round(selectedDayAverage).toLocaleString()}</span></div>
       <div class="table-frame"><table><thead><tr><th>Daily rank</th><th>Player</th><th>Score</th><th>Source</th>${state.permissions.isOfficer ? "<th>Action</th>" : ""}</tr></thead>
       <tbody>${filteredDaily.map((entry) => `<tr><td>#${daily.indexOf(entry) + 1}</td><td>${escapeHtml(entry.playerName)}</td><td>${Number(entry.score).toLocaleString()}</td><td>${escapeHtml(entry.source)}</td>${state.permissions.isOfficer ? `<td>${published ? "Locked" : `<button class="danger-button" type="button" data-delete-vs-score="${escapeHtml(entry.id)}">Delete</button>`}</td>` : ""}</tr>`).join("") || `<tr><td colspan="${state.permissions.isOfficer ? 5 : 4}">No scores match this filter.</td></tr>`}</tbody></table></div></section>`
   : "";
@@ -2531,13 +2906,13 @@ function duelRankingTable(rankings = [], editable = false) {
   const rows = rankings.length || editable
     ? Array.from({ length: rowCount }, (_, index) => rankings[index] || ({ rank: index + 1, alliance: "", weeks: [] }))
     : [];
-  if (!rows.length) return `<div class="table-frame duel-ranking-table"><table><thead><tr><th>Ranking</th><th>Alliance</th><th>Week 1</th><th>Week 2</th><th>Week 3</th><th>Week 4</th></tr></thead><tbody>${Array.from({ length: 16 }, (_, index) => `<tr><td>#${index + 1}</td><td>â€”</td><td>â€”</td><td>â€”</td><td>â€”</td><td>â€”</td></tr>`).join("")}</tbody></table></div>`;
+  if (!rows.length) return `<div class="table-frame duel-ranking-table"><table><thead><tr><th>Ranking</th><th>Alliance</th><th>Week 1</th><th>Week 2</th><th>Week 3</th><th>Week 4</th></tr></thead><tbody>${Array.from({ length: 16 }, (_, index) => `<tr><td>#${index + 1}</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>`).join("")}</tbody></table></div>`;
   return `<div class="table-frame duel-ranking-table"><table><thead><tr><th>Ranking</th><th>Alliance</th><th>Week 1</th><th>Week 2</th><th>Week 3</th><th>Week 4</th></tr></thead>
-    <tbody>${rows.map((row, rowIndex) => `<tr data-vs-standing-row><td>${editable ? `<input data-standing-rank type="number" value="${rowIndex + 1}" readonly>` : `#${rowIndex + 1}`}</td><td>${editable ? `<input data-standing-alliance value="${escapeHtml(row.alliance || "")}" placeholder="[TAG] Alliance name">` : escapeHtml(row.alliance || "â€”")}</td>${Array.from({ length: 4 }, (_, index) => {
+    <tbody>${rows.map((row, rowIndex) => `<tr data-vs-standing-row><td>${editable ? `<input data-standing-rank type="number" value="${rowIndex + 1}" readonly>` : `#${rowIndex + 1}`}</td><td>${editable ? `<input data-standing-alliance value="${escapeHtml(row.alliance || "")}" placeholder="[TAG] Alliance name">` : escapeHtml(row.alliance || "—")}</td>${Array.from({ length: 4 }, (_, index) => {
       const outcome = row.weeks?.[index] || "";
       return editable
-        ? `<td><select data-standing-week="${index}"><option value="">â€”</option><option value="W" ${outcome === "W" ? "selected" : ""}>W</option><option value="L" ${outcome === "L" ? "selected" : ""}>L</option></select></td>`
-        : `<td><span class="vs-standing-result ${outcome === "W" ? "vs-standing-win" : outcome === "L" ? "vs-standing-loss" : ""}">${outcome || "â€”"}</span></td>`;
+        ? `<td><select data-standing-week="${index}"><option value="">—</option><option value="W" ${outcome === "W" ? "selected" : ""}>W</option><option value="L" ${outcome === "L" ? "selected" : ""}>L</option></select></td>`
+        : `<td><span class="vs-standing-result ${outcome === "W" ? "vs-standing-win" : outcome === "L" ? "vs-standing-loss" : ""}">${outcome || "—"}</span></td>`;
     }).join("")}</tr>`).join("")}</tbody></table></div>`;
 }
 
@@ -2837,7 +3212,7 @@ function directoryRow(member) {
     <tr class="roster-member-row team-${escapeHtml(member.team)} ${member.selected ? "selected" : ""}">
       <td data-label="Selected"><input data-member-id="${member.id}" data-field="selected" type="checkbox" ${member.selected ? "checked" : ""} ${locked}></td>
       <td data-label="Player">
-        ${memberMiniProfile(member, `${member.rank} Â· Team ${member.team}`)}
+        ${memberMiniProfile(member, `${member.rank} · Team ${member.team}`)}
         ${member.availabilityGuidance ? `<small class="availability-guidance">Availability: ${escapeHtml(member.availabilityGuidance)}</small>` : ""}
         <div class="roster-player-actions">
           <button class="row-expander" type="button" data-expand-player="${member.id}" aria-expanded="${expanded}">${expanded ? "Close history" : `${history.length} DS records`}</button>
@@ -2940,7 +3315,7 @@ function playerHistoryRow(member, history) {
     ? history.map(({ battle, player }) => `
         <div class="player-history-item">
           <strong>${escapeHtml(battle.date)} vs ${escapeHtml(battle.opponent)}</strong>
-          <span>Team ${escapeHtml(player.team || "?")} Â· ${Number(player.score || 0).toLocaleString()} pts Â· ${escapeHtml(player.attendance || "not recorded")}</span>
+          <span>Team ${escapeHtml(player.team || "?")} · ${Number(player.score || 0).toLocaleString()} pts · ${escapeHtml(player.attendance || "not recorded")}</span>
         </div>
       `).join("")
     : `<p class="muted">No Desert Storm history archived for ${escapeHtml(member.name)} yet.</p>`;
@@ -2987,8 +3362,8 @@ function readinessPanel(team, data) {
         <strong>${data.score}%</strong>
       </div>
       <div class="meter"><span style="width: ${data.score}%"></span></div>
-      <p class="muted">${data.members.length}/30 roster Â· ${data.starters}/20 starters Â· ${data.subs}/10 substitutes</p>
-      <p class="muted">${data.confirmed} confirmed Â· ${data.assigned} assigned</p>
+      <p class="muted">${data.members.length}/30 roster · ${data.starters}/20 starters · ${data.subs}/10 substitutes</p>
+      <p class="muted">${data.confirmed} confirmed · ${data.assigned} assigned</p>
     </article>
   `;
 }
@@ -2997,7 +3372,7 @@ function teamList(title, members) {
   return `
     <div class="team-list">
       <h4>${title}</h4>
-      ${members.map((member) => memberMiniProfile(member, `${assignedUnit(member)} Â· ${member.availability}`)).join("") || `<p class="muted">None assigned</p>`}
+      ${members.map((member) => memberMiniProfile(member, `${assignedUnit(member)} · ${member.availability}`)).join("") || `<p class="muted">None assigned</p>`}
     </div>
   `;
 }
@@ -3117,10 +3492,22 @@ function setStatus(message, isError = false) {
 }
 
 function escapeHtml(value) {
-  return String(value ?? "").replace(/[&<>"]/g, (character) => ({
+  return sanitizeDisplayText(value).replace(/[&<>"]/g, (character) => ({
     "&": "&amp;",
     "<": "&lt;",
     ">": "&gt;",
     "\"": "&quot;"
   })[character]);
+}
+
+function sanitizeDisplayText(value) {
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replace(/\u0001/g, "")
+    .replace(/\^A/g, "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }

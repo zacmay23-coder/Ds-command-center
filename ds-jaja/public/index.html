@@ -36,6 +36,7 @@
         <h1>Ewar: Lords of War Alliance Operations</h1>
       </div>
       <div class="header-actions">
+        <button id="navigationToggle" class="secondary-button navigation-toggle" type="button" aria-expanded="false" aria-controls="primaryNavigation">Menu</button>
         <button id="profileTabButton" class="header-profile-button" data-header-view="userProfile" type="button">
           <span id="headerProfileAvatar"></span>
           <span id="headerProfileLabel">My Profile</span>
@@ -49,16 +50,25 @@
     </header>
 
     <div class="app-shell">
-      <nav class="sidebar" aria-label="Command Center views">
+      <nav id="primaryNavigation" class="sidebar" aria-label="Command Center views">
+        <p class="nav-group-label">Personal</p>
         <button data-view="myAssignment">My Briefing</button>
+        <button data-view="userProfile">My Profile</button>
+        <button data-view="playerJournal">Player Journal</button>
+        <p class="nav-group-label">Alliance</p>
         <button class="active" data-view="dashboard">Ewar Dashboard</button>
         <button data-view="events">Events</button>
-        <button data-view="create" data-role="officer">Create</button>
         <button data-view="directory">Roster</button>
+        <button data-view="teams">Teams</button>
+        <p class="nav-group-label">Desert Storm</p>
         <button data-view="strategyTimeline">Tactical Map Planning</button>
         <button data-view="strategyLibrary" data-role="officer">Strategy Library</button>
-        <button data-view="leadership" data-role="officer">Leadership</button>
+        <button data-view="results" data-role="officer">Results</button>
+        <button data-view="participation" data-role="officer">Participation</button>
         <button data-view="history">History</button>
+        <p class="nav-group-label" data-role="officer">Leadership</p>
+        <button data-view="leadership" data-role="officer">Leadership</button>
+        <button data-view="create" data-role="officer">Create</button>
         <button data-view="administration" data-role="administrator">Administration</button>
       </nav>
 
@@ -78,17 +88,50 @@
             <h2>Player Journal</h2>
             <p>Your private notebook for VS-week plans, personal goals, and member notes.</p>
           </div>
+          <div class="toolbar journal-filter-bar">
+            <label>Search entries<input id="journalSearch" type="search" placeholder="Search title, body, or tags"></label>
+            <label>Entry type<select id="journalTypeFilter"><option value="">All types</option><option value="general">General Note</option><option value="daily_plan">Daily Plan</option><option value="weekly_plan">Weekly Plan</option><option value="plan">VS Week Plan</option><option value="desert_storm">Desert Storm Notes</option><option value="strategy">Strategy Notes</option><option value="question_draft">Leadership Question Draft</option><option value="reflection">Post-Battle Reflection</option><option value="improvement">Personal Improvement</option><option value="custom">Custom</option></select></label>
+            <label>Entry date<input id="journalDateFilter" type="date"></label>
+            <label>Entry state<select id="journalStateFilter"><option value="active">Active</option><option value="pinned">Pinned</option><option value="archived">Archived</option><option value="all">All entries</option></select></label>
+          </div>
           <div class="journal-layout">
             <form id="journalForm" class="panel journal-editor">
               <input name="id" type="hidden">
               <input name="vsWeekId" type="hidden">
-              <label>Entry type<select name="type"><option value="note">Note</option><option value="plan">Plan my VS week</option><option value="goal">Set my goals</option></select></label>
+              <label>Entry type<select name="entryType"><option value="general">General Note</option><option value="daily_plan">Daily Plan</option><option value="weekly_plan">Weekly Plan</option><option value="plan">VS Week Plan</option><option value="desert_storm">Desert Storm Notes</option><option value="strategy">Strategy Notes</option><option value="question_draft">Leadership Question Draft</option><option value="reflection">Post-Battle Reflection</option><option value="improvement">Personal Improvement</option><option value="custom">Custom</option></select></label>
               <label>Title<input name="title" maxlength="120" required></label>
-              <label>Private details<textarea name="text" maxlength="4000" required placeholder="Write your private plan, goals, reminders, or scoring focus."></textarea></label>
+              <label>Private details<textarea name="body" maxlength="8000" required placeholder="Write your private plan, goals, reminders, or scoring focus."></textarea></label>
+              <label>Tags<input name="tags" maxlength="240" placeholder="vs, strategy, reminder"></label>
+              <label>Reminder<input name="reminderAt" type="datetime-local"></label>
+              <label>Related goals<select name="goalIds" id="journalGoalLinks" multiple size="4"></select></label>
+              <label class="checkbox-label"><input name="isPinned" type="checkbox"> Pin this entry</label>
               <div class="journal-actions"><button class="primary-button" type="submit">Save entry</button><button class="secondary-button" type="reset">New entry</button></div>
             </form>
             <div id="journalEntries" class="journal-entries"></div>
           </div>
+          <details class="panel goal-editor-panel">
+            <summary>Create or update a private goal</summary>
+            <form id="goalForm" class="form-grid">
+              <input name="id" type="hidden">
+              <label>Goal title<input name="title" maxlength="140" required></label>
+              <label>Type<select name="goalType"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="vs_daily">VS Daily</option><option value="vs_weekly">VS Weekly</option><option value="desert_storm">Desert Storm</option><option value="theme_week">Theme Week</option><option value="personal">Personal Improvement</option><option value="custom">Custom</option></select></label>
+              <label>Progress mode<select name="progressMode"><option value="checkbox">Complete / incomplete</option><option value="numeric">Numeric</option><option value="percentage">Percentage</option><option value="count">Count</option><option value="score">Game score</option></select></label>
+              <label>Progress source<select name="progressSource"><option value="manual">Manual updates</option><option value="automatic">Automatic when reliable data is published</option></select></label>
+              <label>Automatic metric<select name="automationMetric"><option value="">None</option><option value="vs_score">Published VS score</option><option value="attendance">Archived event attendance</option><option value="confirmation">Event confirmations</option></select></label>
+              <label>Current value<input name="currentValue" type="number" min="0" value="0"></label>
+              <label>Target value<input name="targetValue" type="number" min="1" value="1"></label>
+              <label>Start date<input name="startDate" type="date"></label>
+              <label>Due date<input name="dueDate" type="date"></label>
+              <label>Recurrence<select name="recurrence"><option value="">Does not repeat</option><option value="daily">Daily</option><option value="weekdays">Mondayâ€“Friday</option><option value="weekly">Weekly</option></select></label>
+              <label>Related journal entry<select name="relatedJournalId" id="goalJournalLink"><option value="">No linked entry</option></select></label>
+              <label class="wide-field">Description<textarea name="description" maxlength="2000"></textarea></label>
+              <div class="action-row"><button class="primary-button">Save Goal</button><button class="secondary-button" type="reset">New Goal</button></div>
+            </form>
+          </details>
+          <section class="panel">
+            <div class="assignment-heading"><div><p class="eyebrow">Private progress</p><h3>All Goals</h3></div></div>
+            <div id="allGoalList" class="goal-grid"></div>
+          </section>
         </section>
 
         <section id="leadership" class="view" data-role="officer">
@@ -96,6 +139,24 @@
             <h2>Leadership</h2>
             <p>Protected collaboration for officers and administrators.</p>
           </div>
+          <form class="panel leadership-unified-scheduler" data-leadership-scheduler>
+            <div>
+              <h3>Schedule leadership meeting</h3>
+              <p class="muted">Use one scheduler for battle planning, weekly leadership, or another focused session.</p>
+            </div>
+            <label>Meeting type
+              <select name="category">
+                <option value="strategy">Battle Planning</option>
+                <option value="weekly">Weekly Leadership</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label>Date<input name="date" type="date" required></label>
+            <label>Time<input name="time" type="time" required></label>
+            <label class="scheduler-agenda">Agenda<textarea name="agenda" maxlength="1200" placeholder="Topics, decisions required, and follow-up items."></textarea></label>
+            <button class="primary-button">Schedule meeting</button>
+          </form>
+          <div data-leadership-meeting-card="other"></div>
           <div class="leadership-categories">
             <details class="panel leadership-category" open>
               <summary>Roles / Responsibilities</summary>
@@ -106,12 +167,6 @@
             <details class="panel leadership-category">
               <summary>Battle &amp; Strategy Planning</summary>
               <div data-leadership-request="strategy"></div>
-              <form data-leadership-meeting="strategy" class="leadership-meeting-form">
-                <h3>Schedule 20-minute planning meeting</h3>
-                <label>Date<input name="date" type="date" required></label><label>Time<input name="time" type="time" required></label>
-                <label>Agenda<textarea name="agenda" maxlength="1200" placeholder="Battle plans, assignments, strategy topics, and decisions."></textarea></label>
-                <button class="primary-button">Schedule meeting</button>
-              </form>
               <div data-leadership-meeting-card="strategy"></div>
               <div data-leadership-feed="strategy" class="leadership-feed"></div>
               <form data-leadership-post="strategy" class="leadership-message-form"><textarea name="text" maxlength="2000" placeholder="Live text chat or meeting notation for leaders who cannot join voice." required></textarea><button class="primary-button">Post to strategy chat</button></form>
@@ -125,12 +180,6 @@
             <details class="panel leadership-category">
               <summary>Weekly Leadership Meetings</summary>
               <div data-leadership-request="weekly"></div>
-              <form data-leadership-meeting="weekly" class="leadership-meeting-form">
-                <h3>Schedule 20-minute weekly meeting</h3>
-                <label>Date<input name="date" type="date" required></label><label>Time<input name="time" type="time" required></label>
-                <label>Agenda<textarea name="agenda" maxlength="1200" placeholder="Weekly topics, decisions required, and follow-up items."></textarea></label>
-                <button class="primary-button">Schedule meeting</button>
-              </form>
               <div data-leadership-meeting-card="weekly"></div>
               <div data-leadership-feed="weekly" class="leadership-feed"></div>
               <form data-leadership-post="weekly" class="leadership-message-form"><textarea name="text" maxlength="2000" placeholder="Meeting chat and covered notations for anyone catching up later." required></textarea><button class="primary-button">Post meeting notation</button></form>
@@ -245,6 +294,22 @@
             <button class="secondary-button" type="button" data-event-subview="allianceWeeklyEvents">Alliance Events</button>
             <button class="primary-button" type="button" data-event-subview="vsEvents">VS</button>
           </div>
+          <nav class="section-tabs workflow-tabs" aria-label="VS workflows" data-workflow-tabs="vs">
+            <button class="active" type="button" data-workflow-tab="vs-overview" aria-selected="true">Overview</button>
+            <button type="button" data-workflow-tab="vs-scores" aria-selected="false">Daily Scores</button>
+            <button type="button" data-workflow-tab="vs-import" aria-selected="false" data-role="officer">Screenshot Import</button>
+            <button type="button" data-workflow-tab="vs-duel" aria-selected="false">Duel League</button>
+            <button type="button" data-workflow-tab="vs-leaders" aria-selected="false">Weekly Leaders</button>
+            <button type="button" data-workflow-tab="vs-audit" aria-selected="false" data-role="officer">Audit &amp; Publish</button>
+          </nav>
+          <div class="workflow-panel active" data-workflow-panel="vs-overview">
+            <div id="vsSummary" class="summary-grid"></div>
+            <section class="panel">
+              <div class="assignment-heading"><h3>Weekly Top 3 Members</h3><span>Updates with every score submission</span></div>
+              <div id="vsTopThree" class="vs-top-three"></div>
+            </section>
+          </div>
+          <div class="workflow-panel" data-workflow-panel="vs-scores">
           <div class="panel vs-week-controls">
             <label>VS week<select id="vsWeekSelect"></select></label>
             <div id="vsDayNavigation" class="vs-day-navigation" aria-label="VS scoring day"></div>
@@ -253,6 +318,28 @@
           <form id="vsDailyResultForm" class="vs-scoreboard-form">
             <div id="vsMatchupHeader"></div>
           </form>
+          <form id="vsManualForm" class="panel vs-manual-form" data-role="officer">
+            <h3>Supplement Daily Scores</h3>
+            <label>Player<select name="playerId" id="vsPlayerSelect" required></select></label>
+            <label>Selected day<input name="date" type="text" readonly required></label>
+            <label>VS score<input name="score" type="number" min="0" required></label>
+            <button class="primary-button" type="submit">Save Score</button>
+          </form>
+          <details class="panel vs-score-records">
+            <summary>Member VS score records</summary>
+            <label>Score view
+              <select id="vsScoreFilter">
+                <option value="all">All scores</option>
+                <option value="top10">Top 10</option>
+                <option value="above-average">Above team average</option>
+                <option value="below-average">Below team average</option>
+                <option value="below-target">Below 7,200,000</option>
+              </select>
+            </label>
+            <div id="vsDailyTables"></div>
+          </details>
+          </div>
+          <div class="workflow-panel" data-workflow-panel="vs-import">
           <div class="screenshot-import panel" data-role="officer">
             <div><h3>Import Daily VS Screenshot</h3><p class="muted">Scores matched to names in the Master Roster are saved for the selected day.</p></div>
             <label>Import VS day<select id="vsScoreDate"></select></label>
@@ -261,14 +348,8 @@
             <p id="vsImportStatus" class="muted import-status">No screenshot selected.</p>
             <div id="vsImportMatches" class="import-matches"></div>
           </div>
-          <form id="vsManualForm" class="panel vs-manual-form" data-role="officer">
-            <h3>Supplement Daily Scores</h3>
-            <label>Player<select name="playerId" id="vsPlayerSelect" required></select></label>
-            <label>Selected day<input name="date" type="text" readonly required></label>
-            <label>VS score<input name="score" type="number" min="0" required></label>
-            <button class="primary-button" type="submit">Save Score</button>
-          </form>
-          <div id="vsSummary" class="summary-grid"></div>
+          </div>
+          <div class="workflow-panel" data-workflow-panel="vs-duel">
           <section class="panel">
             <div class="assignment-heading"><div><h3>Duel League Standings</h3><p class="muted">16 alliances ranked by row order. Screenshot imports treat the top alliance as #1 even when printed ranks are unreadable.</p></div></div>
             <div class="vs-standings-import" data-role="officer">
@@ -285,23 +366,20 @@
             </div>
             <div id="vsDuelGroupReference"></div>
           </section>
-          <section class="panel">
-            <div class="assignment-heading"><h3>Weekly Top 3 Members</h3><span>Updates with every score submission</span></div>
-            <div id="vsTopThree" class="vs-top-three"></div>
-          </section>
-          <details class="panel vs-score-records">
-            <summary>Member VS score records</summary>
-            <label>Score view
-              <select id="vsScoreFilter">
-                <option value="all">All scores</option>
-                <option value="top10">Top 10</option>
-                <option value="above-average">Above team average</option>
-                <option value="below-average">Below team average</option>
-                <option value="below-target">Below 7,200,000</option>
-              </select>
-            </label>
-            <div id="vsDailyTables"></div>
-          </details>
+          </div>
+          <div class="workflow-panel" data-workflow-panel="vs-leaders">
+            <section class="panel">
+              <div class="assignment-heading"><h3>Weekly Leaders</h3><span>Current performance ranking</span></div>
+              <div class="vs-leader-reference" aria-live="polite">The current top performers are summarized in Overview. Use Daily Scores for the complete member table.</div>
+            </section>
+          </div>
+          <div class="workflow-panel" data-workflow-panel="vs-audit">
+            <section class="panel">
+              <h3>Audit &amp; Publish</h3>
+              <p class="muted">Daily completeness checks and publishing controls are available to officers in Administration.</p>
+              <button class="secondary-button" type="button" data-view-shortcut="administration">Open VS Audit</button>
+            </section>
+          </div>
         </section>
 
         <section id="create" class="view" data-role="officer">
@@ -488,6 +566,26 @@
             <button class="primary-button" type="button" data-history-subview="results">Publish Results</button>
             <button class="secondary-button" type="button" data-history-subview="participation" data-role="officer">Participation</button>
           </div>
+          <ol class="result-stepper" aria-label="Publish result steps">
+            <li class="active"><button type="button" data-workflow-tab="result-battle">1 <span>Select battle</span></button></li>
+            <li><button type="button" data-workflow-tab="result-import">2 <span>Import screenshot</span></button></li>
+            <li><button type="button" data-workflow-tab="result-review">3 <span>Review &amp; correct</span></button></li>
+            <li><button type="button" data-workflow-tab="result-finalize">4 <span>Finalize</span></button></li>
+          </ol>
+          <div class="workflow-panel active" data-workflow-panel="result-battle">
+            <section class="panel result-intro-card">
+              <h3>Select battle</h3>
+              <p class="muted">Choose the active battle and result team before importing scores.</p>
+              <label>Result team
+                <select data-result-team-proxy>
+                  <option value="A">Team A</option>
+                  <option value="B">Team B</option>
+                </select>
+              </label>
+              <button class="primary-button" type="button" data-workflow-next="result-import">Continue to import</button>
+            </section>
+          </div>
+          <div class="workflow-panel" data-workflow-panel="result-import">
           <div class="screenshot-import panel">
             <div>
               <h3>Import Results Screenshot</h3>
@@ -508,6 +606,24 @@
             <p id="importStatus" class="muted import-status">No screenshot selected.</p>
             <div id="importMatches" class="import-matches"></div>
           </div>
+          </div>
+          <div class="workflow-panel" data-workflow-panel="result-review">
+            <div class="table-frame">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Player</th>
+                    <th>Team</th>
+                    <th>Attendance</th>
+                    <th>Score</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody id="resultRows"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="workflow-panel" data-workflow-panel="result-finalize">
           <form id="battleForm" class="battle-form">
             <label>Battle date<input name="date" type="date"></label>
             <label>Opponent<input name="opponent" placeholder="Opponent alliance"></label>
@@ -523,19 +639,6 @@
             <label class="notes-field">Notes<textarea name="notes" placeholder="Debrief notes"></textarea></label>
             <button class="primary-button" type="submit">Archive Battle</button>
           </form>
-          <div class="table-frame">
-            <table>
-              <thead>
-                <tr>
-                  <th>Player</th>
-                  <th>Team</th>
-                  <th>Attendance</th>
-                  <th>Score</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody id="resultRows"></tbody>
-            </table>
           </div>
         </section>
 
@@ -571,13 +674,16 @@
             <h2>Strategy Library</h2>
             <p>Reusable six-phase battle doctrine for Team A and Team B, with custom operational variants.</p>
           </div>
-          <form id="customStrategyForm" class="strategy-builder panel" data-role="officer">
+          <details class="panel focused-creator" data-role="officer">
+            <summary>Create custom strategy</summary>
+          <form id="customStrategyForm" class="strategy-builder">
             <h3>Build a custom strategy</h3>
             <label>Name<input name="name" maxlength="80" required placeholder="Custom strategy name"></label>
             <label>Start from<select name="baseTemplateId" id="customStrategyBase"></select></label>
             <label class="strategy-goal-field">Strategy goal<textarea name="description" maxlength="500" required placeholder="Brief battle goal"></textarea></label>
             <button class="primary-button" type="submit">Create Custom Strategy</button>
           </form>
+          </details>
           <div id="strategyLibraryCards" class="strategy-library-grid"></div>
         </section>
 
@@ -627,6 +733,28 @@
           </section>
           <div id="officerInbox" class="admin-inbox"></div>
           <div id="userList" class="history-list"></div>
+          <form id="achievementSettingsForm" class="panel form-grid">
+            <div class="wide-field"><h3>Achievement Rules</h3><p class="muted">Configure private milestone thresholds and optional public top-three announcements.</p></div>
+            <label>VS daily threshold<input name="vsDailyThreshold" type="number" min="0"></label>
+            <label>VS weekly threshold<input name="vsWeeklyThreshold" type="number" min="0"></label>
+            <label class="checkbox-label"><input name="topThreeEnabled" type="checkbox"> Generate top-three achievements</label>
+            <label class="checkbox-label"><input name="publicAnnouncements" type="checkbox"> Allow public milestone announcements</label>
+            <label>Badge icon<select name="icon"><option value="star">Star</option><option value="trophy">Trophy</option><option value="shield">Shield</option><option value="trend">Improvement</option></select></label>
+            <label>Badge style<select name="badgeStyle"><option value="gold">Gold</option><option value="blue">Blue</option><option value="success">Success</option></select></label>
+            <label class="wide-field">Message template<input name="messageTemplate" maxlength="240" placeholder="You reached {value} in {event}."></label>
+            <button class="primary-button">Save Rules</button>
+            <button class="secondary-button" type="button" data-achievement-dry-run>Preview Trigger</button>
+            <p id="achievementSettingsStatus" class="muted wide-field" aria-live="polite"></p>
+          </form>
+          <section class="panel maintenance-panel">
+            <h3>Text data maintenance</h3>
+            <p class="muted">Scan legacy records for malformed control characters. Preview first; cleanup preserves identifiers and timestamps and creates an audit entry.</p>
+            <div class="action-row">
+              <button id="sanitizeTextDryRun" class="secondary-button" type="button">Preview cleanup</button>
+              <button id="sanitizeTextApply" class="danger-button" type="button">Clean affected text</button>
+            </div>
+            <p id="sanitizeTextStatus" class="muted" aria-live="polite"></p>
+          </section>
         </section>
       </main>
     </div>

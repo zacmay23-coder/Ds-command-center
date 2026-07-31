@@ -206,6 +206,9 @@ export const api = {
   async sendPrivateMessage(payload) {
     return request("/api/private-messages", { method: "POST", body: JSON.stringify(payload) });
   },
+  async markPrivateMessageRead(id) {
+    return request(`/api/private-messages/${encodeURIComponent(id)}/read`, { method: "PATCH", body: "{}" });
+  },
   async postDailyChat(text) {
     return request("/api/daily-chat", { method: "POST", body: JSON.stringify({ text }) });
   },
@@ -229,6 +232,21 @@ export const api = {
   },
   async deleteAnnouncement(id) {
     return request(`/api/announcements/${encodeURIComponent(id)}`, { method: "DELETE" });
+  },
+  async sanitizeLegacyText(dryRun = true) {
+    return request("/api/admin/sanitize-text", { method: "POST", body: JSON.stringify({ dryRun }) });
+  },
+  async saveGoal(payload) {
+    return request("/api/goals", { method: "POST", body: JSON.stringify(payload) });
+  },
+  async deleteGoal(id) {
+    return request(`/api/goals/${encodeURIComponent(id)}`, { method: "DELETE" });
+  },
+  async updateAchievement(id, patch) {
+    return request(`/api/achievements/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
+  },
+  async updateAchievementDefinitions(patch) {
+    return request("/api/admin/achievement-definitions", { method: "PATCH", body: JSON.stringify(patch) });
   }
 };
 
