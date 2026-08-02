@@ -1903,6 +1903,7 @@ export async function saveVsScore(input, actor) {
     playerId: player.id,
     playerName: player.gameName,
     score,
+    hasScore: true,
     source: input.source,
     sourceLine: input.sourceLine,
     createdBy: existing?.createdBy || actor.uid,
@@ -2027,18 +2028,22 @@ export async function auditVsDay(weekId, date) {
     name: state.players[playerId]?.gameName || playerId,
     count
   }));
-  const invalidScores = scores.filter((entry) => !Number.isFinite(Number(entry.score)) || Number(entry.score) < 0).map((entry) => entry.playerName);
+  const invalidScores = scores.filter((entry) => entry.hasScore === false || !Number.isFinite(Number(entry.score)) || Number(entry.score) < 0).map((entry) => entry.playerName);
+  const zeroScores = scores.filter((entry) => entry.hasScore !== false && Number(entry.score) === 0).map((entry) => entry.playerName);
   const result = week.dailyResults?.[date];
-  const missingTeamResult = !result || (!Number(result.ourScore) && !Number(result.opponentScore));
+  const missingTeamResult = !result;
   return {
     weekId,
     date,
-    passed: !missingPlayers.length && !duplicatePlayers.length && !invalidScores.length && !missingTeamResult,
+    passed: !duplicatePlayers.length && !invalidScores.length && !missingTeamResult,
+    publishable: !duplicatePlayers.length && !invalidScores.length && !missingTeamResult,
+    hasWarnings: Boolean(missingPlayers.length || zeroScores.length),
     expectedPlayers: activePlayers.length,
     submittedScores: scores.length,
     missingPlayers,
     duplicatePlayers,
     invalidScores,
+    zeroScores,
     missingTeamResult,
     published: Boolean(week.publishedDays?.[date])
   };
@@ -2047,7 +2052,7 @@ export async function auditVsDay(weekId, date) {
 export async function publishVsDay(weekId, date, actor) {
   const state = await getState();
   const audit = await auditVsDay(weekId, date);
-  if (!audit.passed) throw statusError(409, "VS day cannot be published until its Administration audit passes");
+  if (!audit.publishable) throw statusError(409, "Resolve duplicate, invalid, or missing team-result issues before publishing");
   const week = state.vsWeeks[weekId];
   if (week.publishedDays?.[date]) return week.publishedDays[date];
   week.publishedDays ||= {};

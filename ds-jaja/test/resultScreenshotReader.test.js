@@ -46,6 +46,15 @@ test("matches a roster name and score on the same OCR line", () => {
   assert.equal(result.matches[0].score, 7654321);
 });
 
+test("preserves valid zero and small whole-number OCR scores", () => {
+  const members = [{ id: "player-1", name: "Dark Wizard", aliases: [] }];
+  for (const score of [0, 100, 1_000, 100_000, 1_000_000, 100_000_000]) {
+    const formatted = score.toLocaleString("en-US");
+    const result = matchPlayersFromText(`Dark Wizard\n${formatted}`, members);
+    assert.equal(result.matches[0]?.score, score);
+  }
+});
+
 test("ranks Duel League alliances by screenshot order when printed ranks are unreadable", () => {
   const result = parseDuelLeagueStandings(`
     Duel League Standings

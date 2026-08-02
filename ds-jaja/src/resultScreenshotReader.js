@@ -121,7 +121,7 @@ export function matchPlayersFromText(text, members) {
     const score = readScore(line);
     const cleanedLine = stripAllianceBoilerplate(line);
 
-    if (!score) {
+    if (score === null) {
       if (looksLikePlayerName(cleanedLine)) pendingNameLine = cleanedLine;
       continue;
     }
@@ -131,9 +131,12 @@ export function matchPlayersFromText(text, members) {
     if (!member) {
       unmatched.push({
         score,
+        hasScore: true,
         sourceLine: line,
         ocrName: pendingNameLine || line,
-        searchLine
+        searchLine,
+        nameStatus: "No Match",
+        confidence: 0
       });
       pendingNameLine = "";
       continue;
@@ -155,7 +158,7 @@ export function matchPlayersFromText(text, members) {
 function readScore(line) {
   const numbers = String(line)
     .replace(/(?<=\d)[,.](?=\d{3}\b)/g, "")
-    .match(/\b\d{5,9}\b/g);
+    .match(/\b\d{1,12}\b/g);
   if (!numbers?.length) return null;
   return Number(numbers[numbers.length - 1]);
 }
@@ -186,7 +189,7 @@ function findBestMember(line, members, usedMemberIds) {
   for (const member of members) {
     if (usedMemberIds.has(member.id)) continue;
 
-    const candidates = [member.name, ...(member.aliases || [])].map(normalize).filter(Boolean);
+    const candidates = [member.name, ...(member.aliases || []), ...(member.previousPlayerNames || [])].map(normalize).filter(Boolean);
     if (!candidates.length) continue;
 
     const score = Math.max(...candidates.map((candidate) => scoreNameMatch(normalizedLine, candidate)));
@@ -216,8 +219,11 @@ function scoreNameMatch(line, name) {
 
 function normalize(value) {
   return String(value)
+    .normalize("NFKC")
     .toLowerCase()
     .replace(/\[?ewar\]?/g, "")
+    .replace(/0/g, "o")
+    .replace(/[1il]/g, "l")
     .replace(/[^a-z0-9]/g, "");
 }
 

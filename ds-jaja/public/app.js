@@ -1154,15 +1154,16 @@ function renderVsAuditPanel() {
     }).join("")}</select></label>
     <label>Day<select data-vs-audit-date>${days.map((day) => `<option value="${day.date}" ${day.date === selectedDate ? "selected" : ""}>${day.label} · ${day.date}</option>`).join("")}</select></label>
     <button class="secondary-button" type="button" data-run-vs-audit ${week ? "" : "disabled"}>Run Audit</button>
-    ${audit?.passed && !audit.published ? `<button class="primary-button" type="button" data-publish-vs-day>Publish Daily Scores</button>` : ""}
+    ${audit?.publishable && !audit.published ? `<button class="primary-button" type="button" data-publish-vs-day>${audit.hasWarnings ? "Publish Reviewed Rows" : "Publish Daily Scores"}</button>` : ""}
   </div>
   ${week ? `<p class="muted">${escapeHtml(group?.code || "")} Week ${week.duelLeagueWeek}/4</p>` : emptyState("No active VS weeks are available for audit.")}
   ${audit ? `<div class="readiness-grid">
-    ${validationPanel("Missing player scores", audit.missingPlayers.map((player) => player.name), audit.missingPlayers.length ? "error" : "passed")}
+    ${validationPanel("Missing player scores", audit.missingPlayers.map((player) => player.name), audit.missingPlayers.length ? "warning" : "passed")}
+    ${validationPanel("Valid zero scores", audit.zeroScores || [], audit.zeroScores?.length ? "warning" : "passed")}
     ${validationPanel("Duplicate player scores", audit.duplicatePlayers.map((player) => `${player.name} Ã— ${player.count}`), audit.duplicatePlayers.length ? "error" : "passed")}
     ${validationPanel("Invalid scores", audit.invalidScores, audit.invalidScores.length ? "error" : "passed")}
     ${validationPanel("Team final result", audit.missingTeamResult ? ["Daily team totals are missing"] : [], audit.missingTeamResult ? "error" : "passed")}
-  </div><p class="${audit.passed ? "audit-pass" : "audit-fail"}">${audit.published ? "Published and locked" : audit.passed ? `Audit passed: ${audit.submittedScores}/${audit.expectedPlayers} player scores verified.` : "Audit failed. Correct the items above before publishing."}</p>` : ""}`;
+  </div><p class="${audit.publishable ? "audit-pass" : "audit-fail"}">${audit.published ? "Published and locked" : audit.publishable ? `${audit.hasWarnings ? "Publishable with warnings" : "Ready to publish"}: ${audit.submittedScores} reviewed scores. Zero scores are valid.` : "Resolve the critical issues above before publishing."}</p>` : ""}`;
 }
 
 async function handleUserChange(event) {
@@ -3365,6 +3366,39 @@ function renderImportMatches(matches, unmatched = []) {
   `;
 }
 
+function formatVsScore(value, hasScore = true) {
+  if (!hasScore || value === null || value === undefined || value === "") return "No score entered";
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return "No score entered";
+  return Math.max(0, Math.round(numericValue)).toLocaleString("en-US");
+}
+
+function vsMemberIdentity(playerId, fallbackName = "Alliance member") {
+  const player = state.players.find((item) => item.id === playerId);
+  const name = player?.gameName || fallbackName;
+  const avatar = player?.profileImage ? `<img src="${escapeHtml(player.profileImage)}" alt="" loading="lazy">` : `<span>${escapeHtml(name.slice(0, 1).toUpperCase())}</span>`;
+  return `<span class="vs-rank-avatar">${avatar}</span><strong>${escapeHtml(name)}</strong>`;
+}
+
+function renderVsRanking(title, records, scoreKey, status) {
+  return `<section class="panel vs-ranking-panel"><div class="assignment-heading"><h3>${escapeHtml(title)}</h3><span>${escapeHtml(status)}</span></div><ol class="vs-top-ten">${records.slice(0, 10).map((record, index) => `<li class="${index < 3 ? `vs-rank-${index + 1}` : ""}"><span class="vs-rank-number">${index + 1}</span><span class="vs-rank-member">${vsMemberIdentity(record.playerId, record.playerName || record.name)}</span><span class="vs-rank-score">${formatVsScore(record[scoreKey], record.hasScore !== false)}</span></li>`).join("") || `<li class="vs-ranking-empty">No published scores for this period.</li>`}</ol></section>`;
+}
+
+function splitDuelLeagueTeam(value = "") {
+  const text = String(value).trim();
+  const tagged = text.match(/^\[([^\]]+)\]\s*(.*)$/);
+  if (tagged) return { abbreviation: tagged[1].toUpperCase(), fullName: tagged[2] || tagged[1] };
+  const parts = text.split(/\s+[—–-]\s+/);
+  if (parts.length > 1 && parts[0].length <= 8) return { abbreviation: parts[0].toUpperCase(), fullName: parts.slice(1).join(" - ") };
+  const words = text.split(/\s+/).filter(Boolean);
+  return { abbreviation: words.length === 1 ? text.toUpperCase() : words.map((word) => word[0]).join("").slice(0, 6).toUpperCase(), fullName: text };
+}
+
+function renderDuelLeagueTeam(value) {
+  const team = splitDuelLeagueTeam(value);
+  return `<span class="duel-team"><strong>${escapeHtml(team.abbreviation || "—")}</strong><small>${escapeHtml(team.fullName || "Unknown team")}</small></span>`;
+}
+
 function renderVsScores() {
   const weeks = state.vsWeeks || [];
   if (!weeks.some((week) => week.id === selectedVsWeekId)) selectedVsWeekId = weeks[0]?.id || "";
@@ -3400,34 +3434,20 @@ function renderVsScores() {
     week && (entry.vsWeekId === week.id || (!entry.vsWeekId && days.some((day) => day.date === entry.date)))
   );
   const dailyScores = scores.filter((entry) => entry.date === selectedVsDate);
+  const publishedScores = scores.filter((entry) => Boolean(week?.publishedDays?.[entry.date]));
   const byPlayer = new Map();
-  for (const entry of scores) {
+  for (const entry of publishedScores) {
     const record = byPlayer.get(entry.playerId) || { name: entry.playerName, total: 0, entries: [] };
     record.total += Number(entry.score || 0);
     record.entries.push(entry);
     byPlayer.set(entry.playerId, record);
   }
-  const ranking = [...byPlayer.values()].sort((left, right) => right.total - left.total || left.name.localeCompare(right.name));
-  const total = scores.reduce((sum, entry) => sum + Number(entry.score || 0), 0);
-  const submittedDates = [...new Set(scores.map((entry) => entry.date).filter((date) => days.some((day) => day.date === date)))];
-  const weeklyDailyAverage = submittedDates.length ? Math.round(total / submittedDates.length) : 0;
-  const aboveTargetCounts = submittedDates.map((date) =>
-    scores.filter((entry) => entry.date === date && Number(entry.score) >= 7_200_000).length
-  );
-  const averageAboveTarget = aboveTargetCounts.length
-    ? aboveTargetCounts.reduce((sum, count) => sum + count, 0) / aboveTargetCounts.length
-    : 0;
+  const ranking = [...byPlayer.entries()].map(([playerId, record]) => ({ playerId, ...record }))
+    .sort((left, right) => right.total - left.total || left.name.localeCompare(right.name));
   const result = week?.dailyResults?.[selectedVsDate] || { ourScore: 0, opponentScore: 0 };
   const published = Boolean(week?.publishedDays?.[selectedVsDate]);
   const outcome = Number(result.ourScore) === Number(result.opponentScore) ? "Pending" : Number(result.ourScore) > Number(result.opponentScore) ? "Win" : "Loss";
   const resultClass = outcome === "Win" ? "vs-win" : outcome === "Loss" ? "vs-loss" : "vs-pending";
-  const weeklyTeamTotals = days.reduce((totals, day) => {
-    const dailyResult = week?.dailyResults?.[day.date];
-    if (!dailyResult) return totals;
-    totals.ewar += Number(dailyResult.ourScore || 0);
-    totals.opponent += Number(dailyResult.opponentScore || 0);
-    return totals;
-  }, { ewar: 0, opponent: 0 });
   elements.vsMatchupHeader.innerHTML = week ? `<article class="panel vs-matchup-header ${resultClass}">
     <div class="vs-scoreboard-context">
       <p class="eyebrow">${escapeHtml(duelGroup?.code || "Duel League")} · Week ${week.duelLeagueWeek}/4 · ${escapeHtml(days.find((day) => day.date === selectedVsDate)?.label || "")} · ${escapeHtml(selectedVsDate)}</p>
@@ -3436,13 +3456,13 @@ function renderVsScores() {
     <div class="vs-scoreboard-team vs-scoreboard-ewar ${outcome === "Win" ? "vs-team-leading" : outcome === "Loss" ? "vs-team-trailing" : ""}">
       <h3>EWAR</h3>
       <label>Daily team points<input name="ourScore" type="number" min="0" value="${Number(result.ourScore || 0)}" required aria-label="EWAR daily team points"></label>
-      <small>Weekly total · ${weeklyTeamTotals.ewar.toLocaleString()}</small>
+      <small>Daily score · ${formatVsScore(result.ourScore)}</small>
     </div>
     <div class="vs-scoreboard-outcome"><span>${outcome}</span><small>Highest daily score wins</small>${state.permissions.isOfficer ? `<button class="primary-button" type="submit">${published ? "Scores locked" : "Save scores"}</button>` : ""}</div>
     <div class="vs-scoreboard-team vs-scoreboard-opponent ${outcome === "Loss" ? "vs-team-leading" : outcome === "Win" ? "vs-team-trailing" : ""}">
       <h3>${escapeHtml(week.opponent || "Opponent")}</h3>
       <label>Daily team points<input name="opponentScore" type="number" min="0" value="${Number(result.opponentScore || 0)}" required aria-label="${escapeHtml(week.opponent || "Opponent")} daily team points"></label>
-      <small>Weekly total · ${weeklyTeamTotals.opponent.toLocaleString()}</small>
+      <small>Daily score · ${formatVsScore(result.opponentScore)}</small>
     </div>
   </article>` : emptyState("Create a VS week in the Create tab to begin scoring.");
   const ourScoreInput = elements.vsDailyResultForm.querySelector("[name='ourScore']");
@@ -3466,25 +3486,18 @@ function renderVsScores() {
   elements.vsStandingsStatus.textContent = week?.standings?.length
     ? `${week.standings.length} alliances imported for this VS week.`
     : "No standings imported for this week.";
-  elements.vsSummary.innerHTML = `
-    <article class="summary-card"><span>Scoring days submitted</span><strong>${submittedDates.length}/6</strong><small>${submittedDates.length === 6 ? "Ready for day 7 finalization" : `${6 - submittedDates.length} scoring days remaining`}</small></article>
-    <article class="summary-card"><span>EWAR VS weekly average</span><strong>${weeklyDailyAverage.toLocaleString()}</strong><small>Average team total per submitted day</small></article>
-    <article class="summary-card"><span>Members â‰¥ 7,200,000</span><strong>${averageAboveTarget.toFixed(1)}</strong><small>Average number per submitted day</small></article>
-    <article class="summary-card"><span>Selected day entries</span><strong>${dailyScores.length}</strong><small>${escapeHtml(days.find((day) => day.date === selectedVsDate)?.label || "")}</small></article>`;
-  elements.vsTopThree.innerHTML = ranking.slice(0, 3).map((record, index) =>
-    `<article><span>#${index + 1}</span><strong>${escapeHtml(record.name)}</strong><span>${record.total.toLocaleString()} total</span><small>${record.entries.length}/6 days · ${Math.round(record.total / record.entries.length).toLocaleString()} daily avg</small></article>`
-  ).join("") || `<p class="muted">Top members will appear after scores are submitted.</p>`;
+  const dayLabel = days.find((day) => day.date === selectedVsDate)?.label || "Selected day";
+  const overviewDaily = published ? [...dailyScores].sort((left, right) => Number(right.score) - Number(left.score)) : [];
+  elements.vsSummary.innerHTML = week ? `<section class="panel vs-overview-header"><div><p class="eyebrow">VS Overview</p><h3>EWAR <small>Ewar: Lords of War</small></h3></div><span class="vs-versus">vs.</span><div><p class="eyebrow">Opponent</p><h3>${escapeHtml(week.opponent)} <small>Server ${escapeHtml(week.server)}</small></h3></div><dl><div><dt>Current day</dt><dd>${escapeHtml(dayLabel)}</dd></div><div><dt>Status</dt><dd>${published ? "Published" : "Auditing"}</dd></div></dl></section>` : emptyState("No active VS week.");
+  elements.vsTopThree.innerHTML = `<div class="vs-ranking-grid">${renderVsRanking("Weekly Top 10", ranking, "total", "Published active-week scores")}${renderVsRanking("Today's Top 10", overviewDaily, "score", `${dayLabel} · ${published ? "Published" : "Auditing"}`)}</div>`;
   const daily = [...dailyScores].sort((left, right) => Number(right.score) - Number(left.score));
-  const selectedDayAverage = daily.length ? daily.reduce((sum, entry) => sum + Number(entry.score), 0) / daily.length : 0;
   const filteredDaily = selectedVsScoreFilter === "top10" ? daily.slice(0, 10)
-    : selectedVsScoreFilter === "above-average" ? daily.filter((entry) => Number(entry.score) >= selectedDayAverage)
-    : selectedVsScoreFilter === "below-average" ? daily.filter((entry) => Number(entry.score) < selectedDayAverage)
     : selectedVsScoreFilter === "below-target" ? daily.filter((entry) => Number(entry.score) < 7_200_000)
     : daily;
   elements.vsScoreFilter.value = selectedVsScoreFilter;
-  elements.vsDailyTables.innerHTML = week ? `<section class="vs-daily-panel"><div class="assignment-heading"><h3>${escapeHtml(days.find((day) => day.date === selectedVsDate)?.label || "")} Member Scores</h3><span>${filteredDaily.length} shown · team avg ${Math.round(selectedDayAverage).toLocaleString()}</span></div>
+  elements.vsDailyTables.innerHTML = week ? `<section class="vs-daily-panel"><div class="assignment-heading"><h3>${escapeHtml(days.find((day) => day.date === selectedVsDate)?.label || "")} Member Scores</h3><span>${published ? "Published" : "Auditing"}</span></div>
       <div class="table-frame"><table><thead><tr><th>Daily rank</th><th>Player</th><th>Score</th><th>Source</th>${state.permissions.isOfficer ? "<th>Action</th>" : ""}</tr></thead>
-      <tbody>${filteredDaily.map((entry) => `<tr><td>#${daily.indexOf(entry) + 1}</td><td>${escapeHtml(entry.playerName)}</td><td>${Number(entry.score).toLocaleString()}</td><td>${escapeHtml(entry.source)}</td>${state.permissions.isOfficer ? `<td>${published ? "Locked" : `<button class="danger-button" type="button" data-delete-vs-score="${escapeHtml(entry.id)}">Delete</button>`}</td>` : ""}</tr>`).join("") || `<tr><td colspan="${state.permissions.isOfficer ? 5 : 4}">No scores match this filter.</td></tr>`}</tbody></table></div></section>`
+      <tbody>${filteredDaily.map((entry) => `<tr><td>#${daily.indexOf(entry) + 1}</td><td>${escapeHtml(state.players.find((player) => player.id === entry.playerId)?.gameName || entry.playerName)}</td><td>${formatVsScore(entry.score, entry.hasScore !== false)}</td><td>${escapeHtml(entry.source)} · ${escapeHtml(entry.auditStatus || "reviewed")}</td>${state.permissions.isOfficer ? `<td>${published ? "Locked" : `<button class="danger-button" type="button" data-delete-vs-score="${escapeHtml(entry.id)}">Delete</button>`}</td>` : ""}</tr>`).join("") || `<tr><td colspan="${state.permissions.isOfficer ? 5 : 4}">No scores match this filter. Zero and blank are tracked separately.</td></tr>`}</tbody></table></div></section>`
   : "";
 }
 
@@ -3495,7 +3508,7 @@ function duelRankingTable(rankings = [], editable = false) {
     : [];
   if (!rows.length) return `<div class="table-frame duel-ranking-table"><table><thead><tr><th>Ranking</th><th>Alliance</th><th>Week 1</th><th>Week 2</th><th>Week 3</th><th>Week 4</th></tr></thead><tbody>${Array.from({ length: 16 }, (_, index) => `<tr><td>#${index + 1}</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>`).join("")}</tbody></table></div>`;
   return `<div class="table-frame duel-ranking-table"><table><thead><tr><th>Ranking</th><th>Alliance</th><th>Week 1</th><th>Week 2</th><th>Week 3</th><th>Week 4</th></tr></thead>
-    <tbody>${rows.map((row, rowIndex) => `<tr data-vs-standing-row><td>${editable ? `<input data-standing-rank type="number" value="${rowIndex + 1}" readonly>` : `#${rowIndex + 1}`}</td><td>${editable ? `<input data-standing-alliance value="${escapeHtml(row.alliance || "")}" placeholder="[TAG] Alliance name">` : escapeHtml(row.alliance || "—")}</td>${Array.from({ length: 4 }, (_, index) => {
+    <tbody>${rows.map((row, rowIndex) => `<tr data-vs-standing-row><td>${editable ? `<input data-standing-rank type="number" value="${rowIndex + 1}" readonly>` : `#${rowIndex + 1}`}</td><td>${editable ? `<input data-standing-alliance value="${escapeHtml(row.alliance || "")}" placeholder="[TAG] Alliance name">` : renderDuelLeagueTeam(row.alliance)}</td>${Array.from({ length: 4 }, (_, index) => {
       const outcome = row.weeks?.[index] || "";
       return editable
         ? `<td><select data-standing-week="${index}"><option value="">—</option><option value="W" ${outcome === "W" ? "selected" : ""}>W</option><option value="L" ${outcome === "L" ? "selected" : ""}>L</option></select></td>`
@@ -3526,9 +3539,9 @@ async function importVsScreenshot() {
 
 function renderVsImportMatches(matches, unmatched) {
   elements.vsImportMatches.innerHTML = matches.map((match) =>
-    `<div class="import-match"><strong>${escapeHtml(match.name)}</strong><span>${Number(match.score).toLocaleString()}</span></div>`
+    `<div class="import-match"><strong>${escapeHtml(match.name)}</strong><span>${formatVsScore(match.score)}</span><small>${escapeHtml(match.nameStatus || "Exact Match")} · OCR suggestion</small></div>`
   ).join("") + unmatched.map((item) => `<div class="unmatched-card">
-    <div><strong>${Number(item.score).toLocaleString()}</strong><p class="muted">${escapeHtml(item.ocrName)}</p></div>
+    <div><strong>${formatVsScore(item.score, item.hasScore !== false)}</strong><p class="muted">Detected: ${escapeHtml(item.ocrName)} · ${escapeHtml(item.nameStatus || "No Match")}</p><small>Source row: ${escapeHtml(item.sourceLine || "Not available")}</small></div>
     <select><option value="">Choose roster player</option>${state.players.map((player) => `<option value="${escapeHtml(player.id)}">${escapeHtml(player.gameName)}</option>`).join("")}</select>
     <button class="secondary-button" type="button" data-vs-match-score="${Number(item.score)}">Save Match</button>
   </div>`).join("");
@@ -3734,8 +3747,12 @@ async function handleVsAuditAction(event) {
     if (run) {
       latestVsAudit = await api.auditVsDay(weekId, date);
       renderVsAuditPanel();
-      setStatus(latestVsAudit.passed ? "VS daily audit passed" : "VS daily audit found issues", !latestVsAudit.passed);
+      setStatus(latestVsAudit.publishable ? (latestVsAudit.hasWarnings ? "VS day is publishable with warnings" : "VS daily audit passed") : "VS daily audit found critical issues", !latestVsAudit.publishable);
     } else {
+      if (latestVsAudit?.hasWarnings) {
+        const warningText = `Publish with warnings?\n\n${latestVsAudit.missingPlayers.length} players have no score\n${latestVsAudit.zeroScores?.length || 0} players have a score of 0\n\nOnly reviewed rows will be published. Return to Audit by selecting Cancel.`;
+        if (!confirm(warningText)) return;
+      }
       state = await api.publishVsDay(weekId, date);
       latestVsAudit = { ...latestVsAudit, published: true };
       render();

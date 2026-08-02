@@ -186,15 +186,19 @@ export function normalizeState(input = {}) {
 }
 
 export function normalizeVsScore(entry = {}) {
+  const hasScore = entry.hasScore === undefined ? entry.score !== null && entry.score !== undefined && entry.score !== "" : Boolean(entry.hasScore);
+  const numericScore = hasScore ? Number(entry.score) : null;
   return {
     id: String(entry.id || newId("vs-score")),
     date: entry.date || new Date().toISOString().slice(0, 10),
     vsWeekId: String(entry.vsWeekId || ""),
     playerId: String(entry.playerId || entry.memberId || ""),
     playerName: String(entry.playerName || entry.name || ""),
-    score: Math.max(0, Number(entry.score || 0)),
+    score: Number.isFinite(numericScore) ? Math.max(0, Math.round(numericScore)) : null,
+    hasScore: hasScore && Number.isFinite(numericScore),
     source: entry.source === "screenshot" ? "screenshot" : "manual",
     sourceLine: String(entry.sourceLine || ""),
+    auditStatus: String(entry.auditStatus || (entry.source === "screenshot" ? "ocr-suggestion" : "manual")),
     createdAt: entry.createdAt || now(),
     createdBy: String(entry.createdBy || ""),
     updatedAt: entry.updatedAt || now()

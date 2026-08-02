@@ -284,11 +284,8 @@
             <button type="button" data-workflow-tab="vs-audit" aria-selected="false" data-role="officer">Audit &amp; Publish</button>
           </nav>
           <div class="workflow-panel active" data-workflow-panel="vs-overview">
-            <div id="vsSummary" class="summary-grid"></div>
-            <section class="panel">
-              <div class="assignment-heading"><h3>Weekly Top 3 Members</h3><span>Updates with every score submission</span></div>
-              <div id="vsTopThree" class="vs-top-three"></div>
-            </section>
+            <div id="vsSummary"></div>
+            <div id="vsTopThree" class="vs-overview-rankings"></div>
           </div>
           <div class="workflow-panel" data-workflow-panel="vs-scores">
           <div class="panel vs-week-controls">
@@ -312,8 +309,6 @@
               <select id="vsScoreFilter">
                 <option value="all">All scores</option>
                 <option value="top10">Top 10</option>
-                <option value="above-average">Above team average</option>
-                <option value="below-average">Below team average</option>
                 <option value="below-target">Below 7,200,000</option>
               </select>
             </label>
