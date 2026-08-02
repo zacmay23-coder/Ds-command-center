@@ -312,10 +312,25 @@ export function normalizePlayer(player = {}) {
     profileImageFit: ["cover", "contain"].includes(player.profileImageFit) ? player.profileImageFit : "cover",
     profileImagePosition: ["center", "top", "bottom", "left", "right"].includes(player.profileImagePosition) ? player.profileImagePosition : "center",
     aliases: Array.isArray(player.aliases) ? player.aliases : [],
+    previousPlayerNames: Array.isArray(player.previousPlayerNames) ? player.previousPlayerNames : [],
+    thp: Number.isFinite(Number(player.thp)) && Number(player.thp) >= 0 ? Number(player.thp) : 0,
+    thpUpdatedAt: player.thpUpdatedAt || null,
+    thpUpdatedBy: player.thpUpdatedBy || null,
+    thpVerifiedAt: player.thpVerifiedAt || null,
+    thpVerifiedBy: player.thpVerifiedBy || null,
     createdAt: player.createdAt || now(),
     updatedAt: player.updatedAt || now(),
     version: Number(player.version || 1)
   };
+}
+
+export function normalizePlayerName(value = "") {
+  return String(value)
+    .normalize("NFKC")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("en-US")
+    .replace(/[\p{P}\p{S}\s]+/gu, "");
 }
 
 export function normalizeEvent(event = {}) {
@@ -376,6 +391,7 @@ export function normalizeParticipant(participant = {}) {
     notes: participant.notes || "",
     officerNotes: participant.officerNotes || "",
     confirmedAt: participant.confirmedAt || null,
+    historicalSnapshot: participant.historicalSnapshot && typeof participant.historicalSnapshot === "object" ? participant.historicalSnapshot : null,
     updatedAt: participant.updatedAt || now(),
     updatedBy: participant.updatedBy || "",
     version: Number(participant.version || 1)

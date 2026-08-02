@@ -185,6 +185,11 @@ export const api = {
   async addAnnouncement(payload) {
     return request("/api/announcements", { method: "POST", body: JSON.stringify(payload) });
   },
+  async updateEventAssignmentsBatch(eventId, assignments) {
+    return request(`/api/events/${encodeURIComponent(eventId)}/assignments/batch`, {
+      method: "PATCH", body: JSON.stringify({ assignments })
+    });
+  },
   async updateAnnouncement(id, payload) {
     return request(`/api/announcements/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) });
   },

@@ -28,19 +28,26 @@ async function initialize() {
       return;
     }
 
+    const suggested = profiles.filter((member) => member.matchStatus === "suggested" && member.linkStatus !== "linked");
+    const conflicts = profiles.filter((member) => member.matchStatus === "needs_review" && member.linkStatus !== "linked");
+
     playerSelect.innerHTML = `
       <option value="">Choose your in-game name</option>
       ${profiles
         .map((member) => `<option value="${escapeHtml(member.id)}"
-          ${member.id === me.playerId ? "selected" : ""}
+          ${member.id === me.playerId || (!me.playerId && suggested.length === 1 && member.id === suggested[0].id) ? "selected" : ""}
           ${member.linkStatus === "linked" ? "disabled" : ""}>
           ${escapeHtml(member.name)} · ${escapeHtml(member.rank || "No rank")} · Team ${escapeHtml(member.team)} · ${escapeHtml(member.unit)}${member.linkStatus === "linked" ? " · Linked to another account" : ""}
         </option>`)
         .join("")}
     `;
-    message.textContent = me.playerId
-      ? "Confirm your current Master Directory profile or ask an officer to change the link."
-      : "Choose the profile that matches your current Master Directory entry.";
+    message.textContent = conflicts.length
+      ? "Multiple roster records match your account name. Confirm the correct identity or ask an officer to review it."
+      : suggested.length === 1
+        ? "An exact normalized name match was found. Confirm that this is your roster identity before linking."
+        : me.playerId
+          ? "Confirm your current Master Directory profile or ask an officer to change the link."
+          : "Choose the profile that matches your current Master Directory entry.";
   } catch (error) {
     message.textContent = error.message;
   }

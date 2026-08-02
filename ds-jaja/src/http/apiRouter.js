@@ -34,6 +34,7 @@ import {
   subscribe,
   updateEvent,
   updateEventParticipant,
+  updateEventParticipantsBatch,
   updateAppliedStrategyOrder,
   updateMember,
   updatePlayer,
@@ -390,6 +391,14 @@ export async function handleApi(request, response, url) {
       await readJsonBody(request),
       user
     ));
+    return;
+  }
+
+  const batchAssignmentsRoute = url.pathname.match(/^\/api\/events\/([^/]+)\/assignments\/batch$/);
+  if (batchAssignmentsRoute && request.method === "PATCH") {
+    requireRole(user, ROLES.OFFICER);
+    const body = await readJsonBody(request);
+    sendJson(response, 200, await updateEventParticipantsBatch(decodeURIComponent(batchAssignmentsRoute[1]), body.assignments, user));
     return;
   }
 

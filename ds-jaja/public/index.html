@@ -380,7 +380,8 @@
                 <label>Team A strategy<select id="createStrategyA"></select></label>
                 <label>Team B server time<select id="createBattleTimeB"><option>9:00</option><option>18:00</option><option>23:00</option></select></label>
                 <label>Team B strategy<select id="createStrategyB"></select></label>
-                <button id="publishDsSetupButton" class="primary-button" type="button">Publish DS Setup &amp; Unlock Roster</button>
+                 <button id="publishDsSetupButton" class="primary-button" type="button">Publish DS Setup &amp; Unlock Roster</button>
+                 <button class="secondary-button" type="button" data-open-roster-selector>Select Event Roster</button>
               </div>
             </article>
             <form id="themeWeekForm" class="panel weekly-editor-form" data-role="officer">
@@ -419,27 +420,26 @@
           </div>
         </section>
 
-        <section id="directory" class="view">
-          <div class="section-title">
-            <h2>Master Roster</h2>
-            <p>Review alliance readiness, find members quickly, and manage weekly team, unit, structure, and leadership assignments.</p>
+        <section id="directory" class="view alliance-personnel-page">
+          <div class="section-title alliance-personnel-header">
+            <h2>Alliance Personnel</h2>
+            <p>The master alliance roster, member profiles, and current readiness.</p>
           </div>
-          <div id="directorySummary" class="roster-overview"></div>
-          <div class="toolbar roster-filter-bar">
+          <div id="directorySummary" class="roster-overview alliance-personnel-summary"></div>
+          <div id="rosterReviewAlerts" class="alliance-personnel-alerts" data-role="officer"></div>
+          <div class="toolbar roster-filter-bar alliance-personnel-filters">
             <label>
               Find member
-              <input id="searchInput" type="search" placeholder="Search in-game name">
+              <input id="searchInput" type="search" placeholder="Name, previous name, role, team, or unit">
             </label>
             <label>
-              Weekly status
+              Status
               <select id="filterInput">
-                <option value="all">All members</option>
-                <option value="selected">Selected this week</option>
-                <option value="reserve">Reserve only</option>
+                <option value="all">All Members</option><option value="registered">Registered</option><option value="unregistered">Unregistered</option><option value="officers">Officers</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="available">Available</option><option value="unavailable">Unavailable</option><option value="confirmed">Confirmed</option><option value="not-confirmed">Not Confirmed</option><option value="missing-thp">Missing THP</option><option value="incomplete">Incomplete Profile</option>
               </select>
             </label>
             <label>
-              Battle team
+              Team
               <select id="directoryTeamFilter">
                 <option value="">All teams</option>
                 <option value="A">Team A</option>
@@ -448,34 +448,30 @@
               </select>
             </label>
             <label>
-              Rank
+              Sort
               <select id="rankSort">
-                <option value="grouped">Separate R1–R5 groups</option>
-                <option value="R1">R1 only</option>
-                <option value="R2">R2 only</option>
-                <option value="R3">R3 only</option>
-                <option value="R4">R4 only</option>
-                <option value="R5">R5 only</option>
+                <option value="name">Player Name</option><option value="rank">Alliance Role</option><option value="thp">Highest THP</option><option value="updated">Recently Updated</option>
               </select>
             </label>
           </div>
           <div class="roster-table-heading">
-            <div><span>Alliance directory</span><small>Assignments save automatically</small></div>
-            <p><i></i> Select a player card to open their profile</p>
+            <div><span>Master roster</span><small id="rosterResultCount">Current directory</small></div>
+            <div><button class="primary-button" type="button" data-open-roster-selector data-role="officer">Build Event Team</button><p>Select View Profile for member details</p></div>
           </div>
-          <div class="table-frame roster-table-frame">
-            <table>
+          <div class="table-frame roster-table-frame alliance-personnel-table">
+            <table aria-label="Alliance personnel master roster">
               <thead>
                 <tr>
-                  <th>Selected</th>
-                  <th>Player</th>
-                  <th>Rank</th>
-                  <th>Team</th>
+                  <th>Member</th>
                   <th>Role</th>
+                  <th>THP</th>
+                  <th>Team</th>
                   <th>Unit</th>
-                  <th>Structure focus</th>
-                  <th>In-game signup</th>
-                  <th>Leader</th>
+                  <th>Availability</th>
+                  <th>Confirmation</th>
+                  <th>Registration</th>
+                  <th>Last Updated</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="directoryRows"></tbody>
@@ -487,6 +483,7 @@
           <div class="section-title">
             <h2>Teams</h2>
             <p>Each team supports 20 starters and 10 substitutes.</p>
+            <button class="primary-button" type="button" data-open-roster-selector data-role="officer">Assign Members</button>
           </div>
           <div class="strategy-bar">
             <label>
@@ -743,6 +740,19 @@
     <dialog id="memberProfileDialog" class="member-profile-dialog">
       <div id="memberProfileDialogContent"></div>
       <button class="secondary-button" type="button" data-close-member-profile>Close</button>
+    </dialog>
+
+    <dialog id="rosterSelectorDialog" class="roster-selector-dialog">
+      <form id="rosterSelectorForm" method="dialog">
+        <div class="roster-selector-heading"><div><p class="eyebrow">Shared master roster</p><h2>Event Roster Selector</h2><p id="rosterSelectorContext" class="muted"></p></div><button class="secondary-button" type="button" data-close-roster-selector>Close</button></div>
+        <div class="roster-selector-controls">
+          <label>Search<input name="search" type="search" placeholder="Name, THP, role, team, or unit"></label>
+          <label>Eligibility<select name="eligibility"><option value="active">All active members</option><option value="available">Available</option><option value="confirmed">Confirmed</option><option value="unassigned">Not yet assigned</option><option value="missing-thp">Missing THP</option></select></label>
+          <label>Sort<select name="sort"><option value="name">Player name</option><option value="thp-desc">THP high to low</option><option value="thp-asc">THP low to high</option><option value="availability">Availability</option><option value="registration">Registration</option><option value="updated">Last profile update</option></select></label>
+        </div>
+        <div id="rosterSelectorCandidates" class="roster-selector-candidates"></div>
+        <section class="roster-selection-action panel"><div id="rosterSelectionSummary"></div><div class="roster-selector-destination"><label>Team<select name="team"><option value="A">Team A</option><option value="B">Team B</option><option value="Reserve">Reserve</option></select></label><label>Batch action<select name="rosterStatus"><option value="Starter">Assign as Starter</option><option value="Sub">Assign as Substitute</option><option value="RequestConfirmation">Request Confirmation</option><option value="Remove">Remove from Event</option></select></label><label>Unit<select name="tacticalGroup"></select></label></div><button class="primary-button" type="submit">Confirm Assignment</button></section>
+      </form>
     </dialog>
 
     <script type="module" src="/pwa.js"></script>

@@ -6,6 +6,7 @@ import {
   calculateParticipation,
   createEvent,
   migrateLegacyState,
+  normalizePlayerName,
   normalizeState,
   transitionEvent,
   validateEventForPublish
@@ -15,6 +16,12 @@ import { canEditOwnAvailability, hasRole, requireRole, ROLES } from "../src/perm
 const admin = { uid: "admin", displayName: "Admin", role: ROLES.ADMIN, active: true, playerId: "p1" };
 const officer = { uid: "officer", displayName: "Officer", role: ROLES.OFFICER, active: true };
 const member = { uid: "member", displayName: "Member", role: ROLES.MEMBER, active: true, playerId: "p1" };
+
+test("player-name matching normalizes case, spacing, punctuation, and safe Unicode", () => {
+  assert.equal(normalizePlayerName("  Dark   Wizard  "), normalizePlayerName("dark wizard"));
+  assert.equal(normalizePlayerName("Dark-Wizard!"), normalizePlayerName("Dark Wizard"));
+  assert.equal(normalizePlayerName("Ｄａｒｋ Wizard"), normalizePlayerName("Dark Wizard"));
+});
 
 test("roles enforce member, officer, and administrator boundaries", () => {
   assert.equal(hasRole(member, ROLES.MEMBER), true);

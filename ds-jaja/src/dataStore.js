@@ -18,6 +18,7 @@ import {
   newId,
   normalizeParticipant,
   normalizePlayer,
+  normalizePlayerName,
   normalizeAllianceWeeklyEvent,
   normalizeVsScore,
   normalizeVsWeek,
@@ -354,6 +355,28 @@ export async function getClientState(user) {
     activeEvent,
     events: visibleEvents,
     players: Object.values(state.players).map(publicPlayer),
+    rosterAccounts: Object.values(state.players).map((player) => {
+      const account = Object.values(state.users).find((item) => item.playerId === player.id);
+      const safe = {
+        playerId: player.id,
+        registered: Boolean(account),
+        registrationStatus: !player.active ? "Inactive" : account ? "Registered" : "Not Registered",
+        accountActive: Boolean(account?.active),
+        accountRole: account?.role || "member",
+        profileComplete: Boolean(account?.profileSetupCompletedAt),
+        profileTitle: account?.profileTitle || ""
+      };
+      return ["officer", "administrator"].includes(user.role) ? {
+        ...safe,
+        uid: account?.uid || null,
+        email: account?.email || "",
+        displayName: account?.displayName || "",
+        lastActiveAt: account?.lastLoginAt || account?.updatedAt || null,
+        thpUpdatedBy: player.thpUpdatedBy || null,
+        thpVerifiedBy: player.thpVerifiedBy || null,
+        nameHistory: player.previousPlayerNames || []
+      } : safe;
+    }),
     participants: participants.map((participant) => publicParticipant(participant, user)),
     members: Object.values(state.players).map((player) => legacyMemberProjection(
       player,
@@ -1237,6 +1260,7 @@ export async function changeEventStatus(eventId, action, actor, reason = "") {
   const state = await getState();
   const before = structuredClone(state.events[eventId]);
   const event = transitionEvent(state, eventId, action, actor, reason);
+  if (action === "archive") captureHistoricalEventSnapshots(state, eventId);
   if (action === "archive") updateParticipationGoals(state);
   addAudit(state, actor, {
     eventId, action: `event_${action}ed`, recordType: "event", recordId: eventId,
@@ -1320,15 +1344,17 @@ export async function listUsers() {
 
 export async function listAvailablePlayerProfiles(userId) {
   const state = await getState();
+  const requestedName = normalizePlayerName(state.users[userId]?.displayName || "");
   const linkedByPlayerId = new Map(Object.values(state.users)
     .filter((user) => user.playerId)
     .map((user) => [user.playerId, user.uid]));
   const activeParticipants = state.eventParticipants[state.activeEventId] || {};
-  return Object.values(state.players)
+  const profiles = Object.values(state.players)
     .filter((player) => player.active)
     .map((player) => {
       const participant = activeParticipants[player.id];
       const linkedUserId = linkedByPlayerId.get(player.id) || null;
+      const knownNames = [player.gameName, ...(player.aliases || []), ...(player.previousPlayerNames || []).map((item) => item.name)];
       return {
         id: player.id,
         name: player.gameName,
@@ -1336,13 +1362,87 @@ export async function listAvailablePlayerProfiles(userId) {
         team: participant?.team || player.defaultTeam || "Reserve",
         unit: participant?.tacticalGroup || player.defaultTacticalGroup || "Reserve",
         profileImage: player.profileImage || "",
-        linkStatus: linkedUserId === userId ? "current" : linkedUserId ? "linked" : "available"
+        linkStatus: linkedUserId === userId ? "current" : linkedUserId ? "linked" : "available",
+        exactNameMatch: Boolean(requestedName && knownNames.some((name) => normalizePlayerName(name) === requestedName))
       };
-    })
+    });
+  const availableMatches = profiles.filter((item) => item.exactNameMatch && item.linkStatus !== "linked");
+  return profiles.map((item) => ({
+      ...item,
+      matchStatus: item.exactNameMatch ? (availableMatches.length === 1 ? "suggested" : "needs_review") : "none"
+    }))
     .sort((left, right) =>
-      ["current", "available", "linked"].indexOf(left.linkStatus) - ["current", "available", "linked"].indexOf(right.linkStatus)
+      Number(right.matchStatus === "suggested") - Number(left.matchStatus === "suggested")
+      || ["current", "available", "linked"].indexOf(left.linkStatus) - ["current", "available", "linked"].indexOf(right.linkStatus)
       || left.name.localeCompare(right.name)
     );
+}
+
+function captureHistoricalEventSnapshots(state, eventId) {
+  for (const participant of Object.values(state.eventParticipants[eventId] || {})) {
+    const player = state.players[participant.playerId];
+    participant.historicalSnapshot ||= {
+      playerNameAtEvent: player?.gameName || participant.playerName || "Alliance member",
+      thpAtEvent: Number(player?.thp || 0),
+      teamAtEvent: participant.team,
+      roleAtEvent: participant.rosterStatus,
+      capturedAt: now()
+    };
+  }
+}
+
+export async function updateEventParticipantsBatch(eventId, assignments, actor) {
+  const state = await getState();
+  const event = state.events[eventId];
+  if (!event) throw statusError(404, "Event was not found");
+  if (!event.setupPublishedAt) throw statusError(409, "Publish Team A/B times and strategies before assigning the roster");
+  if (!Array.isArray(assignments) || !assignments.length || assignments.length > 100) throw statusError(422, "Choose between 1 and 100 assignment changes");
+  const allowed = new Set(["selected", "team", "rosterStatus", "availability", "role", "unit", "tacticalGroup", "unitLeader"]);
+  const changed = [];
+  for (const change of assignments) {
+    const memberId = String(change.memberId || change.playerId || "");
+    const player = state.players[memberId];
+    const participant = state.eventParticipants[eventId]?.[memberId];
+    if (!player || !participant) throw statusError(422, `Roster member ${memberId || "unknown"} is not available for this event`);
+    if (!player.active && change.selected !== false) throw statusError(409, `${player.gameName} is inactive`);
+    const before = structuredClone(participant);
+    for (const [field, value] of Object.entries(change.patch || {})) if (allowed.has(field)) participant[field] = value;
+    if (Object.hasOwn(change.patch || {}, "availability")) participant.confirmedAt = participant.availability === "Confirmed" ? now() : null;
+    if (Object.hasOwn(change.patch || {}, "tacticalGroup") || Object.hasOwn(change.patch || {}, "team")) {
+      const strategy = state.eventStrategies[eventId]?.[participant.team];
+      const opening = [...(strategy?.phases || [])].sort((left, right) => Number(left.startMinute) - Number(right.startMinute))[0];
+      const order = opening?.groupOrders?.[participant.tacticalGroup];
+      if (order) {
+        participant.unit = order.primaryObjective || "Unassigned";
+        participant.primaryUnit = order.primaryObjective || "";
+        participant.rotationUnit = order.secondaryObjective || "";
+        participant.primaryAssignment = order.primaryAction || "";
+        participant.backupAssignment = order.secondaryAction || "";
+      }
+    }
+    participant.updatedAt = now();
+    participant.updatedBy = actor.uid;
+    participant.version = Number(participant.version || 1) + 1;
+    for (const [participantField, playerField] of Object.entries({ selected: "defaultSelected", team: "defaultTeam", rosterStatus: "defaultRole", unit: "defaultUnit", tacticalGroup: "defaultTacticalGroup" })) {
+      if (Object.hasOwn(change.patch || {}, participantField)) player[playerField] = participant[participantField];
+    }
+    player.updatedAt = now();
+    player.version = Number(player.version || 1) + 1;
+    auditDiff(state, actor, eventId, "participant", memberId, before, participant, "participant_batch_updated");
+    changed.push(publicParticipant(participant, actor));
+  }
+  const selected = Object.values(state.eventParticipants[eventId] || {}).filter((item) => item.selected);
+  const warnings = [];
+  for (const team of ["A", "B"]) {
+    const teamMembers = selected.filter((item) => item.team === team);
+    const starters = teamMembers.filter((item) => item.rosterStatus === "Starter");
+    const substitutes = teamMembers.filter((item) => item.rosterStatus === "Sub");
+    if (teamMembers.length > 30) warnings.push(`Team ${team} exceeds 30 sign-ups`);
+    if (starters.length > 20) warnings.push(`Team ${team} exceeds 20 starters`);
+    if (substitutes.length > 10) warnings.push(`Team ${team} exceeds 10 substitutes`);
+  }
+  await saveState();
+  return { changed, warnings };
 }
 
 export async function linkOwnPlayer(userId, playerId) {
@@ -1385,6 +1485,31 @@ export async function updateOwnProfile(userId, patch) {
   if (!user) throw statusError(404, "User account was not found");
   const player = user.playerId ? state.players[user.playerId] : null;
   if (!player) throw statusError(409, "Confirm a Master Directory profile before designing your account");
+  if (Object.hasOwn(patch, "gameName")) {
+    const nextName = String(patch.gameName || "").normalize("NFKC").trim().replace(/\s+/g, " ").slice(0, 80);
+    if (!nextName) throw statusError(422, "Enter your current in-game name");
+    const normalized = normalizePlayerName(nextName);
+    const conflict = Object.values(state.players).find((item) => item.id !== player.id && normalizePlayerName(item.gameName) === normalized);
+    if (conflict) throw statusError(409, "That in-game name matches another roster record. Ask an officer to review the link.");
+    if (nextName !== player.gameName) {
+      player.previousPlayerNames ||= [];
+      player.previousPlayerNames.push({ name: player.gameName, changedAt: now(), changedBy: userId, changeType: "member_update" });
+      player.aliases = [...new Set([...(player.aliases || []), player.gameName])];
+      player.gameName = nextName;
+      user.displayName = nextName;
+      if (user.profileSelection) user.profileSelection.playerName = nextName;
+      for (const participants of Object.values(state.eventParticipants)) if (participants[player.id]) participants[player.id].playerName = nextName;
+    }
+  }
+  if (Object.hasOwn(patch, "thp")) {
+    const thp = Number(patch.thp);
+    if (!Number.isFinite(thp) || thp < 0 || thp > 1_000_000_000_000_000) throw statusError(422, "Enter a valid THP value between 0 and 1 quadrillion");
+    player.thp = Math.round(thp);
+    player.thpUpdatedAt = now();
+    player.thpUpdatedBy = userId;
+    player.thpVerifiedAt = null;
+    player.thpVerifiedBy = null;
+  }
   if (Object.hasOwn(patch, "profileTitle")) user.profileTitle = String(patch.profileTitle || "").slice(0, 60);
   if (Object.hasOwn(patch, "profileBio")) user.profileBio = String(patch.profileBio || "").slice(0, 400);
   if (Object.hasOwn(patch, "profileImageFit")) {
@@ -1455,6 +1580,8 @@ export async function addPlayer(input, actor) {
   const state = await getState();
   const id = input.id || newId("player");
   if (state.players[id]) throw statusError(409, "Player ID already exists");
+  const normalizedName = normalizePlayerName(input.gameName || input.name);
+  if (Object.values(state.players).some((player) => normalizePlayerName(player.gameName) === normalizedName)) throw statusError(409, "A roster member with that normalized player name already exists");
   const player = normalizePlayer({ ...input, id, createdAt: now(), updatedAt: now() });
   state.players[id] = player;
   for (const eventId of Object.keys(state.events)) {
@@ -1472,14 +1599,39 @@ export async function updatePlayer(playerId, patch, actor) {
   if (!player) throw statusError(404, "Player was not found");
   assertVersion(player, patch.version);
   const before = structuredClone(player);
-  for (const field of ["gameName", "rank", "defaultRole", "defaultSelected", "defaultTeam", "defaultUnit", "defaultTacticalGroup", "active", "userId", "notes", "aliases", "profileImage", "profileImageFit", "profileImagePosition"]) {
+  for (const field of ["gameName", "rank", "defaultRole", "defaultSelected", "defaultTeam", "defaultUnit", "defaultTacticalGroup", "active", "userId", "notes", "aliases", "profileImage", "profileImageFit", "profileImagePosition", "thp"]) {
     if (Object.hasOwn(patch, field)) player[field] = patch[field];
+  }
+  if (Object.hasOwn(patch, "thp")) {
+    const thp = Number(player.thp);
+    if (!Number.isFinite(thp) || thp < 0 || thp > 1_000_000_000_000_000) throw statusError(422, "Enter a valid THP value between 0 and 1 quadrillion");
+    player.thp = Math.round(thp);
+    player.thpUpdatedAt = now();
+    player.thpUpdatedBy = actor.uid;
+    if (patch.verifyThp) {
+      player.thpVerifiedAt = now();
+      player.thpVerifiedBy = actor.uid;
+    }
   }
   if (String(player.profileImage || "").length > 750000) throw statusError(422, "Profile image is too large");
   if (player.profileImage && !/^data:image\/(jpeg|png|webp|gif);base64,/.test(player.profileImage)) {
     throw statusError(422, "Choose a supported profile image");
   }
   if (Object.hasOwn(patch, "gameName")) {
+    player.gameName = String(player.gameName || "").normalize("NFKC").trim().replace(/\s+/g, " ").slice(0, 80);
+    if (!player.gameName) throw statusError(422, "Enter a player name");
+    if (Object.values(state.players).some((item) => item.id !== playerId && normalizePlayerName(item.gameName) === normalizePlayerName(player.gameName))) throw statusError(409, "That player name matches another roster record");
+    if (player.gameName !== before.gameName) {
+      player.previousPlayerNames ||= [];
+      player.previousPlayerNames.push({ name: before.gameName, changedAt: now(), changedBy: actor.uid, changeType: "officer_correction" });
+      player.aliases = [...new Set([...(player.aliases || []), before.gameName])];
+      const linkedAccount = Object.values(state.users).find((item) => item.playerId === playerId);
+      if (linkedAccount) {
+        linkedAccount.displayName = player.gameName;
+        if (linkedAccount.profileSelection) linkedAccount.profileSelection.playerName = player.gameName;
+        linkedAccount.version = Number(linkedAccount.version || 1) + 1;
+      }
+    }
     for (const participants of Object.values(state.eventParticipants)) {
       if (participants[playerId]) participants[playerId].playerName = player.gameName;
     }
@@ -2150,8 +2302,11 @@ function chooseActiveEvent(state, user) {
 }
 
 function publicPlayer(player) {
-  const { notes, ...safe } = player;
-  return safe;
+  const { notes, userId, thpUpdatedBy, thpVerifiedBy, ...safe } = player;
+  return {
+    ...safe,
+    previousPlayerNames: (player.previousPlayerNames || []).map(({ name, changedAt, changeType }) => ({ name, changedAt, changeType }))
+  };
 }
 
 function publicParticipant(participant, user) {

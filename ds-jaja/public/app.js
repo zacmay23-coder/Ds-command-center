@@ -55,6 +55,13 @@ let selectedVsDate = "";
 let selectedVsScoreFilter = "all";
 let latestVsAudit = null;
 let selectedEventFilter = "all";
+const rosterStore = { membersById: new Map(), orderedMemberIds: [], viewModel: null, loaded: false, updatedAt: null };
+const rosterSelectorState = { selectedMemberIds: new Set(), config: null };
+const eventRosterConfig = {
+  desert_storm: { teamOptions: ["A", "B", "Reserve"], participationTypes: ["Starter", "Sub", "Reserve"], capacityByTeam: { A: { maximumSignUps: 30, starters: 20, substitutes: 10 }, B: { maximumSignUps: 30, starters: 20, substitutes: 10 } } },
+  theme_week: { teamOptions: [], participationTypes: ["Participant"], capacityByTeam: {} },
+  alliance_event: { teamOptions: [], participationTypes: ["Participant", "Reserve"], capacityByTeam: {} }
+};
 
 const elements = {
   saveStatus: document.querySelector("#saveStatus"),
@@ -72,6 +79,10 @@ const elements = {
   dsEventTeamOverview: document.querySelector("#dsEventTeamOverview"),
   eventTypeSelector: document.querySelector("#eventTypeSelector"),
   eventsHubContent: document.querySelector("#eventsHubContent"),
+  rosterSelectorDialog: document.querySelector("#rosterSelectorDialog"),
+  rosterSelectorForm: document.querySelector("#rosterSelectorForm"),
+  rosterSelectorCandidates: document.querySelector("#rosterSelectorCandidates"),
+  rosterSelectionSummary: document.querySelector("#rosterSelectionSummary"),
   createEventButton: document.querySelector("#createEventButton"),
   participationTeam: document.querySelector("#participationTeam"),
   participationUnit: document.querySelector("#participationUnit"),
@@ -86,6 +97,7 @@ const elements = {
   readinessPanels: document.querySelector("#readinessPanels"),
   directoryRows: document.querySelector("#directoryRows"),
   directorySummary: document.querySelector("#directorySummary"),
+  rosterReviewAlerts: document.querySelector("#rosterReviewAlerts"),
   resultRows: document.querySelector("#resultRows"),
   teamPanels: document.querySelector("#teamPanels"),
   assignmentBoardA: document.querySelector("#assignmentBoardA"),
@@ -278,6 +290,12 @@ function bindControls() {
   elements.directoryTeamFilter.addEventListener("change", renderDirectory);
   elements.directoryRows.addEventListener("change", handleMemberChange);
   elements.directoryRows.addEventListener("click", handleDirectoryClick);
+  elements.memberProfileDialog.addEventListener("change", handleMemberChange);
+  document.body.addEventListener("click", handleRosterSelectorOpen);
+  elements.rosterSelectorDialog.addEventListener("click", handleRosterSelectorClick);
+  elements.rosterSelectorForm.addEventListener("input", renderRosterSelector);
+  elements.rosterSelectorForm.addEventListener("change", renderRosterSelector);
+  elements.rosterSelectorForm.addEventListener("submit", assignSelectedRosterMembers);
   elements.resultRows.addEventListener("change", handleMemberChange);
   elements.strategyA.addEventListener("change", () => publishTeamStrategy("A"));
   elements.strategyB.addEventListener("change", () => publishTeamStrategy("B"));
@@ -314,8 +332,10 @@ function bindControls() {
   elements.customStrategyForm.addEventListener("submit", createCustomStrategy);
   elements.strategyLibraryCards.addEventListener("click", handleStrategyLibraryClick);
   elements.userProfileContent.addEventListener("submit", handleOwnProfileSave);
+  elements.userProfileContent.addEventListener("submit", handleProfileMessageSubmit);
   elements.userProfileContent.addEventListener("change", handleOwnProfileImage);
   elements.userProfileContent.addEventListener("click", handleOwnProfileClick);
+  elements.userProfileContent.addEventListener("click", handleBriefingMessageClick);
   document.body.addEventListener("click", handleMiniProfileClick);
   document.body.addEventListener("click", handleEventSubviewClick);
   document.body.addEventListener("click", handleNestedSubviewClick);
@@ -399,6 +419,7 @@ function showView(viewId) {
 }
 
 function render() {
+  buildMasterRosterViewModel(true);
   applyRoleVisibility();
   syncStrategySelects();
   renderEventBanner();
@@ -562,13 +583,13 @@ function applyRoleVisibility() {
     element.hidden = !state.permissions.isAdministrator;
   });
   elements.clearHistoryButton.hidden = !state.permissions.isAdministrator;
-  const officerOnlyViews = ["directory", "teams", "assignmentsA", "assignmentsB", "results"];
+  const officerOnlyViews = ["teams", "assignmentsA", "assignmentsB", "results"];
   document.querySelectorAll(".sidebar button").forEach((button) => {
     if (officerOnlyViews.includes(button.dataset.view)) button.hidden = !state.permissions.isOfficer;
   });
   if (state.permissions.isMember) {
     const activeView = document.querySelector(".view.active")?.id;
-    const memberViews = ["myAssignment", "dashboard", "events", "allianceWeeklyEvents", "themeWeek", "history", "strategyTimeline", "userProfile", "playerJournal"];
+    const memberViews = ["myAssignment", "dashboard", "events", "directory", "allianceWeeklyEvents", "themeWeek", "history", "strategyTimeline", "userProfile", "playerJournal"];
     if (!memberViews.includes(activeView)) {
       document.querySelectorAll(".sidebar button, .view").forEach((item) => item.classList.remove("active"));
       document.querySelector("[data-view='myAssignment']").classList.add("active");
@@ -599,12 +620,35 @@ function renderUserProfile() {
         <p class="eyebrow">Member profile</p>
         <h3>${escapeHtml(player.gameName)}</h3>
         ${user.profileSetupCompletedAt ? "" : `<p class="weekly-notice">Complete your title and description to finish account setup.</p>`}
+        <label>Current in-game name<input name="gameName" maxlength="80" value="${escapeHtml(player.gameName)}" required></label>
+        <div class="profile-thp-editor"><label>Current THP<input name="thp" type="number" min="0" max="1000000000000000" step="1" value="${Number(player.thp || 0)}" required></label><p><strong>${escapeHtml(formatThp(player.thp))}</strong><small>${player.thpUpdatedAt ? `Last updated ${escapeHtml(formatDateTime(player.thpUpdatedAt))}${player.thpVerifiedAt ? " · Verified" : ""}` : "THP has not been updated."}</small></p></div>
         <label>Member title<input name="profileTitle" maxlength="60" value="${escapeHtml(user.profileTitle || "Alliance Member")}" required></label>
         <label>Member description<textarea name="profileBio" maxlength="400" placeholder="Add a short alliance or battle profile." required>${escapeHtml(user.profileBio || "")}</textarea></label>
-        <button class="primary-button" type="submit">Save My Profile</button>
+        <button class="primary-button" type="submit">Save Profile and THP</button>
       </form>
     </article>
+    <section class="panel profile-messages" aria-labelledby="myMessagesTitle"><div class="assignment-heading"><div><p class="eyebrow">Private conversations</p><h3 id="myMessagesTitle">My Messages</h3></div><span>${(state.privateMessages || []).filter((message) => message.direction === "received" && !message.readAtByRecipient).length} unread</span></div><form data-profile-message-form><label>Member<select name="recipientUid" data-profile-message-recipient required><option value="">Choose a registered member</option>${(state.messageRecipients || []).map((member) => `<option value="${escapeHtml(member.uid)}" data-player-id="${escapeHtml(member.playerId)}">${escapeHtml(member.name)}</option>`).join("")}</select></label><label>Message<textarea name="text" maxlength="1000" required></textarea></label><button class="primary-button" type="submit">Send Private Message</button></form><div class="profile-message-list">${[...(state.privateMessages || [])].reverse().map((message) => `<article class="profile-message ${escapeHtml(message.direction)}"><div><strong>${message.direction === "sent" ? `To ${escapeHtml(message.recipientName)}` : `From ${escapeHtml(message.senderName)}`}</strong><small>${escapeHtml(formatDateTime(message.createdAt))}</small></div><p>${escapeHtml(message.text)}</p>${message.direction === "received" && !message.readAtByRecipient ? `<button class="secondary-button" type="button" data-read-message="${escapeHtml(message.id)}">Mark Read</button>` : ""}</article>`).join("") || `<p class="muted">No private messages yet.</p>`}</div></section>
   `;
+}
+
+async function handleProfileMessageSubmit(event) {
+  const form = event.target.closest("[data-profile-message-form]");
+  if (!form) return;
+  event.preventDefault();
+  const submit = form.querySelector("[type='submit']");
+  try {
+    submit.disabled = true;
+    const payload = Object.fromEntries(new FormData(form));
+    await api.sendPrivateMessage(payload);
+    form.reset();
+    await refreshState();
+    showView("userProfile");
+    setStatus("Private message sent");
+  } catch (error) {
+    setStatus(error.message, true);
+  } finally {
+    submit.disabled = false;
+  }
 }
 
 function handleWorkflowNavigation(event) {
@@ -795,7 +839,7 @@ async function handleBriefingMessageClick(event) {
   if (reply) {
     if (!elements.privateMessageForm || !elements.privateMessageRecipient) {
       showView("userProfile");
-      setStatus("Private conversations are preserved and will move to the future My Messages profile tab");
+      setStatus("Continue this conversation in My Profile → My Messages");
       return;
     }
     elements.privateMessageRecipient.value = reply.dataset.replyMessage;
@@ -804,10 +848,11 @@ async function handleBriefingMessageClick(event) {
     return;
   }
   if (!read) return;
+  const fromProfileMessages = Boolean(event.target.closest("#userProfileContent"));
   try {
     await api.markPrivateMessageRead(read.dataset.readMessage);
     await refreshState();
-    showView("myAssignment");
+    showView(fromProfileMessages ? "userProfile" : "myAssignment");
   } catch (error) { setStatus(error.message, true); }
 }
 
@@ -966,6 +1011,7 @@ async function handleOwnProfileSave(event) {
     setStatus("Your profile was saved");
   } catch (error) {
     setStatus(error.message, true);
+    renderUserProfile();
   }
 }
 
@@ -1017,16 +1063,17 @@ function handleMiniProfileClick(event) {
   const button = event.target.closest("[data-mini-profile]");
   if (!button) return;
   const player = state.players.find((item) => item.id === button.dataset.miniProfile);
-  const member = state.members.find((item) => item.id === button.dataset.miniProfile);
-  if (!player) return;
+  const member = buildMasterRosterViewModel().members.find((item) => item.id === button.dataset.miniProfile);
+  if (!player || !member) return;
+  const history = playerHistory(member.id);
+  const officerDetails = state.permissions.isOfficer ? `<section class="personnel-drawer-officer"><p class="eyebrow">Officer details</p><dl><div><dt>Stable member ID</dt><dd><code>${escapeHtml(member.id)}</code></dd></div><div><dt>Account link</dt><dd>${escapeHtml(member.registrationStatus)}</dd></div>${member.account.uid ? `<div><dt>Authentication UID</dt><dd><code>${escapeHtml(member.account.uid)}</code></dd></div><div><dt>Account email</dt><dd>${escapeHtml(member.account.email || "Not available")}</dd></div>` : ""}<div><dt>Profile completion</dt><dd>${member.profileComplete ? "Complete" : "Needs attention"}</dd></div><div><dt>Last THP update</dt><dd>${escapeHtml(member.thpUpdatedAt ? formatDateTime(member.thpUpdatedAt) : "Not updated")}</dd></div></dl><details class="personnel-officer-actions"><summary class="secondary-button">Officer Actions</summary><div><label>Player name<input data-member-id="${escapeHtml(member.id)}" data-player-field="gameName" value="${escapeHtml(member.name)}"></label><label>Alliance role<select data-member-id="${escapeHtml(member.id)}" data-player-field="rank">${optionHtml(["R1", "R2", "R3", "R4", "R5"], member.rank)}</select></label><label>THP<input data-member-id="${escapeHtml(member.id)}" data-player-field="thp" type="number" min="0" max="1000000000000000" value="${member.thp}"></label>${state.activeEvent ? `<label>Team<select data-member-id="${escapeHtml(member.id)}" data-field="team">${optionHtml(["Reserve", "A", "B"], member.team)}</select></label><label>Roster status<select data-member-id="${escapeHtml(member.id)}" data-field="type">${optionHtml(["Starter", "Sub"], member.rosterStatus || member.type)}</select></label><label>Unit<select data-member-id="${escapeHtml(member.id)}" data-field="tacticalGroup">${optionHtml(tacticalGroups, member.unit)}</select></label>` : ""}<label class="checkbox-label"><input data-member-id="${escapeHtml(member.id)}" data-player-field="active" type="checkbox" ${member.active ? "checked" : ""}> Active roster member</label>${state.permissions.isAdministrator ? `<button class="danger-button" type="button" data-delete-player="${escapeHtml(member.id)}">Remove from active roster</button>` : ""}</div></details></section>` : "";
   elements.memberProfileDialogContent.innerHTML = `
     <div class="profile-quick-view">
       ${player.profileImage
         ? `<img src="${escapeHtml(player.profileImage)}" alt="${escapeHtml(player.gameName)}" style="object-fit:${escapeHtml(player.profileImageFit || "cover")};object-position:${escapeHtml(player.profileImagePosition || "center")}">`
         : `<span>${escapeHtml(player.gameName.slice(0, 1))}</span>`}
-      <div><p class="eyebrow">${escapeHtml(player.rank || "Member")}</p><h3>${escapeHtml(player.gameName)}</h3>
-      <p>${escapeHtml(member ? `Team ${member.team} · ${member.tacticalGroup || "Reserve"} · ${member.unit || "Unassigned"}` : "")}</p></div>
-    </div>`;
+      <div><p class="eyebrow">${escapeHtml(player.rank || "Member")}${member.isOfficer ? " · Officer" : ""}</p><h3>${escapeHtml(player.gameName)}</h3><p>${escapeHtml(`Team ${member.team} · ${member.unit}`)}</p></div>
+    </div><section class="personnel-drawer-status"><div><span>THP</span><strong>${escapeHtml(formatThp(member.thp))}</strong></div><div><span>Availability</span>${personnelStatusBadge(member.availability)}</div><div><span>Confirmation</span>${personnelStatusBadge(member.confirmation)}</div><div><span>Registration</span>${personnelStatusBadge(member.registrationStatus)}</div></section>${member.previousNames.length ? `<p class="personnel-name-history"><strong>Previously:</strong> ${member.previousNames.map(escapeHtml).join(", ")}</p>` : ""}<section><p class="eyebrow">Public activity</p><p>${history.length} Desert Storm record${history.length === 1 ? "" : "s"} · Profile ${member.profileComplete ? "complete" : "in progress"}</p></section>${member.registered && member.active && member.id !== state.me.playerId ? `<button class="primary-button" type="button" data-message-member="${escapeHtml(member.id)}">Send Message</button>` : ""}${officerDetails}`;
   elements.memberProfileDialog.showModal();
 }
 
@@ -1473,6 +1520,23 @@ function renderMyAssignment() {
   const { player, participant, event, strategy, battleTime } = vm;
   if (!player) {
     elements.myAssignmentContent.innerHTML = emptyState("Your account is not linked to a roster player yet. Ask an administrator to link it.");
+    return;
+  }
+  const remove = event.target.closest("[data-delete-player]");
+  if (remove && elements.memberProfileDialog.open) {
+    deletePlayerProfile(remove.dataset.deletePlayer);
+    return;
+  }
+  const message = event.target.closest("[data-message-member]");
+  if (message) {
+    const recipient = (state.messageRecipients || []).find((item) => item.playerId === message.dataset.messageMember);
+    if (!recipient) return setStatus("That member does not have an active messaging account", true);
+    elements.memberProfileDialog.close();
+    showView("userProfile");
+    const select = elements.userProfileContent.querySelector("[data-profile-message-recipient]");
+    select.value = recipient.uid;
+    select.closest("form").scrollIntoView({ behavior: "smooth", block: "start" });
+    select.closest("form").querySelector("textarea").focus();
     return;
   }
   const eventTitle = event?.name || event?.title || "Desert Storm";
@@ -2072,40 +2136,210 @@ async function handleAnnouncementEditSubmit(event) {
 }
 
 function renderDirectory() {
-  const query = elements.searchInput.value.trim().toLowerCase();
+  const query = normalizeRosterSearch(elements.searchInput.value);
   const filter = elements.filterInput.value;
   const teamFilter = elements.directoryTeamFilter.value;
-  const rankFilter = elements.rankSort.value;
-  const members = state.members
-    .filter((member) => !query || member.name.toLowerCase().includes(query))
-    .filter((member) => !teamFilter || member.team === teamFilter)
-    .filter((member) => rankFilter === "grouped" || member.rank === rankFilter)
-    .filter((member) => {
-      if (filter === "selected") return member.selected;
-      if (filter === "reserve") return member.team === "Reserve";
-      return true;
-    });
-  members.sort(masterRosterComparator);
-  let previousGroup = "";
-  const rows = members.map((member) => {
-    const group = `${member.team} · ${member.rank || "No rank"}`;
-    const heading = group === previousGroup ? "" : `<tr class="directory-group-row"><th colspan="9">Team ${escapeHtml(group)}</th></tr>`;
-    previousGroup = group;
-    return `${heading}${directoryRow(member)}`;
-  }).join("");
+  const sort = elements.rankSort.value;
+  const vm = buildMasterRosterViewModel();
+  const members = vm.members.filter((member) => {
+    if (query && !member.searchText.includes(query)) return false;
+    if (teamFilter && member.team !== teamFilter) return false;
+    if (filter === "registered" && !member.registered) return false;
+    if (filter === "unregistered" && member.registered) return false;
+    if (filter === "officers" && !member.isOfficer) return false;
+    if (filter === "active" && !member.active) return false;
+    if (filter === "inactive" && member.active) return false;
+    if (filter === "available" && member.availability !== "Ready") return false;
+    if (filter === "unavailable" && member.availability !== "Unavailable") return false;
+    if (filter === "confirmed" && member.confirmation !== "Confirmed") return false;
+    if (filter === "not-confirmed" && member.confirmation === "Confirmed") return false;
+    if (filter === "missing-thp" && member.thp > 0) return false;
+    if (filter === "incomplete" && member.profileComplete) return false;
+    return true;
+  });
+  members.sort((left, right) => sort === "thp" ? right.thp - left.thp || left.name.localeCompare(right.name) : sort === "updated" ? String(right.updatedAt).localeCompare(String(left.updatedAt)) : sort === "rank" ? masterRosterComparator(left, right) : left.name.localeCompare(right.name, undefined, { sensitivity: "base", numeric: true }));
+  elements.directorySummary.innerHTML = vm.metrics.map((metric) => `<article><span>${escapeHtml(metric.label)}</span><strong>${escapeHtml(metric.value)}</strong><small>${escapeHtml(metric.detail)}</small></article>`).join("");
+  if (elements.rosterReviewAlerts) elements.rosterReviewAlerts.innerHTML = state.permissions.isOfficer && vm.reviewAlerts.length ? `<section class="panel"><div><p class="eyebrow">Officer review</p><h3>${vm.reviewAlerts.length} personnel record${vm.reviewAlerts.length === 1 ? "" : "s"} need attention</h3></div><ul>${vm.reviewAlerts.slice(0, 8).map((item) => `<li><button type="button" class="secondary-button" data-mini-profile="${escapeHtml(item.id)}">${escapeHtml(item.name)}</button><span>${escapeHtml(item.reason)}</span></li>`).join("")}</ul></section>` : "";
+  document.querySelector("#rosterResultCount").textContent = `${members.length} of ${vm.members.length} members`;
+  elements.directoryRows.innerHTML = members.map(directoryRow).join("") || `<tr><td colspan="10">No members match the current filters.</td></tr>`;
+}
 
-  const lockRow = !state.activeEvent?.setupPublishedAt
-    ? `<tr class="directory-group-row"><th colspan="9">Roster locked — create and publish Team A/B server times and strategies in Create.</th></tr>`
-    : "";
-  const selectedMembers = state.members.filter((member) => member.selected);
-  const confirmedMembers = selectedMembers.filter((member) => member.availability === "Confirmed");
-  elements.directorySummary.innerHTML = `
-    <article><span>Alliance members</span><strong>${state.members.length}</strong><small>Registered roster profiles</small></article>
-    <article><span>Team A</span><strong>${state.members.filter((member) => member.team === "A").length}</strong><small>${selectedMembers.filter((member) => member.team === "A").length} selected this week</small></article>
-    <article><span>Team B</span><strong>${state.members.filter((member) => member.team === "B").length}</strong><small>${selectedMembers.filter((member) => member.team === "B").length} selected this week</small></article>
-    <article><span>Confirmed</span><strong>${confirmedMembers.length}/${selectedMembers.length}</strong><small>Selected players signed up</small></article>
-  `;
-  elements.directoryRows.innerHTML = `${lockRow}${rows || `<tr><td colspan="9">No members match this view.</td></tr>`}`;
+function buildMasterRosterViewModel(force = false) {
+  if (!force && rosterStore.loaded && rosterStore.updatedAt === state.updatedAt && rosterStore.viewModel) return rosterStore.viewModel;
+  const participants = new Map((state.members || []).map((member) => [member.id, member]));
+  const accounts = new Map((state.rosterAccounts || []).map((account) => [account.playerId, account]));
+  const members = (state.players || []).map((player) => {
+    const participant = participants.get(player.id) || {};
+    const account = accounts.get(player.id) || { registered: false, registrationStatus: "Not Registered" };
+    const previousNames = (player.previousPlayerNames || []).map((item) => item.name).filter(Boolean);
+    const availability = participant.availability === "Confirmed" ? "Ready" : participant.availability === "Tentative" ? "Maybe" : participant.availability === "Unavailable" ? "Unavailable" : "Unknown";
+    const confirmation = state.activeEvent?.scheduleChange && participant.availability !== "Confirmed" ? "Reconfirmation Required" : participant.availability === "Confirmed" ? "Confirmed" : participant.availability === "Unavailable" ? "Declined" : "Pending";
+    const team = participant.team || player.defaultTeam || "Reserve";
+    const unit = participant.tacticalGroup || player.defaultTacticalGroup || "Reserve";
+    const profileComplete = Boolean(account.profileComplete && player.profileImage && player.thp > 0);
+    const isOfficer = ["officer", "administrator"].includes(account.accountRole) || ["R4", "R5"].includes(String(player.rank).toUpperCase());
+    return { ...player, ...participant, account, id: player.id, name: player.gameName, previousNames, team, unit, thp: Number(player.thp || 0), registered: account.registered, registrationStatus: account.registrationStatus, profileComplete, active: player.active !== false, availability, confirmation, isOfficer, updatedAt: player.updatedAt || participant.updatedAt, searchText: normalizeRosterSearch([player.gameName, ...previousNames, ...(player.aliases || []), player.rank, team, unit, account.email, player.id].join(" ")) };
+  });
+  const activeThp = members.filter((member) => member.active && member.thp > 0);
+  const normalizedCounts = members.reduce((counts, member) => counts.set(normalizeRosterIdentity(member.name), (counts.get(normalizeRosterIdentity(member.name)) || 0) + 1), new Map());
+  const reviewAlerts = [];
+  for (const member of members) {
+    if ((normalizedCounts.get(normalizeRosterIdentity(member.name)) || 0) > 1) reviewAlerts.push({ id: member.id, name: member.name, reason: "Duplicate normalized player name" });
+    else if (!member.registered) reviewAlerts.push({ id: member.id, name: member.name, reason: "Not registered" });
+    else if (!member.profileComplete) reviewAlerts.push({ id: member.id, name: member.name, reason: "Incomplete profile or missing THP" });
+  }
+  const metrics = [
+    { label: "Members", value: String(members.length), detail: `${members.filter((member) => member.active).length} active` },
+    { label: "Registered", value: String(members.filter((member) => member.registered).length), detail: "Linked accounts" },
+    { label: "Unregistered", value: String(members.filter((member) => !member.registered).length), detail: "Awaiting account link" },
+    { label: "Team A", value: String(members.filter((member) => member.team === "A").length), detail: "Current placement" },
+    { label: "Team B", value: String(members.filter((member) => member.team === "B").length), detail: "Current placement" },
+    { label: "Reserve", value: String(members.filter((member) => member.team === "Reserve").length), detail: "Reserve roster" },
+    { label: "Officers", value: String(members.filter((member) => member.isOfficer).length), detail: "Leadership profiles" },
+    { label: "Average THP", value: formatThp(activeThp.length ? activeThp.reduce((sum, member) => sum + member.thp, 0) / activeThp.length : 0), detail: `${activeThp.length} reported` }
+  ];
+  const viewModel = { members, metrics, reviewAlerts };
+  rosterStore.membersById = new Map(members.map((member) => [member.id, member]));
+  rosterStore.orderedMemberIds = members.map((member) => member.id);
+  rosterStore.viewModel = viewModel;
+  rosterStore.loaded = true;
+  rosterStore.updatedAt = state.updatedAt;
+  return viewModel;
+}
+
+function getRosterMemberById(memberId) { return rosterStore.membersById.get(memberId) || null; }
+function getRosterMembersByIds(memberIds) { return memberIds.map(getRosterMemberById).filter(Boolean); }
+function getActiveRosterMembers() { return rosterStore.orderedMemberIds.map(getRosterMemberById).filter((member) => member?.active); }
+function getMembersByTeam(eventId, team) { return eventId === state.activeEvent?.id ? getActiveRosterMembers().filter((member) => member.selected && member.team === team) : []; }
+function getUnassignedMembersForEvent(eventId) { return eventId === state.activeEvent?.id ? getActiveRosterMembers().filter((member) => !member.selected) : getActiveRosterMembers(); }
+
+function normalizeRosterSearch(value) {
+  return String(value || "").normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
+function normalizeRosterIdentity(value) {
+  return normalizeRosterSearch(value).replace(/[\p{P}\p{S}\s]+/gu, "");
+}
+
+function handleRosterSelectorOpen(event) {
+  const trigger = event.target.closest("[data-open-roster-selector]");
+  if (!trigger || !state.permissions.isOfficer) return;
+  if (!state.activeEvent) return setStatus("Create an event before selecting its roster", true);
+  if (!state.activeEvent.setupPublishedAt) return setStatus("Publish Team A/B times and strategies before selecting the roster", true);
+  rosterSelectorState.config = { eventId: state.activeEvent.id, eventType: "desert_storm", maximumSelections: 30 };
+  rosterSelectorState.selectedMemberIds = new Set();
+  elements.rosterSelectorForm.reset();
+  elements.rosterSelectorForm.elements.tacticalGroup.innerHTML = optionHtml(tacticalGroups, "Reserve");
+  document.querySelector("#rosterSelectorContext").textContent = `Desert Storm · ${state.activeEvent.date} · ${state.activeEvent.opponent || "Opponent pending"}`;
+  renderRosterSelector();
+  elements.rosterSelectorDialog.showModal();
+}
+
+function handleRosterSelectorClick(event) {
+  if (event.target.closest("[data-close-roster-selector]")) {
+    elements.rosterSelectorDialog.close();
+    return;
+  }
+  const checkbox = event.target.closest("[data-roster-candidate]");
+  if (!checkbox) return;
+  if (checkbox.checked) rosterSelectorState.selectedMemberIds.add(checkbox.value);
+  else rosterSelectorState.selectedMemberIds.delete(checkbox.value);
+  renderRosterSelectionSummary();
+}
+
+function filterRosterCandidates(members, { search = "", eligibility = "active" } = {}) {
+  const query = normalizeRosterSearch(search);
+  return members.filter((member) => {
+    if (query && !member.searchText.includes(query)) return false;
+    if (eligibility === "active" && !member.active) return false;
+    if (eligibility === "available" && member.availability !== "Ready") return false;
+    if (eligibility === "confirmed" && member.confirmation !== "Confirmed") return false;
+    if (eligibility === "unassigned" && member.selected) return false;
+    if (eligibility === "missing-thp" && member.thp > 0) return false;
+    return true;
+  });
+}
+
+function sortRosterCandidates(members, sort = "name") {
+  return [...members].sort((left, right) => {
+    if (sort === "thp-desc") return right.thp - left.thp || left.name.localeCompare(right.name);
+    if (sort === "thp-asc") return left.thp - right.thp || left.name.localeCompare(right.name);
+    if (sort === "availability") return left.availability.localeCompare(right.availability) || left.name.localeCompare(right.name);
+    if (sort === "registration") return left.registrationStatus.localeCompare(right.registrationStatus) || left.name.localeCompare(right.name);
+    if (sort === "updated") return String(right.updatedAt).localeCompare(String(left.updatedAt));
+    return left.name.localeCompare(right.name, undefined, { sensitivity: "base", numeric: true });
+  });
+}
+
+function renderRosterSelector() {
+  if (!rosterSelectorState.config) return;
+  const form = elements.rosterSelectorForm;
+  const candidates = sortRosterCandidates(filterRosterCandidates(getActiveRosterMembers(), { search: form.elements.search.value, eligibility: form.elements.eligibility.value }), form.elements.sort.value);
+  elements.rosterSelectorCandidates.innerHTML = candidates.map((member) => `<label class="roster-selector-candidate ${rosterSelectorState.selectedMemberIds.has(member.id) ? "selected" : ""}"><input type="checkbox" data-roster-candidate value="${escapeHtml(member.id)}" ${rosterSelectorState.selectedMemberIds.has(member.id) ? "checked" : ""}><span class="roster-selector-identity">${memberMiniProfile(member, `${member.rank || "Member"} · ${formatThp(member.thp)}`)}</span><span>${escapeHtml(member.team)} · ${escapeHtml(member.unit)}</span><span>${personnelStatusBadge(member.availability)} ${personnelStatusBadge(member.confirmation)}</span></label>`).join("") || `<p class="muted">No eligible roster members match these filters.</p>`;
+  renderRosterSelectionSummary();
+}
+
+function validateEventAssignments(selectedMembers, team, rosterStatus) {
+  const config = eventRosterConfig[rosterSelectorState.config?.eventType] || { capacityByTeam: {} };
+  const capacity = config.capacityByTeam[team];
+  const selectedIds = new Set(selectedMembers.map((member) => member.id));
+  if (["Remove", "RequestConfirmation"].includes(rosterStatus)) return { warnings: [], teamCount: getMembersByTeam(state.activeEvent.id, team).length, capacity: capacity?.maximumSignUps || null, starters: 0, substitutes: 0 };
+  const retained = getMembersByTeam(state.activeEvent.id, team).filter((member) => !selectedIds.has(member.id));
+  const after = [...retained, ...selectedMembers];
+  const warnings = [];
+  if (capacity && after.length > capacity.maximumSignUps) warnings.push(`Team ${team} would have ${after.length}/${capacity.maximumSignUps} sign-ups`);
+  const starters = after.filter((member) => selectedIds.has(member.id) ? rosterStatus === "Starter" : member.rosterStatus === "Starter").length;
+  const substitutes = after.filter((member) => selectedIds.has(member.id) ? rosterStatus === "Sub" : member.rosterStatus === "Sub").length;
+  if (capacity && starters > capacity.starters) warnings.push(`Starter capacity would be ${starters}/${capacity.starters}`);
+  if (capacity && substitutes > capacity.substitutes) warnings.push(`Substitute capacity would be ${substitutes}/${capacity.substitutes}`);
+  for (const member of selectedMembers) {
+    if (member.availability === "Unavailable") warnings.push(`${member.name} is unavailable`);
+    if (member.confirmation === "Reconfirmation Required") warnings.push(`${member.name} requires reconfirmation`);
+    if (!member.profileComplete) warnings.push(`${member.name} has an incomplete profile`);
+  }
+  return { warnings, teamCount: after.length, capacity: capacity?.maximumSignUps || null, starters, substitutes };
+}
+
+function renderRosterSelectionSummary() {
+  const form = elements.rosterSelectorForm;
+  const selectedMembers = getRosterMembersByIds([...rosterSelectorState.selectedMemberIds]);
+  const validation = validateEventAssignments(selectedMembers, form.elements.team.value, form.elements.rosterStatus.value);
+  elements.rosterSelectionSummary.innerHTML = `<p class="eyebrow">Assignment preview</p><h3>${selectedMembers.length} member${selectedMembers.length === 1 ? "" : "s"} selected</h3><p>Desert Storm · Team ${escapeHtml(form.elements.team.value)} · ${escapeHtml(form.elements.tacticalGroup.value)} · ${escapeHtml(form.elements.rosterStatus.value)}</p><strong>Team capacity after assignment: ${validation.teamCount}${validation.capacity ? ` / ${validation.capacity}` : ""}</strong>${validation.warnings.length ? `<ul class="roster-selector-warnings">${validation.warnings.slice(0, 8).map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul>` : `<p class="muted">No assignment conflicts detected.</p>`}`;
+}
+
+async function assignSelectedRosterMembers(event) {
+  event.preventDefault();
+  const selectedMembers = getRosterMembersByIds([...rosterSelectorState.selectedMemberIds]);
+  if (!selectedMembers.length) return setStatus("Select at least one roster member", true);
+  const form = elements.rosterSelectorForm;
+  const team = form.elements.team.value;
+  const rosterStatus = form.elements.rosterStatus.value;
+  const tacticalGroup = form.elements.tacticalGroup.value;
+  const removing = rosterStatus === "Remove";
+  const requestingConfirmation = rosterStatus === "RequestConfirmation";
+  const validation = validateEventAssignments(selectedMembers, team, rosterStatus);
+  if (validation.warnings.length && !confirm(`Apply this assignment with ${validation.warnings.length} warning${validation.warnings.length === 1 ? "" : "s"}?`)) return;
+  const previous = selectedMembers.map((member) => ({ id: member.id, selected: member.selected, team: member.team, rosterStatus: member.rosterStatus, tacticalGroup: member.tacticalGroup }));
+  const submit = form.querySelector("[type='submit']");
+  try {
+    submit.disabled = true;
+    for (const member of selectedMembers) Object.assign(state.members.find((item) => item.id === member.id) || {}, requestingConfirmation ? { availability: "Pending" } : removing ? { selected: false, team: "Reserve", type: "Sub", rosterStatus: "Sub", tacticalGroup: "Reserve" } : { selected: true, team, type: rosterStatus, rosterStatus, tacticalGroup });
+    buildMasterRosterViewModel(true);
+    renderDirectory();
+    renderTeams();
+    const result = await api.updateEventAssignmentsBatch(state.activeEvent.id, selectedMembers.map((member) => ({ memberId: member.id, patch: requestingConfirmation ? { availability: "Pending" } : removing ? { selected: false, team: "Reserve", rosterStatus: "Sub", tacticalGroup: "Reserve" } : { selected: true, team, rosterStatus, tacticalGroup } })));
+    await refreshState();
+    elements.rosterSelectorDialog.close();
+    setStatus(result.warnings?.length ? `Assignments saved with ${result.warnings.length} capacity warning${result.warnings.length === 1 ? "" : "s"}` : "Event assignments saved");
+  } catch (error) {
+    for (const snapshot of previous) Object.assign(state.members.find((item) => item.id === snapshot.id) || {}, snapshot);
+    buildMasterRosterViewModel(true);
+    renderDirectory();
+    renderTeams();
+    setStatus(error.message, true);
+  } finally {
+    submit.disabled = false;
+  }
 }
 
 function masterRosterComparator(left, right) {
@@ -2953,8 +3187,14 @@ async function clearHistory() {
 
 async function handleMemberChange(event) {
   if (event.target.dataset.playerField) {
+    const field = event.target.dataset.playerField;
+    const value = event.target.type === "checkbox" ? event.target.checked : event.target.value;
+    if (["gameName", "active"].includes(field) && !confirm(`Confirm this ${field === "gameName" ? "player-name change" : "membership-status change"}? The stable member ID and linked history will be preserved.`)) {
+      await refreshState();
+      return;
+    }
     try {
-      await api.updatePlayer(event.target.dataset.memberId, { [event.target.dataset.playerField]: event.target.value });
+      await api.updatePlayer(event.target.dataset.memberId, { [field]: value });
       await refreshState();
       setStatus("Player profile updated");
     } catch (error) {
@@ -3551,41 +3791,35 @@ async function handleVsScoreDelete(event) {
 }
 
 function directoryRow(member) {
-  const history = playerHistory(member.id);
-  const expanded = expandedPlayers.has(member.id);
-  const rosterLocked = !state.activeEvent?.setupPublishedAt;
-  const locked = rosterLocked ? "disabled title=\"Publish the DS setup in Create to unlock this roster\"" : "";
   return `
-    <tr class="roster-member-row team-${escapeHtml(member.team)} ${member.selected ? "selected" : ""}">
-      <td data-label="Selected"><input data-member-id="${member.id}" data-field="selected" type="checkbox" ${member.selected ? "checked" : ""} ${locked}></td>
-      <td data-label="Player">
-        ${memberMiniProfile(member, `${member.rank} · Team ${member.team}`)}
-        ${member.availabilityGuidance ? `<small class="availability-guidance">Availability: ${escapeHtml(member.availabilityGuidance)}</small>` : ""}
-        <div class="roster-player-actions">
-          <button class="row-expander" type="button" data-expand-player="${member.id}" aria-expanded="${expanded}">${expanded ? "Close history" : `${history.length} DS records`}</button>
-          <details class="roster-profile-tools">
-            <summary>Profile tools</summary>
-            <div>
-              <label>In-game name<input class="directory-name-input" data-member-id="${member.id}" data-player-field="gameName" value="${escapeHtml(member.name)}"></label>
-              <label class="profile-image-picker">Replace picture<input data-member-id="${member.id}" data-player-image type="file" accept="image/*"></label>
-              ${state.permissions.isAdministrator ? `<button class="delete-member-button" type="button" data-delete-player="${member.id}">Delete profile</button>` : ""}
-            </div>
-          </details>
-        </div>
-      </td>
-      <td data-label="Rank"><span class="roster-rank-badge rank-${escapeHtml(member.rank)}">${escapeHtml(member.rank)}</span></td>
-      <td data-label="Team"><select data-member-id="${member.id}" data-field="team" ${locked}>${optionHtml(["Reserve", "A", "B"], member.team)}</select></td>
-      <td data-label="Role"><select data-member-id="${member.id}" data-field="type" ${locked}>${optionHtml(["Starter", "Sub"], member.type)}</select></td>
-      <td data-label="Unit"><select data-member-id="${member.id}" data-field="tacticalGroup" ${locked}>${optionHtml(tacticalGroups, member.tacticalGroup || "Reserve")}</select></td>
-      <td data-label="Structure focus"><select data-member-id="${member.id}" data-field="unit" ${locked}>${optionHtml(units, assignedUnit(member))}</select></td>
-      <td data-label="In-game signup"><select data-member-id="${member.id}" data-field="availability" ${locked}>
-        <option value="Pending" ${member.availability !== "Confirmed" ? "selected" : ""}>Not confirmed</option>
-        <option value="Confirmed" ${member.availability === "Confirmed" ? "selected" : ""}>Confirmed in game</option>
-      </select></td>
-      <td data-label="Leader"><input data-member-id="${member.id}" data-field="unitLeader" type="checkbox" ${member.unitLeader ? "checked" : ""} aria-label="Optional unit or team leader" ${locked}></td>
+    <tr class="roster-member-row alliance-personnel-row ${member.active ? "" : "inactive"}">
+      <td data-label="Member"><div class="personnel-member-cell">${memberMiniProfile(member, `${member.rank || "Member"}${member.previousNames.length ? " · Name updated" : ""}`)}${member.isOfficer ? `<span class="personnel-officer-badge">Officer</span>` : ""}</div></td>
+      <td data-label="Role"><span class="roster-rank-badge rank-${escapeHtml(member.rank)}">${escapeHtml(member.rank || "Member")}</span></td>
+      <td data-label="THP"><strong>${escapeHtml(formatThp(member.thp))}</strong>${member.thpVerifiedAt ? `<small class="personnel-verified">Verified</small>` : ""}</td>
+      <td data-label="Team">${escapeHtml(member.team)}</td>
+      <td data-label="Unit">${escapeHtml(member.unit)}</td>
+      <td data-label="Availability">${personnelStatusBadge(member.availability)}</td>
+      <td data-label="Confirmation">${personnelStatusBadge(member.confirmation)}</td>
+      <td data-label="Registration">${personnelStatusBadge(member.registrationStatus)}</td>
+      <td data-label="Last Updated"><time datetime="${escapeHtml(member.updatedAt || "")}">${escapeHtml(member.updatedAt ? formatDateTime(member.updatedAt) : "Not recorded")}</time></td>
+      <td data-label="Actions"><button class="secondary-button" type="button" data-mini-profile="${escapeHtml(member.id)}">View Profile</button></td>
     </tr>
-    ${expanded ? playerHistoryRow(member, history) : ""}
   `;
+}
+
+function formatThp(value) {
+  const amount = Number(value || 0);
+  if (!amount) return "Not updated";
+  if (amount >= 1_000_000_000_000) return `${(amount / 1_000_000_000_000).toFixed(2).replace(/\.00$/, "")}T THP`;
+  if (amount >= 1_000_000_000) return `${(amount / 1_000_000_000).toFixed(2).replace(/\.00$/, "")}B THP`;
+  if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(2).replace(/\.00$/, "")}M THP`;
+  return `${amount.toLocaleString()} THP`;
+}
+
+function personnelStatusBadge(value) {
+  const normalized = String(value || "Unknown").toLowerCase().replaceAll(" ", "-");
+  const tone = ["ready", "confirmed", "registered", "active"].includes(normalized) ? "positive" : ["unavailable", "declined", "inactive", "duplicate-match", "needs-review"].includes(normalized) ? "negative" : "pending";
+  return `<span class="personnel-status personnel-status-${tone}">${escapeHtml(value || "Unknown")}</span>`;
 }
 
 function handleDirectoryClick(event) {
