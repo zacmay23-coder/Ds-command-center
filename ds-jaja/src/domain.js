@@ -343,6 +343,7 @@ export function normalizeEvent(event = {}) {
     completedAt: event.completedAt || null,
     archivedAt: event.archivedAt || null,
     setupPublishedAt: event.setupPublishedAt || null,
+    scheduleChange: event.scheduleChange && typeof event.scheduleChange === "object" ? event.scheduleChange : null,
     version: Number(event.version || 1)
   };
 }

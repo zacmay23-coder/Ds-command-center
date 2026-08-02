@@ -200,12 +200,6 @@
             <h2>Alliance Weekly Events</h2>
             <p>Officer-managed MG, ZS, Shark, Blimp, and custom events delivered to every member briefing.</p>
           </div>
-          <div class="event-hub-selector panel">
-            <button class="secondary-button" type="button" data-event-subview="events">DS</button>
-            <button class="secondary-button" type="button" data-event-subview="themeWeek">Theme Week</button>
-            <button class="primary-button" type="button" data-event-subview="allianceWeeklyEvents">Alliance Events</button>
-            <button class="secondary-button" type="button" data-event-subview="vsEvents">VS</button>
-          </div>
           <div id="allianceEventList" class="history-list"></div>
         </section>
 
@@ -213,12 +207,6 @@
           <div class="section-title">
             <h2>Theme Week</h2>
             <p>Weekly profile-picture theme, submissions, finalists, one-member voting, results, and discussion.</p>
-          </div>
-          <div class="event-hub-selector panel">
-            <button class="secondary-button" type="button" data-event-subview="events">DS</button>
-            <button class="primary-button" type="button" data-event-subview="themeWeek">Theme Week</button>
-            <button class="secondary-button" type="button" data-event-subview="allianceWeeklyEvents">Alliance Events</button>
-            <button class="secondary-button" type="button" data-event-subview="vsEvents">VS</button>
           </div>
           <div id="themeWeekContent"></div>
         </section>
@@ -263,35 +251,29 @@
           </section>
         </section>
 
-        <section id="events" class="view">
-          <div class="section-title">
-            <div>
-              <h2>Events</h2>
-              <p>Review the active Desert Storm operation, Theme Week, or alliance schedule.</p>
-            </div>
+        <section id="events" class="view alliance-events-page">
+          <div class="section-title alliance-events-header">
+            <h2>EVENTS</h2>
+            <p>Current and upcoming alliance events.</p>
           </div>
-          <div class="event-hub-selector panel">
-            <button class="primary-button" type="button" data-event-subview="events">DS</button>
-            <button class="secondary-button" type="button" data-event-subview="themeWeek">Theme Week</button>
-            <button class="secondary-button" type="button" data-event-subview="allianceWeeklyEvents">Alliance Events</button>
-            <button class="secondary-button" type="button" data-event-subview="vsEvents">VS</button>
-          </div>
-          <div id="eventActions" class="event-actions panel"></div>
-          <div id="publishReadiness" class="readiness-grid"></div>
-          <div id="dsEventTeamOverview" class="ds-team-overview"></div>
-          <div id="eventList" class="history-list"></div>
+          <nav id="eventTypeSelector" class="alliance-event-tabs" aria-label="Filter alliance events">
+            <button class="active" type="button" data-event-filter="all" aria-selected="true">All Events</button>
+            <button type="button" data-event-filter="ds" aria-selected="false">Desert Storm</button>
+            <button type="button" data-event-filter="theme" aria-selected="false">Theme Week</button>
+            <button type="button" data-event-filter="alliance" aria-selected="false">Alliance Events</button>
+            <button type="button" data-event-filter="vs" aria-selected="false">VS</button>
+          </nav>
+          <div id="eventsHubContent"></div>
+          <div id="eventActions" hidden></div>
+          <div id="publishReadiness" hidden></div>
+          <div id="dsEventTeamOverview" hidden></div>
+          <div id="eventList" hidden></div>
         </section>
 
         <section id="vsEvents" class="view">
           <div class="section-title">
             <h2>VS Daily Scores</h2>
             <p>Capture Monday–Saturday VS scores, monitor weekly team performance, and finalize submissions on day seven.</p>
-          </div>
-          <div class="event-hub-selector panel">
-            <button class="secondary-button" type="button" data-event-subview="events">DS</button>
-            <button class="secondary-button" type="button" data-event-subview="themeWeek">Theme Week</button>
-            <button class="secondary-button" type="button" data-event-subview="allianceWeeklyEvents">Alliance Events</button>
-            <button class="primary-button" type="button" data-event-subview="vsEvents">VS</button>
           </div>
           <nav class="section-tabs workflow-tabs" aria-label="VS workflows" data-workflow-tabs="vs">
             <button class="active" type="button" data-workflow-tab="vs-overview" aria-selected="true">Overview</button>

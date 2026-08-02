@@ -1203,6 +1203,26 @@ export async function updateEvent(eventId, patch, actor) {
   ];
   const before = structuredClone(event);
   for (const field of allowed) if (Object.hasOwn(patch, field)) event[field] = patch[field];
+  const scheduleChanged = ["date", "battleTimeA", "battleTimeB"].some((field) =>
+    Object.hasOwn(patch, field) && String(before[field] || "") !== String(event[field] || "")
+  );
+  if (scheduleChanged && event.status !== "draft") {
+    event.scheduleChange = {
+      previousDate: before.date,
+      previousBattleTimeA: before.battleTimeA,
+      previousBattleTimeB: before.battleTimeB,
+      changedAt: now(),
+      changedBy: actor.uid
+    };
+    for (const participant of Object.values(state.eventParticipants[eventId] || {})) {
+      if (!participant.selected) continue;
+      participant.availability = "Pending";
+      participant.availabilityNote = "";
+      participant.updatedAt = now();
+      participant.updatedBy = actor.uid;
+      participant.version = Number(participant.version || 1) + 1;
+    }
+  }
   event.scoreFor = Number(event.scoreFor || 0);
   event.scoreAgainst = Number(event.scoreAgainst || 0);
   event.updatedAt = now();

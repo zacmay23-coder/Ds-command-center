@@ -54,6 +54,7 @@ let selectedVsWeekId = "";
 let selectedVsDate = "";
 let selectedVsScoreFilter = "all";
 let latestVsAudit = null;
+let selectedEventFilter = "all";
 
 const elements = {
   saveStatus: document.querySelector("#saveStatus"),
@@ -69,6 +70,8 @@ const elements = {
   publishReadiness: document.querySelector("#publishReadiness"),
   eventList: document.querySelector("#eventList"),
   dsEventTeamOverview: document.querySelector("#dsEventTeamOverview"),
+  eventTypeSelector: document.querySelector("#eventTypeSelector"),
+  eventsHubContent: document.querySelector("#eventsHubContent"),
   createEventButton: document.querySelector("#createEventButton"),
   participationTeam: document.querySelector("#participationTeam"),
   participationUnit: document.querySelector("#participationUnit"),
@@ -207,8 +210,9 @@ async function initialize() {
     if (requestedButton && requestedPanel && !requestedButton.hidden) showView(requestedView);
     else if (state.me.role === "member") showView("myAssignment");
     if (requestedView === "events") {
-      const eventView = { ds: "events", theme: "themeWeek", alliance: "allianceWeeklyEvents", vs: "vsEvents" }[params.get("tab") || "ds"];
-      if (eventView) showView(eventView);
+      selectedEventFilter = { ds: "ds", theme: "theme", alliance: "alliance", vs: "vs", all: "all" }[params.get("tab") || "all"] || "all";
+      showView("events");
+      renderEvents();
     }
   }
   connectLiveUpdates();
@@ -289,6 +293,8 @@ function bindControls() {
   elements.eventActions.addEventListener("click", handleEventListClick);
   elements.eventActions.addEventListener("change", handleEventFieldChange);
   elements.eventList.addEventListener("click", handleEventListClick);
+  elements.eventTypeSelector.addEventListener("click", handleEventHubClick);
+  elements.eventsHubContent.addEventListener("click", handleEventHubClick);
   elements.participationTeam.addEventListener("change", renderParticipation);
   elements.participationUnit.addEventListener("change", renderParticipation);
   elements.myAssignmentContent.addEventListener("click", handleAvailabilityClick);
@@ -604,8 +610,9 @@ function renderUserProfile() {
 function handleWorkflowNavigation(event) {
   const shortcut = event.target.closest("[data-view-shortcut]");
   if (shortcut) {
-    showView(shortcut.dataset.viewShortcut);
-    history.replaceState(null, "", `?view=${encodeURIComponent(shortcut.dataset.viewShortcut)}`);
+    const viewTarget = shortcut.dataset.viewShortcut === "createManagement" ? "create" : shortcut.dataset.viewShortcut;
+    showView(viewTarget);
+    history.replaceState(null, "", `?view=${encodeURIComponent(viewTarget)}`);
     return;
   }
 
@@ -1516,6 +1523,99 @@ async function handleBriefingAction(event) {
 }
 
 function renderEvents() {
+  const vm = buildAllianceEventsViewModel();
+  elements.eventTypeSelector.querySelectorAll("[data-event-filter]").forEach((button) => {
+    const active = button.dataset.eventFilter === selectedEventFilter;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  const attention = vm.attention.filter(eventMatchesSelectedFilter);
+  const thisWeek = vm.thisWeek.filter(eventMatchesSelectedFilter);
+  const upcoming = vm.upcoming.filter(eventMatchesSelectedFilter);
+  const completed = vm.completed.filter(eventMatchesSelectedFilter).slice(0, 5);
+  elements.eventsHubContent.innerHTML = `
+    ${attention.length ? `<section class="alliance-events-section alliance-events-attention"><div class="alliance-events-section-heading"><div><p class="eyebrow">Action needed</p><h3>Requires Your Attention</h3></div></div><div class="alliance-events-attention-grid">${attention.map(renderEventAttentionCard).join("")}</div></section>` : ""}
+    <section class="alliance-events-section"><div class="alliance-events-section-heading"><div><p class="eyebrow">Active schedule</p><h3>This Week</h3></div></div><div class="alliance-events-card-grid">${thisWeek.map(renderEventHubCard).join("") || `<p class="muted">No published events in this category this week.</p>`}</div></section>
+    <section class="alliance-events-section"><div class="alliance-events-section-heading"><div><p class="eyebrow">Published events</p><h3>Upcoming</h3></div></div><div class="alliance-events-compact-list">${upcoming.map(renderEventCompactRow).join("") || `<p class="muted">No later published events in this category.</p>`}</div></section>
+    <section class="alliance-events-section alliance-events-completed"><div class="alliance-events-section-heading"><div><p class="eyebrow">Latest results</p><h3>Recently Completed</h3></div><button class="secondary-button" type="button" data-view-shortcut="history">View Event History</button></div><div class="alliance-events-compact-list">${completed.map(renderEventCompactRow).join("") || `<p class="muted">No recent completed events in this category.</p>`}</div></section>
+  `;
+}
+
+function buildAllianceEventsViewModel() {
+  const today = new Date().toISOString().slice(0, 10);
+  const weekEndDate = new Date(`${today}T12:00:00`);
+  weekEndDate.setDate(weekEndDate.getDate() + 7);
+  const weekEnd = weekEndDate.toISOString().slice(0, 10);
+  const participant = (state.participants || []).find((item) => item.playerId === state.me.playerId);
+  const activeDs = state.activeEvent && state.activeEvent.status !== "draft" ? state.activeEvent : null;
+  const currentTheme = (state.themeWeeks || []).find((item) => !["finalized", "archived"].includes(item.status)) || (state.themeWeeks || [])[0];
+  const currentVs = (state.vsWeeks || []).find((week) => {
+    const end = vsWeekDays(week.beginDate).at(-1)?.date || week.beginDate;
+    return week.beginDate <= today && end >= today;
+  }) || (state.vsWeeks || []).find((week) => week.beginDate >= today);
+  const myScores = (state.vsScores || []).filter((entry) => entry.playerId === state.me.playerId && (!currentVs || entry.vsWeekId === currentVs.id || vsWeekDays(currentVs.beginDate).some((day) => day.date === entry.date)));
+  const currentVsDay = currentVs ? vsWeekDays(currentVs.beginDate).find((day) => day.date === today) : null;
+  const records = [];
+
+  if (activeDs) {
+    const team = participant?.team || "Unassigned";
+    const battleTime = participant && ["A", "B"].includes(team) ? activeDs[`battleTime${team}`] : activeDs.battleTimeA;
+    records.push({ id: activeDs.id, type: "ds", label: "Desert Storm", name: `Ewar vs. ${activeDs.opponent || "Opponent pending"}`, date: activeDs.date, time: battleTime, localTime: serverToLocal(activeDs.date, battleTime), status: eventStatusLabel(activeDs.status), memberStatus: participant ? `${participant.availability || "Pending"} · Team ${team}` : "Not assigned", detail: participant ? `${participant.rosterStatus || "Unassigned"} · ${participant.tacticalGroup || participant.primaryAssignment || "Assignment pending"}` : "Assignment pending", strategy: participant && ["A", "B"].includes(team) ? state.eventStrategy?.[team]?.name || activeDs[`strategy${team}`] : "Strategy pending", target: "myAssignment", action: "Open Event", scheduleChange: activeDs.scheduleChange, sortDate: activeDs.date });
+  }
+  if (currentTheme) {
+    const submitted = Boolean(currentTheme.submissions?.[state.me.playerId]);
+    const finalist = (currentTheme.finalistIds || []).includes(state.me.playerId);
+    records.push({ id: currentTheme.id, type: "theme", label: "Theme Week", name: currentTheme.title, date: currentTheme.weekOf, status: humanize(currentTheme.status), memberStatus: submitted ? (finalist ? "Finalist" : "Submitted") : "Not submitted", detail: currentTheme.status === "voting" ? (currentTheme.myVote ? "Vote submitted" : "Voting open") : currentTheme.description, target: "themeWeek", action: currentTheme.status === "open" ? (submitted ? "Edit Entry" : "Submit Entry") : currentTheme.status === "voting" ? (currentTheme.myVote ? "View Finalists" : "Vote") : "View Theme Week", sortDate: currentTheme.weekOf });
+  }
+  for (const item of state.allianceWeeklyEvents || []) records.push({ id: item.id, type: "alliance", label: "Alliance Event", name: item.name, date: item.date, time: item.time, localTime: serverToLocal(item.date, item.time), status: "Registration Open", memberStatus: "Response available in event details", detail: item.overview, target: "allianceWeeklyEvents", action: "View Event", scheduleChange: item.scheduleChange, sortDate: item.date });
+  if (currentVs) {
+    const weeklyTotal = myScores.reduce((sum, entry) => sum + Number(entry.score || 0), 0);
+    records.push({ id: currentVs.id, type: "vs", label: "VS Week", name: `Ewar vs. ${currentVs.opponent || "Opponent pending"}`, date: currentVs.beginDate, endDate: vsWeekDays(currentVs.beginDate).at(-1)?.date, status: currentVsDay ? `${currentVsDay.label} in progress` : "Upcoming", memberStatus: `Weekly score ${weeklyTotal.toLocaleString()}`, detail: currentVsDay ? `Current day: ${currentVsDay.label}` : "Daily focus opens with the VS week", target: "vsEvents", action: "Open VS Week", sortDate: currentVs.beginDate });
+  }
+
+  const attention = [];
+  if (activeDs?.scheduleChange && participant?.availability !== "Confirmed") attention.push({ ...records.find((item) => item.type === "ds"), attentionTitle: "Schedule Updated", attentionText: `Previous: ${activeDs.scheduleChange.previousDate} · ${activeDs.scheduleChange.previousBattleTimeA}/${activeDs.scheduleChange.previousBattleTimeB} server. New: ${activeDs.date} · ${activeDs.battleTimeA}/${activeDs.battleTimeB} server.`, attentionAction: "Reconfirm Availability", availabilityAction: true });
+  else if (activeDs && participant && participant.availability !== "Confirmed") attention.push({ ...records.find((item) => item.type === "ds"), attentionTitle: "Availability Required", attentionText: "Availability has not been confirmed.", attentionAction: "Confirm Availability", availabilityAction: true });
+  if (currentTheme?.status === "open" && !currentTheme.submissions?.[state.me.playerId]) attention.push({ ...records.find((item) => item.type === "theme"), attentionTitle: "Theme Entry Due", attentionText: "Your Theme Week entry has not been submitted.", attentionAction: "Submit Entry" });
+  if (currentTheme?.status === "voting" && !currentTheme.myVote) attention.push({ ...records.find((item) => item.type === "theme"), attentionTitle: "Theme Vote Open", attentionText: "Your finalist vote has not been submitted.", attentionAction: "Vote Now" });
+  if (currentVsDay && !myScores.some((entry) => entry.date === today)) attention.push({ ...records.find((item) => item.type === "vs"), attentionTitle: "VS Day Review", attentionText: `${currentVsDay.label}'s score has not been submitted.`, attentionAction: "Review VS Day" });
+
+  const completed = [
+    ...(state.events || []).filter((item) => ["completed", "archived"].includes(item.status)).map((item) => ({ id: item.id, type: "ds", label: "Desert Storm", name: `Ewar vs. ${item.opponent || "Opponent"}`, date: item.date, status: item.outcome || eventStatusLabel(item.status), memberStatus: "View participation and results", target: "history", action: "View Results", sortDate: item.date })),
+    ...(state.archivedThemeWeeks || []).map((item) => ({ id: item.id, type: "theme", label: "Theme Week", name: item.title, date: item.weekOf, status: item.winner ? `${item.winner.playerName} won` : "Winner announced", memberStatus: "Final results published", target: "history", action: "View Results", sortDate: item.weekOf })),
+    ...(state.vsWeeks || []).filter((item) => (vsWeekDays(item.beginDate).at(-1)?.date || item.beginDate) < today).map((item) => ({ id: item.id, type: "vs", label: "VS Week", name: `Ewar vs. ${item.opponent}`, date: item.beginDate, status: "Final results published", memberStatus: "Weekly summary available", target: "vsEvents", action: "View Summary", sortDate: item.beginDate }))
+  ].sort((left, right) => String(right.sortDate).localeCompare(String(left.sortDate)));
+  const live = records.filter(Boolean);
+  return { attention: attention.filter(Boolean), thisWeek: live.filter((item) => item.sortDate <= weekEnd), upcoming: live.filter((item) => item.sortDate > weekEnd).sort((a, b) => a.sortDate.localeCompare(b.sortDate)), completed };
+}
+
+function eventMatchesSelectedFilter(item) {
+  return selectedEventFilter === "all" || item.type === selectedEventFilter;
+}
+
+function renderEventAttentionCard(item) {
+  return `<article class="panel alliance-event-attention-card ${item.scheduleChange ? "schedule-updated" : ""}"><p class="eyebrow">${escapeHtml(item.attentionTitle)}</p><h4>${escapeHtml(item.label)}</h4><p>${escapeHtml(item.attentionText)}</p>${item.availabilityAction ? `<div class="event-confirm-actions"><button class="primary-button" type="button" data-availability="Confirmed">${escapeHtml(item.attentionAction)}</button><button class="secondary-button" type="button" data-view-shortcut="myAssignment">Review Assignment</button></div>` : `<button class="primary-button" type="button" data-view-shortcut="${escapeHtml(item.target)}">${escapeHtml(item.attentionAction)}</button>`}</article>`;
+}
+
+function renderEventHubCard(item) {
+  return `<article class="panel alliance-event-hub-card"><div class="alliance-event-card-heading"><div><p class="eyebrow">${escapeHtml(item.label)}</p><h4>${escapeHtml(item.name)}</h4></div>${statusBadge(item.status)}</div><p class="alliance-event-date">${escapeHtml(item.date)}${item.endDate ? `–${escapeHtml(item.endDate)}` : ""}${item.time ? ` · ${escapeHtml(item.time)} server` : ""}</p>${item.localTime ? `<p class="muted">${escapeHtml(item.localTime)} local</p>` : ""}<dl><div><dt>Current status</dt><dd>${escapeHtml(item.status)}</dd></div><div><dt>Your participation</dt><dd>${escapeHtml(item.memberStatus)}</dd></div>${item.detail ? `<div><dt>Details</dt><dd>${escapeHtml(item.detail)}</dd></div>` : ""}${item.strategy ? `<div><dt>Strategy</dt><dd>${escapeHtml(item.strategy)}</dd></div>` : ""}</dl><div class="alliance-event-card-actions"><button class="primary-button" type="button" data-view-shortcut="${escapeHtml(item.target)}">${escapeHtml(item.action)}</button>${state.permissions.isOfficer ? `<details class="event-officer-menu"><summary class="secondary-button">Officer Actions</summary><div><button class="secondary-button" type="button" data-view-shortcut="createManagement">Open Event Management</button>${item.type === "ds" ? `<button class="secondary-button" type="button" data-view-shortcut="teams">Open Roster Management</button>` : ""}</div></details>` : ""}</div></article>`;
+}
+
+function renderEventCompactRow(item) {
+  return `<article class="alliance-event-compact-row"><span class="alliance-event-icon" aria-hidden="true">${{ ds: "DS", theme: "TW", alliance: "AE", vs: "VS" }[item.type]}</span><div><p class="eyebrow">${escapeHtml(item.label)}</p><h4>${escapeHtml(item.name)}</h4><p class="muted">${escapeHtml(item.date)}${item.time ? ` · ${escapeHtml(item.time)}` : ""}</p></div><div><strong>${escapeHtml(item.status)}</strong><p class="muted">${escapeHtml(item.memberStatus || "")}</p></div><button class="secondary-button" type="button" data-view-shortcut="${escapeHtml(item.target)}">${escapeHtml(item.action || "View")}</button></article>`;
+}
+
+function handleEventHubClick(event) {
+  const filter = event.target.closest("[data-event-filter]");
+  if (filter) {
+    selectedEventFilter = filter.dataset.eventFilter;
+    renderEvents();
+    return;
+  }
+  handleAvailabilityClick(event);
+}
+
+function renderLegacyEvents() {
   const event = state.activeEvent;
   renderDsEventTeamOverview();
   elements.eventActions.innerHTML = event ? `

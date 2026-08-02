@@ -4360,6 +4360,119 @@ th {
   grid-template-columns: repeat(6, minmax(82px, 1fr));
 }
 
+/* Alliance Events schedule hub */
+.alliance-events-page {
+  --event-accent: #58aaf7;
+  --event-warm: #e6b95c;
+}
+
+.alliance-events-header { margin-bottom: 1rem; }
+
+.alliance-event-tabs {
+  display: flex;
+  gap: .45rem;
+  overflow-x: auto;
+  padding: .25rem 0 .8rem;
+  margin-bottom: 1rem;
+  scrollbar-width: thin;
+}
+
+.alliance-event-tabs button {
+  flex: 0 0 auto;
+  min-height: 42px;
+  padding: .65rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.alliance-event-tabs button.active {
+  border-color: var(--event-accent);
+  background: rgba(88, 170, 247, .16);
+  box-shadow: inset 0 0 0 1px rgba(88, 170, 247, .24);
+}
+
+.alliance-events-section { margin-top: 1.4rem; }
+.alliance-events-section-heading,
+.alliance-event-card-heading,
+.alliance-event-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .8rem;
+}
+.alliance-events-section-heading { margin-bottom: .7rem; }
+.alliance-events-section-heading h3,
+.alliance-event-card-heading h4,
+.alliance-event-compact-row h4 { margin: 0; }
+
+.alliance-events-attention-grid,
+.alliance-events-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: .85rem;
+}
+
+.alliance-event-attention-card { border-left: 4px solid var(--event-warm); }
+.alliance-event-attention-card.schedule-updated { border-left-color: #f06c75; }
+.alliance-event-attention-card h4 { margin: .15rem 0 .4rem; }
+.event-confirm-actions { display: flex; flex-wrap: wrap; gap: .55rem; margin-top: .8rem; }
+
+.alliance-event-hub-card { display: flex; flex-direction: column; gap: .75rem; }
+.alliance-event-date { font-weight: 700; margin: 0; }
+.alliance-event-hub-card dl { display: grid; gap: .55rem; margin: 0; }
+.alliance-event-hub-card dl > div { display: grid; grid-template-columns: minmax(105px, .8fr) minmax(0, 1.5fr); gap: .7rem; border-top: 1px solid var(--line); padding-top: .55rem; }
+.alliance-event-hub-card dt { color: var(--muted); }
+.alliance-event-hub-card dd { margin: 0; font-weight: 650; }
+.alliance-event-card-actions { margin-top: auto; align-items: flex-start; }
+.event-officer-menu { position: relative; }
+.event-officer-menu summary { list-style: none; cursor: pointer; }
+.event-officer-menu summary::-webkit-details-marker { display: none; }
+.event-officer-menu > div { display: grid; gap: .4rem; margin-top: .45rem; }
+
+.alliance-events-compact-list { display: grid; }
+.alliance-event-compact-row {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1.4fr) minmax(160px, 1fr) auto;
+  align-items: center;
+  gap: .8rem;
+  padding: .8rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.alliance-event-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(88, 170, 247, .14);
+  color: var(--event-accent);
+  font-size: .72rem;
+  font-weight: 800;
+}
+.alliance-event-compact-row p { margin: .2rem 0 0; }
+.alliance-events-completed { opacity: .9; }
+
+@media (max-width: 720px) {
+  .alliance-events-card-grid,
+  .alliance-events-attention-grid { grid-template-columns: 1fr; }
+  .alliance-event-compact-row { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+  .alliance-event-compact-row > div:nth-of-type(2),
+  .alliance-event-compact-row > button { grid-column: 2; }
+  .alliance-event-compact-row > button { justify-self: start; }
+  .alliance-events-section-heading { align-items: flex-start; }
+}
+
+@media (max-width: 420px) {
+  .alliance-event-hub-card dl > div { grid-template-columns: 1fr; gap: .15rem; }
+  .alliance-event-card-actions { align-items: stretch; flex-direction: column; }
+  .alliance-event-card-actions > button,
+  .event-officer-menu,
+  .event-officer-menu summary { width: 100%; }
+}
+
 .journal-tab-button,
 .journal-plan-button {
   background: linear-gradient(145deg, #a71920, #5d090d);
