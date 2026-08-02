@@ -160,6 +160,8 @@ elements.privateMessageList = document.querySelector("#privateMessageList");
 elements.dailyChatForm = document.querySelector("#dailyChatForm");
 elements.dailyChatList = document.querySelector("#dailyChatList");
 elements.dailyChatDate = document.querySelector("#dailyChatDate");
+elements.dailyChatHistoryDate = document.querySelector("#dailyChatHistoryDate");
+elements.allianceCelebrationsList = document.querySelector("#allianceCelebrationsList");
 elements.journalForm = document.querySelector("#journalForm");
 elements.journalEntries = document.querySelector("#journalEntries");
 elements.journalTabButton = document.querySelector("#journalTabButton");
@@ -323,8 +325,10 @@ function bindControls() {
   elements.publishDsSetupButton.addEventListener("click", publishDsSetup);
   elements.announcementForm.addEventListener("submit", postAnnouncement);
   elements.announcementList.addEventListener("click", handleAnnouncementClick);
-  elements.privateMessageForm.addEventListener("submit", handlePrivateMessageSubmit);
+  elements.announcementList.addEventListener("submit", handleAnnouncementEditSubmit);
+  elements.privateMessageForm?.addEventListener("submit", handlePrivateMessageSubmit);
   elements.dailyChatForm.addEventListener("submit", handleDailyChatSubmit);
+  elements.dailyChatHistoryDate?.addEventListener("change", renderDashboardChat);
   elements.allianceEventForm.addEventListener("submit", handleAllianceEventSubmit);
   elements.allianceEventList.addEventListener("click", handleAllianceEventClick);
   elements.themeWeekForm.addEventListener("submit", handleThemeWeekCreate);
@@ -782,7 +786,11 @@ async function handleBriefingMessageClick(event) {
   const read = event.target.closest("[data-read-message]");
   const reply = event.target.closest("[data-reply-message]");
   if (reply) {
-    showView("dashboard");
+    if (!elements.privateMessageForm || !elements.privateMessageRecipient) {
+      showView("userProfile");
+      setStatus("Private conversations are preserved and will move to the future My Messages profile tab");
+      return;
+    }
     elements.privateMessageRecipient.value = reply.dataset.replyMessage;
     elements.privateMessageForm.scrollIntoView({ behavior: "smooth", block: "start" });
     elements.privateMessageForm.querySelector("textarea, input[name='message']")?.focus();
@@ -1703,7 +1711,7 @@ async function handleAvailabilityNote(event) {
   }
 }
 
-function renderDashboard() {
+function renderLegacyDashboard() {
   const selectedMembers = selected();
   const confirmed = selectedMembers.filter((member) => member.availability === "Confirmed").length;
   const readinessA = readiness("A");
@@ -1748,6 +1756,86 @@ function renderDashboard() {
   elements.dailyChatList.innerHTML = (state.dailyChat || []).map((message) =>
     `<div class="community-message">${memberMiniProfile({ id: message.playerId, name: message.playerName, profileImage: message.profileImage }, formatDateTime(message.createdAt))}<p>${escapeHtml(message.text)}</p></div>`
   ).join("") || `<p class="muted">No team chat messages today.</p>`;
+}
+
+function buildEwarDashboardViewModel() {
+  const teamA = selected("A");
+  const teamB = selected("B");
+  const confirmedA = teamA.filter((member) => member.availability === "Confirmed").length;
+  const confirmedB = teamB.filter((member) => member.availability === "Confirmed").length;
+  const capacityA = 30;
+  const capacityB = 30;
+  const readiness = Math.round((confirmedA + confirmedB) / (capacityA + capacityB) * 100);
+  const readinessStatus = readiness >= 90 ? "Ready" : readiness >= 70 ? "Nearly Ready" : "Needs Attention";
+  const priorityRank = { critical: 4, high: 3, normal: 2, low: 1 };
+  const nowKey = localDateKeyForBriefings();
+  const announcements = (state.announcements || [])
+    .filter((item) => item.status !== "archived" && (!item.expiresAt || item.expiresAt >= nowKey))
+    .map((item) => ({ ...item, priority: String(item.priority || "normal").toLowerCase(), status: item.status || "published" }))
+    .sort((left, right) => Number(Boolean(right.pinned)) - Number(Boolean(left.pinned))
+      || (priorityRank[right.priority] || 2) - (priorityRank[left.priority] || 2)
+      || Number(!right.acknowledgedAt) - Number(!left.acknowledgedAt)
+      || String(right.createdAt).localeCompare(String(left.createdAt)));
+  const celebrations = [
+    ...(state.announcements || []).filter((item) => item.sourceKey).map((item) => ({ id: item.sourceKey || item.id, title: item.title, detail: item.summary, date: item.createdAt, type: "Alliance achievement", target: "vsEvents" })),
+    ...[...(state.themeWeeks || []), ...(state.archivedThemeWeeks || [])].filter((item) => item.winner).map((item) => ({ id: `theme-${item.id}`, title: `${item.winner.playerName} won ${item.title}`, detail: `Theme Week winner with ${item.winner.votes || 0} votes.`, date: item.updatedAt, type: "Theme Week", playerId: item.winner.playerId, target: "themeWeek" })),
+    ...(state.battles || []).filter((item) => ["win", "victory"].includes(String(item.outcome).toLowerCase())).map((item) => ({ id: `battle-${item.id}`, title: "Ewar secured a Desert Storm victory", detail: `${item.scoreFor || 0}–${item.scoreAgainst || 0} vs ${item.opponent || "the opposing alliance"}.`, date: item.date, type: "Desert Storm", target: "history" }))
+  ].filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index)
+    .sort((left, right) => String(right.date).localeCompare(String(left.date))).slice(0, 8);
+  return {
+    metrics: [
+      { id: "members", label: "Members", value: state.members.length },
+      { id: "team-a-signups", label: "Team A Sign-ups", value: `${teamA.length}/${capacityA}` },
+      { id: "team-b-signups", label: "Team B Sign-ups", value: `${teamB.length}/${capacityB}` },
+      { id: "confirmed-a", label: "Confirmed A", value: confirmedA },
+      { id: "confirmed-b", label: "Confirmed B", value: confirmedB },
+      { id: "readiness", label: "Readiness", value: `${readiness}%`, status: readinessStatus }
+    ],
+    announcements, celebrations,
+    canManageAnnouncements: state.permissions.isOfficer,
+    chatDates: Object.keys(state.dailyChatHistory || {}).sort().reverse(),
+    currentChatDate: state.dailyChatDate || nowKey
+  };
+}
+
+function renderDashboardMetric(metric) {
+  return `<article class="ewar-dashboard-metric metric-${escapeHtml(metric.id)}"><span>${escapeHtml(metric.label)}</span><strong>${escapeHtml(metric.value)}</strong>${metric.status ? `<small>${escapeHtml(metric.status)}</small>` : ""}</article>`;
+}
+
+function renderAnnouncementCard(announcement, canManage) {
+  const unread = !announcement.acknowledgedAt;
+  return `<article class="ewar-dashboard-announcement priority-${escapeHtml(announcement.priority)} ${unread ? "is-unread" : "is-read"}">
+    <div class="ewar-dashboard-announcement-marker"><span>${escapeHtml(humanize(announcement.priority))}</span>${announcement.pinned ? "<b>Pinned</b>" : ""}</div>
+    <div class="ewar-dashboard-announcement-copy"><h4>${escapeHtml(announcement.title)}</h4><p>${escapeHtml(announcement.summary)}</p><small>${escapeHtml(announcement.createdByName || "Ewar Officer")} · ${escapeHtml(formatDateTime(announcement.createdAt))} · ${unread ? "Unread" : "Read"}</small></div>
+    <details class="ewar-dashboard-announcement-details"><summary class="secondary-button">Open</summary><div><p>${escapeHtml(announcement.body || announcement.summary)}</p>${announcement.attachment ? (announcement.attachment.startsWith("data:image/") ? `<img src="${announcement.attachment}" alt="Attachment for ${escapeHtml(announcement.title)}">` : `<a class="secondary-button" href="${announcement.attachment}" download="${escapeHtml(announcement.attachmentName || "attachment")}">Download attachment</a>`) : ""}<div class="action-row">${unread ? `<button class="secondary-button" type="button" data-announcement-acknowledge="${escapeHtml(announcement.id)}">Mark read</button>` : ""}<button class="secondary-button ${announcement.markedHelpful ? "is-active" : ""}" type="button" data-announcement-helpful="${escapeHtml(announcement.id)}">Helpful · ${Number(announcement.helpfulCount || 0)}</button></div>${canManage ? `<details><summary>Edit announcement</summary><form data-edit-announcement="${escapeHtml(announcement.id)}" class="ewar-dashboard-edit-form"><label>Title<input name="title" maxlength="120" value="${escapeHtml(announcement.title)}" required></label><label>Summary<textarea name="summary" maxlength="280" required>${escapeHtml(announcement.summary)}</textarea></label><label>Full message<textarea name="body" maxlength="4000">${escapeHtml(announcement.body || "")}</textarea></label><label>Priority<select name="priority">${["Critical", "High", "Normal", "Low"].map((value) => `<option ${announcement.priority === value.toLowerCase() ? "selected" : ""}>${value}</option>`).join("")}</select></label><label>Expiration<input name="expiresAt" type="date" value="${escapeHtml(announcement.expiresAt || "")}"></label><label class="checkbox-label"><input name="pinned" type="checkbox" ${announcement.pinned ? "checked" : ""}> Pinned</label><button class="primary-button" type="submit">Save Changes</button><button class="danger-button" type="button" data-delete-announcement="${escapeHtml(announcement.id)}">Delete</button></form></details>` : ""}</div></details>
+  </article>`;
+}
+
+function renderDashboardChat() {
+  const selectedDate = elements.dailyChatHistoryDate?.value || state.dailyChatDate;
+  const messages = state.dailyChatHistory?.[selectedDate] || (selectedDate === state.dailyChatDate ? state.dailyChat || [] : []);
+  elements.dailyChatDate.textContent = selectedDate === state.dailyChatDate ? `${selectedDate} · Today's alliance chat` : `${selectedDate} · Chat history`;
+  elements.dailyChatList.innerHTML = messages.map((message) => `<article class="ewar-dashboard-chat-message">${memberMiniProfile({ id: message.playerId, name: message.playerName, profileImage: message.profileImage }, formatDateTime(message.createdAt))}<p>${escapeHtml(message.text)}</p></article>`).join("") || `<p class="muted">No messages yet ${selectedDate === state.dailyChatDate ? "today. Start the daily conversation." : "for this day."}</p>`;
+  elements.dailyChatForm.hidden = selectedDate !== state.dailyChatDate;
+  elements.dailyChatList.scrollTop = elements.dailyChatList.scrollHeight;
+}
+
+function renderEwarDashboard() {
+  const vm = buildEwarDashboardViewModel();
+  elements.summaryCards.innerHTML = vm.metrics.map(renderDashboardMetric).join("");
+  elements.announcementList.innerHTML = vm.announcements.map((item) => renderAnnouncementCard(item, vm.canManageAnnouncements)).join("") || `<p class="muted">${vm.canManageAnnouncements ? "No announcements have been published. Create the first announcement." : "No current Ewar announcements."}</p>`;
+  if (elements.dailyChatHistoryDate) {
+    const dates = vm.chatDates.includes(vm.currentChatDate) ? vm.chatDates : [vm.currentChatDate, ...vm.chatDates];
+    const previous = elements.dailyChatHistoryDate.value;
+    elements.dailyChatHistoryDate.innerHTML = dates.map((date) => `<option value="${escapeHtml(date)}">${date === vm.currentChatDate ? `${escapeHtml(date)} · Today` : escapeHtml(date)}</option>`).join("");
+    elements.dailyChatHistoryDate.value = dates.includes(previous) ? previous : vm.currentChatDate;
+  }
+  renderDashboardChat();
+  elements.allianceCelebrationsList.innerHTML = vm.celebrations.map((item) => `<article class="ewar-dashboard-celebration"><span aria-hidden="true">★</span><div><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.detail)}</p><small>${escapeHtml(item.type)} · ${escapeHtml(formatDateTime(item.date))}</small></div><button class="secondary-button" type="button" data-view-shortcut="${escapeHtml(item.target)}">View Results</button></article>`).join("") || `<p class="muted">No recent celebration messages. New achievements will appear here.</p>`;
+}
+
+function renderDashboard() {
+  renderEwarDashboard();
 }
 
 function handleAvailabilityPrompt(event) {
@@ -1795,12 +1883,21 @@ function previewAchievementTrigger() {
 async function handleDailyChatSubmit(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
+  const submit = event.currentTarget.querySelector("[type='submit']");
+  if (submit.disabled) return;
   try {
+    submit.disabled = true;
+    submit.textContent = "Sending…";
     await api.postDailyChat(form.get("text"));
     event.currentTarget.reset();
     await refreshState();
     setStatus("Team chat message posted");
-  } catch (error) { setStatus(error.message, true); }
+  } catch (error) {
+    setStatus(error.message, true);
+  } finally {
+    submit.disabled = false;
+    submit.textContent = "Send";
+  }
 }
 
 async function postAnnouncement(event) {
@@ -1819,6 +1916,10 @@ async function postAnnouncement(event) {
     await api.addAnnouncement({
       title: formData.get("title"),
       summary: formData.get("summary"),
+      body: formData.get("body"),
+      priority: formData.get("priority"),
+      pinned: event.currentTarget.elements.pinned.checked,
+      expiresAt: formData.get("expiresAt"),
       attachment,
       attachmentName: file?.name || ""
     });
@@ -1832,13 +1933,16 @@ async function handleAnnouncementClick(event) {
   const deleteButton = event.target.closest("[data-delete-announcement]");
   const helpfulButton = event.target.closest("[data-announcement-helpful]");
   const replyButton = event.target.closest("[data-announcement-reply]");
-  if (!deleteButton && !helpfulButton && !replyButton) return;
+  const acknowledgeButton = event.target.closest("[data-announcement-acknowledge]");
+  if (!deleteButton && !helpfulButton && !replyButton && !acknowledgeButton) return;
   try {
     if (deleteButton) {
       if (!confirm("Delete this announcement?")) return;
       await api.deleteAnnouncement(deleteButton.dataset.deleteAnnouncement);
     } else if (helpfulButton) {
       await api.toggleAnnouncementHelpful(helpfulButton.dataset.announcementHelpful);
+    } else if (acknowledgeButton) {
+      await api.acknowledgeAnnouncement(acknowledgeButton.dataset.announcementAcknowledge);
     } else {
       const id = replyButton.dataset.announcementReply;
       const input = elements.announcementList.querySelector(`[data-announcement-reply-text="${CSS.escape(id)}"]`);
@@ -1846,6 +1950,25 @@ async function handleAnnouncementClick(event) {
     }
     await refreshState();
   } catch (error) { setStatus(error.message, true); }
+}
+
+async function handleAnnouncementEditSubmit(event) {
+  const form = event.target.closest("[data-edit-announcement]");
+  if (!form) return;
+  event.preventDefault();
+  const submit = form.querySelector("[type='submit']");
+  try {
+    submit.disabled = true;
+    const payload = Object.fromEntries(new FormData(form));
+    payload.pinned = form.elements.pinned.checked;
+    await api.updateAnnouncement(form.dataset.editAnnouncement, payload);
+    await refreshState();
+    setStatus("Announcement updated");
+  } catch (error) {
+    setStatus(error.message, true);
+  } finally {
+    submit.disabled = false;
+  }
 }
 
 function renderDirectory() {

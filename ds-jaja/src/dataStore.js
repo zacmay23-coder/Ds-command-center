@@ -420,6 +420,13 @@ export async function getClientState(user) {
       playerName: state.players[message.playerId]?.gameName || "Alliance member",
       profileImage: state.players[message.playerId]?.profileImage || ""
     })),
+    dailyChatHistory: Object.fromEntries(Object.entries(state.dailyChats || {}).map(([date, messages]) => [date,
+      messages.slice(-300).map((message) => ({
+        ...message,
+        playerName: state.players[message.playerId]?.gameName || "Alliance member",
+        profileImage: state.players[message.playerId]?.profileImage || ""
+      }))
+    ])),
     dailyChatDate: localDateKey(),
     myJournal: (Array.isArray(state.userJournals[user.uid]) ? state.userJournals[user.uid] : [])
       .map((item) => normalizePrivateJournal(item, user.uid)),
@@ -486,6 +493,14 @@ export async function addAnnouncement(input, actor) {
     summary: String(input.summary || "").trim().slice(0, 1200),
     attachment: String(input.attachment || ""),
     attachmentName: String(input.attachmentName || "").slice(0, 160),
+    body: String(input.body || input.summary || "").trim().slice(0, 4000),
+    priority: ["critical", "high", "normal", "low"].includes(String(input.priority || "").toLowerCase()) ? String(input.priority).toLowerCase() : "normal",
+    pinned: Boolean(input.pinned),
+    status: "published",
+    audienceType: "all",
+    audienceIds: [],
+    relatedEventId: String(input.relatedEventId || ""),
+    expiresAt: String(input.expiresAt || ""),
     acknowledgements: {},
     replies: [],
     helpful: {},
@@ -494,6 +509,28 @@ export async function addAnnouncement(input, actor) {
   };
   if (!announcement.title || !announcement.summary) throw statusError(422, "Enter an announcement title and summary");
   state.announcements.unshift(announcement);
+  await saveState();
+  return announcement;
+}
+
+export async function updateAnnouncement(announcementId, input, actor) {
+  const state = await getState();
+  const announcement = state.announcements.find((item) => item.id === announcementId);
+  if (!announcement) throw statusError(404, "Announcement was not found");
+  const priority = String(input.priority ?? announcement.priority ?? "normal").toLowerCase();
+  const patch = {
+    title: String(input.title ?? announcement.title).trim().slice(0, 120),
+    summary: String(input.summary ?? announcement.summary).trim().slice(0, 280),
+    body: String(input.body ?? announcement.body ?? announcement.summary).trim().slice(0, 4000),
+    priority: ["critical", "high", "normal", "low"].includes(priority) ? priority : "normal",
+    pinned: input.pinned === undefined ? Boolean(announcement.pinned) : Boolean(input.pinned),
+    expiresAt: String(input.expiresAt ?? announcement.expiresAt ?? ""),
+    status: ["published", "archived"].includes(input.status) ? input.status : announcement.status || "published",
+    updatedAt: now(),
+    updatedBy: actor.uid
+  };
+  if (!patch.title || !patch.summary) throw statusError(422, "Enter an announcement title and summary");
+  Object.assign(announcement, patch);
   await saveState();
   return announcement;
 }
@@ -602,7 +639,6 @@ export async function postDailyChatMessage(input, actor) {
   };
   state.dailyChats[date].push(message);
   state.dailyChats[date] = state.dailyChats[date].slice(-500);
-  for (const key of Object.keys(state.dailyChats).sort().slice(0, -7)) delete state.dailyChats[key];
   await saveState();
   return message;
 }

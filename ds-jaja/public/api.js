@@ -185,6 +185,9 @@ export const api = {
   async addAnnouncement(payload) {
     return request("/api/announcements", { method: "POST", body: JSON.stringify(payload) });
   },
+  async updateAnnouncement(id, payload) {
+    return request(`/api/announcements/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) });
+  },
   async acknowledgeAnnouncement(id) {
     return request(`/api/announcements/${encodeURIComponent(id)}/acknowledge`, { method: "POST", body: "{}" });
   },

@@ -55,6 +55,7 @@ import {
   addMemberNotice,
   addOfficerQuestion,
   addAnnouncement,
+  updateAnnouncement,
   acknowledgeAnnouncement,
   replyToAnnouncement,
   toggleAnnouncementHelpful,
@@ -165,6 +166,11 @@ export async function handleApi(request, response, url) {
     return;
   }
   const announcementRoute = url.pathname.match(/^\/api\/announcements\/([^/]+)$/);
+  if (announcementRoute && request.method === "PATCH") {
+    requireRole(user, ROLES.OFFICER);
+    sendJson(response, 200, await updateAnnouncement(decodeURIComponent(announcementRoute[1]), await readJsonBody(request), user));
+    return;
+  }
   if (announcementRoute && request.method === "DELETE") {
     requireRole(user, ROLES.OFFICER);
     sendJson(response, 200, await deleteAnnouncement(decodeURIComponent(announcementRoute[1])));

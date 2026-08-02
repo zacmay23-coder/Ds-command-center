@@ -223,45 +223,44 @@
           <div id="themeWeekContent"></div>
         </section>
 
-        <section id="dashboard" class="view active">
-          <div class="section-title">
+        <section id="dashboard" class="view active ewar-dashboard-page">
+          <div class="section-title ewar-dashboard-header">
             <h2>Ewar Dashboard</h2>
-            <p>Current alliance posture, readiness indicators, and command announcements.</p>
           </div>
-          <div class="dashboard-section-label"><span>Operational overview</span><small>Live weekly status</small></div>
-          <div id="summaryCards" class="summary-grid"></div>
-          <details class="dashboard-command-composer panel" data-role="officer">
-            <summary>Post a command announcement</summary>
+          <section class="ewar-dashboard-overview" aria-labelledby="dashboardOverviewTitle">
+            <h3 id="dashboardOverviewTitle">Overview</h3>
+            <div id="summaryCards" class="ewar-dashboard-metrics"></div>
+          </section>
+          <section class="panel ewar-dashboard-announcements" aria-labelledby="ewarAnnouncementsTitle">
+            <div class="ewar-dashboard-section-heading"><div><p class="eyebrow">Alliance communications</p><h3 id="ewarAnnouncementsTitle">Ewar Announcements</h3></div></div>
+            <details class="ewar-dashboard-announcement-editor" data-role="officer">
+              <summary class="primary-button">Create Announcement</summary>
             <form id="announcementForm" class="announcement-editor">
               <label>Title<input name="title" maxlength="120" required></label>
-              <label>Summary<textarea name="summary" maxlength="1200" required></textarea></label>
+              <label>Summary<textarea name="summary" maxlength="280" required></textarea></label>
+              <label>Full message<textarea name="body" maxlength="4000"></textarea></label>
+              <label>Priority<select name="priority"><option>Normal</option><option>Critical</option><option>High</option><option>Low</option></select></label>
+              <label>Expiration date<input name="expiresAt" type="date"></label>
+              <label class="checkbox-label"><input name="pinned" type="checkbox"> Pin announcement</label>
               <label>Photo or file<input name="attachmentFile" type="file" accept="image/*,.pdf,.txt,.doc,.docx"></label>
               <button class="primary-button" type="submit">Publish announcement</button>
             </form>
-          </details>
-          <div class="dashboard-section-label dashboard-announcement-label"><span>Command feed</span><small>Current notices and attachments</small></div>
-          <div id="announcementList" class="announcement-list"></div>
-          <div class="dashboard-community-grid">
-            <section class="panel">
-              <div class="dashboard-section-label"><span>Private messages</span><small>Visible only to sender and recipient</small></div>
-              <form id="privateMessageForm" class="community-composer">
-                <select name="recipientUid" id="privateMessageRecipient" required></select>
-                <textarea name="text" maxlength="1000" placeholder="Write a private message" required></textarea>
-                <button class="primary-button" type="submit">Send privately</button>
-              </form>
-              <div id="privateMessageList" class="community-feed"></div>
-            </section>
-            <section class="panel">
-              <div class="dashboard-section-label"><span>Daily team chat</span><small id="dailyChatDate"></small></div>
-              <form id="dailyChatForm" class="community-composer">
-                <input name="text" maxlength="500" placeholder="Message the alliance team" required>
-                <button class="primary-button" type="submit">Post</button>
-              </form>
-              <div id="dailyChatList" class="community-feed"></div>
-            </section>
-          </div>
-          <div class="dashboard-section-label dashboard-readiness-label"><span>Battle readiness</span><small>Team A and Team B</small></div>
-          <div id="readinessPanels" class="readiness-grid"></div>
+            </details>
+            <div id="announcementList" class="ewar-dashboard-announcement-list"></div>
+          </section>
+          <section class="panel ewar-dashboard-chat" aria-labelledby="dailyTeamChatTitle">
+            <div class="ewar-dashboard-section-heading"><div><p class="eyebrow">Alliance-wide conversation</p><h3 id="dailyTeamChatTitle">Daily Team Chat</h3></div><label>Chat date<select id="dailyChatHistoryDate" aria-label="Daily chat date"></select></label></div>
+            <div id="dailyChatList" class="ewar-dashboard-chat-list"></div>
+            <form id="dailyChatForm" class="ewar-dashboard-chat-form">
+              <label>Message<input name="text" maxlength="500" placeholder="Message the alliance team" required></label>
+              <button class="primary-button" type="submit">Send</button>
+            </form>
+            <small id="dailyChatDate" class="muted"></small>
+          </section>
+          <section class="panel ewar-dashboard-celebrations" aria-labelledby="allianceCelebrationsTitle">
+            <div class="ewar-dashboard-section-heading"><div><p class="eyebrow">Recent victories</p><h3 id="allianceCelebrationsTitle">Alliance Celebrations</h3></div></div>
+            <div id="allianceCelebrationsList"></div>
+          </section>
         </section>
 
         <section id="events" class="view">
