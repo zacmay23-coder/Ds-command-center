@@ -290,6 +290,11 @@ function bindControls() {
   elements.participationTeam.addEventListener("change", renderParticipation);
   elements.participationUnit.addEventListener("change", renderParticipation);
   elements.myAssignmentContent.addEventListener("click", handleAvailabilityClick);
+  elements.myAssignmentContent.addEventListener("click", (event) => {
+    const shortcut = event.target.closest("[data-briefing-scroll]");
+    if (!shortcut) return;
+    elements.myAssignmentContent.querySelector(`[data-briefing-section="${CSS.escape(shortcut.dataset.briefingScroll)}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
   elements.myAssignmentContent.addEventListener("click", handleAvailabilityPrompt);
   elements.myAssignmentContent.addEventListener("click", handleThemeWeekClick);
   elements.myAssignmentContent.addEventListener("change", handleAvailabilityNote);
@@ -1128,7 +1133,7 @@ function renderEventBanner() {
   `;
 }
 
-function renderMyAssignment() {
+function renderLegacyMyAssignment() {
   const event = state.activeEvent;
   const playerId = state.me.playerId;
   const participant = state.participants.find((item) => item.playerId === playerId);
@@ -1360,6 +1365,125 @@ function renderMyAssignment() {
     </section>
     ${pendingThemes.length ? `<p class="weekly-notice">${pendingThemes.length} theme-week update${pendingThemes.length === 1 ? "" : "s"} require acknowledgement.</p>` : ""}
   `;
+}
+
+function buildMyBriefingsViewModel() {
+  const player = state.players.find((item) => item.id === state.me.playerId);
+  const participant = state.participants.find((item) => item.playerId === state.me.playerId);
+  const event = state.activeEvent;
+  const strategy = participant ? state.eventStrategy?.[participant.team] : null;
+  const today = localDateKeyForBriefings();
+  const { start: weekStart, end: weekEnd } = briefingWeekBounds();
+  const updates = [
+    ...(state.privateMessages || []).filter((item) => item.direction === "received").map((item) => ({ title: item.senderName, detail: item.text, time: item.createdAt, unread: !item.readAtByRecipient, type: item.priority === "assignment_change" ? "Assignment change" : "Officer instruction", tone: "officer" })),
+    ...(state.announcements || []).map((item) => ({ title: item.title, detail: item.summary, time: item.createdAt, unread: !item.acknowledgedAt, type: "Alliance", tone: "announcement" })),
+    ...(state.allianceWeeklyEvents || []).filter((item) => item.date >= today).map((item) => ({ title: item.name, detail: `${item.date} · ${item.time} server · ${item.overview}`, time: item.updatedAt || item.createdAt || `${item.date}T${item.time}:00`, type: "Event", tone: "event" })),
+    ...(event && participant ? [{ title: `Team ${participant.team} · ${participant.tacticalGroup || "Unit pending"}`, detail: `${participant.role || "Role pending"} · ${participant.primaryAssignment || "Objective pending"}`, time: participant.updatedAt || event.updatedAt, type: "Assignment", tone: "assignment" }] : [])
+  ].filter((item) => item.time).sort((a, b) => String(b.time).localeCompare(String(a.time)));
+  const strategyName = strategy?.name || (participant && event?.[`strategy${participant.team}`]) || "";
+  const todayEvents = [
+    ...(event?.date === today ? [{
+      id: event.id,
+      title: event.name || event.title || "Desert Storm",
+      localTime: serverToLocal(event.date, participant ? event[`battleTime${participant.team}`] : event.battleTimeA),
+      detail: participant ? `Team ${participant.team} · ${participant.tacticalGroup || "Unit pending"}` : event.opponent ? `vs ${event.opponent}` : "Event details available",
+      status: eventStatusLabel(event.status)
+    }] : []),
+    ...(state.allianceWeeklyEvents || []).filter((item) => item.date === today).map((item) => ({
+      id: item.id,
+      title: item.name,
+      localTime: serverToLocal(item.date, item.time),
+      detail: item.overview || "Alliance event",
+      status: "Scheduled"
+    }))
+  ];
+  const weeklyGoals = (state.myGoals || [])
+    .filter((goal) => !["archived", "missed"].includes(goal.status))
+    .filter((goal) => {
+      if (["weekly", "vs_weekly"].includes(goal.goalType)) {
+        const overlapsWeek = (!goal.startDate || goal.startDate <= weekEnd) && (!goal.dueDate || goal.dueDate >= weekStart);
+        const completedThisWeek = goal.completedAt && localDateKeyForBriefings(new Date(goal.completedAt)) >= weekStart && localDateKeyForBriefings(new Date(goal.completedAt)) <= weekEnd;
+        return overlapsWeek && (goal.status !== "completed" || completedThisWeek);
+      }
+      const startsThisWeek = goal.startDate && goal.startDate >= weekStart && goal.startDate <= weekEnd;
+      const dueThisWeek = goal.dueDate && goal.dueDate >= weekStart && goal.dueDate <= weekEnd;
+      const spansThisWeek = (!goal.startDate || goal.startDate <= weekEnd) && (!goal.dueDate || goal.dueDate >= weekStart);
+      return startsThisWeek || dueThisWeek || spansThisWeek;
+    })
+    .sort((left, right) => String(left.dueDate || weekEnd).localeCompare(String(right.dueDate || weekEnd)))
+    .slice(0, 5);
+  return {
+    player, participant, event, strategy, strategyName,
+    battleTime: participant && event ? event[`battleTime${participant.team}`] : "",
+    today, unreadCount: updates.filter((item) => item.unread).length,
+    daily: updates.filter((item) => item.unread || ["assignment", "officer", "event"].includes(item.tone)).slice(0, 5),
+    previous: updates.slice(5, 13),
+    goals: (state.myGoals || []).filter((item) => !["archived", "missed"].includes(item.status)).slice(0, 4),
+    achievements: (state.myAchievements || []).filter((item) => !item.dismissedAt).slice(0, 3),
+    todayEvents, weeklyGoals, weekStart, weekEnd,
+    supportsMap: Boolean(event && participant)
+  };
+}
+
+function renderBriefingRows(items, emptyMessage) {
+  return items.length ? items.map((item) => `<article class="my-briefings-update briefing-update-${escapeHtml(item.tone)}"><span aria-hidden="true">${item.tone === "assignment" ? "◆" : item.tone === "officer" ? "!" : "•"}</span><div><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.detail)}</p><small>${escapeHtml(formatDateTime(item.time))}${item.unread ? " · New" : ""}</small></div></article>`).join("") : `<p class="muted">${escapeHtml(emptyMessage)}</p>`;
+}
+
+function localDateKeyForBriefings(date = new Date()) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
+function briefingWeekBounds(date = new Date()) {
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = start.getDay();
+  start.setDate(start.getDate() - (day === 0 ? 6 : day - 1));
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  return { start: localDateKeyForBriefings(start), end: localDateKeyForBriefings(end) };
+}
+
+function renderWeeklyGoalRows(goals) {
+  if (!goals.length) return `<p class="muted">No goals have been submitted for this week.</p>`;
+  return goals.map((goal) => {
+    const target = Math.max(1, Number(goal.targetValue || 1));
+    const current = Math.max(0, Number(goal.currentValue || 0));
+    const percent = goal.status === "completed" ? 100 : Math.min(100, Math.round(current / target * 100));
+    return `<article class="my-briefings-weekly-goal"><div><strong>${escapeHtml(goal.title)}</strong><small>${escapeHtml(humanize(goal.goalType))}${goal.dueDate ? ` · due ${escapeHtml(goal.dueDate)}` : ""}</small></div><div class="my-briefings-goal-progress" aria-label="${percent}% complete"><i style="width:${percent}%"></i></div><span>${percent}%</span></article>`;
+  }).join("");
+}
+
+function renderMyAssignment() {
+  const vm = buildMyBriefingsViewModel();
+  const { player, participant, event, strategy, battleTime } = vm;
+  if (!player) {
+    elements.myAssignmentContent.innerHTML = emptyState("Your account is not linked to a roster player yet. Ask an administrator to link it.");
+    return;
+  }
+  const eventTitle = event?.name || event?.title || "Desert Storm";
+  const primary = participant?.primaryAssignment || participant?.unit || "";
+  const backup = participant?.backupAssignment || "";
+  const marker = objectivePositions[primary];
+  const phases = battlePhases.map((phase) => {
+    const order = strategy?.orders?.[phase]?.[participant?.tacticalGroup] || strategy?.orders?.[phase]?.[participant?.unit];
+    return { phase, title: order?.action || (phase === "0-5" ? "Opening Move" : phase === "25-30" ? "Finish Strong" : "Control and Hold"), objective: order?.instruction || order?.objective || strategy?.description || "Follow the published team battle plan." };
+  });
+  const profileImage = player.profileImage || state.me.accountPhotoUrl || "";
+  elements.myAssignmentContent.innerHTML = `
+    <article class="panel my-briefings-identity"><div class="my-briefings-avatar">${profileImage ? `<img src="${escapeHtml(profileImage)}" alt="${escapeHtml(player.gameName)} profile picture" style="object-fit:${escapeHtml(player.profileImageFit || "cover")};object-position:${escapeHtml(player.profileImagePosition || "center")}">` : `<span>${escapeHtml(player.gameName.split(/\s+/).map((word) => word[0]).join("").slice(0, 2))}</span>`}</div><div><p class="eyebrow">Your command briefing</p><h3>Welcome, ${escapeHtml(player.gameName)}.</h3><p>${escapeHtml(player.rank || state.me.profileTitle || "Alliance Member")} · ${participant ? `Team ${escapeHtml(participant.team)} · ${escapeHtml(participant.tacticalGroup || "Reserve")}` : "Reserve"}</p></div><button class="secondary-button" type="button" data-view-shortcut="userProfile">View Profile</button></article>
+    <div class="my-briefings-heading-row"><span>${vm.unreadCount} unread briefing${vm.unreadCount === 1 ? "" : "s"}</span></div>
+    <section class="my-briefings-event-grid">
+      <article class="panel my-briefings-event"><div class="my-briefings-event-title"><div><p class="eyebrow">Daily operations</p><h3>Today's Events</h3></div><span>${vm.todayEvents.length} item${vm.todayEvents.length === 1 ? "" : "s"}</span></div>${vm.todayEvents.length ? `<ul class="my-briefings-event-bulletins">${vm.todayEvents.map((item) => `<li><span class="my-briefings-event-check" aria-hidden="true">□</span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.localTime)} · ${escapeHtml(item.detail)}</small></div><span>${escapeHtml(item.status)}</span></li>`).join("")}</ul>` : event ? `<div class="my-briefings-no-event"><p>No event is scheduled for today.</p><strong>Next: ${escapeHtml(eventTitle)}</strong><small>${escapeHtml(event.date)} · ${escapeHtml(serverToLocal(event.date, battleTime))}</small></div>` : `<div class="my-briefings-no-event"><p>No event is scheduled for today.</p><small>Your next published event will appear here automatically.</small></div>`}</article>
+      <article class="panel my-briefings-availability"><p class="eyebrow">Availability</p><h3>${participant ? escapeHtml(humanize(participant.availability || "No response")) : "Assignment pending"}</h3>${event && participant ? `<div class="my-briefings-availability-buttons" role="group" aria-label="Availability for ${escapeHtml(eventTitle)}">${[["Confirmed", "I'm Ready"], ["Tentative", "Maybe"], ["Unavailable", "Not Available"]].map(([value, label]) => `<button class="${participant.availability === value ? "primary-button" : "secondary-button"}" type="button" data-availability="${value}">${label}</button>`).join("")}</div><label>Optional note<input id="availabilityNote" value="${escapeHtml(participant.availabilityNote || "")}" maxlength="180" placeholder="Add a short note"></label><small>Event-specific response · updated ${escapeHtml(formatDateTime(participant.updatedAt))}</small>` : `<p class="muted">Availability opens when your event assignment is published.</p>`}</article>
+    </section>
+    <nav class="panel my-briefings-quick-access" aria-label="Briefing quick access">${participant ? `<button type="button" data-briefing-scroll="assignment">My Assignment</button>` : ""}${event ? `<button type="button" data-view-shortcut="strategyTimeline">Battle Plan</button>` : ""}${vm.supportsMap ? `<button type="button" data-view-shortcut="strategyTimeline">DS Map</button>` : ""}${participant ? `<button type="button" data-view-shortcut="events">My Team</button>` : ""}${vm.strategyName ? `<button type="button" data-view-shortcut="strategyTimeline">Strategy Guide</button>` : ""}${event ? `<button type="button" data-view-shortcut="events">Event Details</button>` : ""}</nav>
+    <section class="my-briefings-primary-grid"><article class="panel my-briefings-daily"><div class="my-briefings-card-heading"><div><p class="eyebrow">Priority updates</p><h3>My Daily Briefing</h3></div><span>${vm.daily.length}</span></div>${renderBriefingRows(vm.daily, "You are all caught up. No current briefings require attention.")}<button class="secondary-button" type="button" data-briefing-scroll="previous">View All Briefings</button></article>
+      <article class="panel my-briefings-assignment" data-briefing-section="assignment"><p class="eyebrow">My assignment</p>${participant ? `<div class="my-briefings-assignment-title"><div><h3>Team ${escapeHtml(participant.team)}</h3><p>${escapeHtml(participant.tacticalGroup || "Unit pending")} · ${escapeHtml(participant.role || "Role pending")}</p></div>${statusBadge(participant.rosterStatus)}</div><div class="my-briefings-objective"><span>Primary objective</span><strong>${escapeHtml(primary || "Not published")}</strong><p>${escapeHtml(unitResponsibilities[participant.unit] || strategy?.description || "Follow officer instructions for this objective.")}</p></div>${backup ? `<div class="my-briefings-objective secondary"><span>Backup objective</span><strong>${escapeHtml(backup)}</strong></div>` : ""}${event?.importantInstructions ? `<p class="my-briefings-officer-note"><strong>Officer note</strong>${escapeHtml(event.importantInstructions)}</p>` : ""}<small>Updated ${escapeHtml(formatDateTime(participant.updatedAt))}</small><div class="action-row"><button class="primary-button" type="button" data-view-shortcut="events">View Full Assignment</button><button class="secondary-button" type="button" data-view-shortcut="events">View My Team</button></div>` : `<h3>Your assignment has not been published yet.</h3><p>You will receive an update when the event roster and battle plan are finalized.</p>`}</article></section>
+    <section class="panel my-briefings-weekly-goals"><div class="my-briefings-card-heading"><div><p class="eyebrow">${escapeHtml(vm.weekStart)}–${escapeHtml(vm.weekEnd)}</p><h3>My Goals This Week</h3></div><button class="secondary-button" type="button" data-view-shortcut="playerJournal">View or Edit Goals</button></div>${renderWeeklyGoalRows(vm.weeklyGoals)}</section>
+    <section class="panel my-briefings-plan-summary"><div><p class="eyebrow">Overall strategy</p><h3>Strategy Goal</h3><p>${escapeHtml(strategy?.description || (vm.strategyName ? `Execute ${vm.strategyName} and maintain the published team objectives.` : "The event strategy has not been published yet."))}</p></div><div><p class="eyebrow">Member responsibility</p><h3>Your Part</h3><p>${escapeHtml(participant ? (unitResponsibilities[participant.unit] || `Support Team ${participant.team} at ${primary || "the assigned objective"}.`) : "Your responsibility will appear when an assignment is published.")}</p></div></section>
+    <section class="my-briefings-secondary-grid"><article class="panel my-briefings-plan"><p class="eyebrow">${escapeHtml(vm.strategyName || "Battle plan")}</p><h3>Battle Plan Overview</h3><div class="my-briefings-timeline">${event ? phases.map((item) => `<div><time>${escapeHtml(item.phase.replace("-", "–"))}</time><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.objective)}</small></span></div>`).join("") : `<p class="muted">The event timeline has not been published yet.</p>`}</div>${event ? `<button class="secondary-button" type="button" data-view-shortcut="strategyTimeline">View Full Battle Plan</button>` : ""}</article>
+      <article class="panel my-briefings-map"><p class="eyebrow">Interactive event map</p><h3>${vm.supportsMap ? "Your Objective" : "Map unavailable"}</h3>${vm.supportsMap ? `<div class="my-briefings-map-preview"><img src="/assets/desert-storm-map-clean.png" alt="Desert Storm tactical map preview">${marker ? `<span class="my-briefings-map-marker" style="left:${marker[0]}%;top:${marker[1]}%"><b>◆</b><small>${escapeHtml(primary)}</small></span>` : ""}</div><p>${primary ? `Primary: <strong>${escapeHtml(primary)}</strong>` : "Your map objective has not been assigned."}</p><button class="primary-button" type="button" data-view-shortcut="strategyTimeline">Open Interactive Map</button>` : `<p>This event does not use an interactive map.</p>`}</article></section>
+    <section class="panel my-briefings-history" data-briefing-section="previous"><div class="my-briefings-card-heading"><div><p class="eyebrow">Lower-priority history</p><h3>Previous Briefings</h3></div></div>${renderBriefingRows(vm.previous, "You are all caught up. No additional briefings are available.")}${vm.goals.length || vm.achievements.length ? `<details><summary>Goals and achievements</summary><div class="my-briefings-history-extras">${vm.goals.map((item) => `<p><strong>${escapeHtml(item.title)}</strong><span>Goal · ${escapeHtml(humanize(item.status))}</span></p>`).join("")}${vm.achievements.map((item) => `<p><strong>${escapeHtml(item.title)}</strong><span>Achievement · ${escapeHtml(formatDateTime(item.earnedAt))}</span></p>`).join("")}</div><button class="secondary-button" type="button" data-view-shortcut="playerJournal">Open Journal &amp; Goals</button></details>` : ""}</section>`;
 }
 
 async function handleBriefingAction(event) {
