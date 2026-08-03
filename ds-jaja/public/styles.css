@@ -4367,6 +4367,38 @@ th {
 
 .admin-account-search { display: grid; gap: 8px; }
 .admin-account-card { display: grid; gap: 14px; }
+
+.battle-planning-cards { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-bottom:18px }
+.sidebar .nav-subcategory { margin:9px 12px 2px;color:#8fabc2;font-size:.7rem;letter-spacing:.12em;text-transform:uppercase }
+.battle-planning-card { display:grid;gap:10px;align-content:start }
+.season-battle-layout { display:grid;grid-template-columns:240px minmax(0,1fr);gap:18px }
+.season-battle-list { display:grid;gap:8px;align-content:start }
+.season-battle-list button { text-align:left;display:grid;gap:4px;padding:12px;border:1px solid var(--border-color,#31506b);border-radius:8px;background:#08182a;color:inherit }
+.season-battle-list button.active { border-color:#53c7ff;background:#0d2942 }
+.season-battle-list small { color:#9bb0c5 }
+.season-battle-main { min-width:0;display:grid;gap:16px }
+.season-battle-details { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:end }
+.season-battle-details>div,.season-battle-details .wide-field { grid-column:1/-1 }
+.season-upload { display:flex;gap:14px;align-items:center;flex-wrap:wrap }
+.season-upload input { position:absolute;inline-size:1px;block-size:1px;opacity:0 }
+.season-map-panel { display:grid;gap:12px }
+.season-map-toolbar,.season-grid-settings { display:flex;gap:9px;align-items:end;flex-wrap:wrap }
+.season-map-toolbar button.active { border-color:#54d4ff;background:#143d59 }
+.season-grid-settings label { max-width:150px }
+.season-map-scroll { overflow:auto;max-height:72vh;border:1px solid #34516b;background:#030b13;border-radius:8px }
+.season-map-stage { position:relative;width:calc(100% * var(--zoom,1));min-width:600px;overflow:hidden;touch-action:pan-x pan-y }
+.season-map-stage>img { position:absolute;inset:0;width:100%;height:100%;object-fit:contain;z-index:0 }
+.season-map-stage.show-grid::after { content:"";position:absolute;inset:0;z-index:2;pointer-events:none;opacity:var(--grid-opacity);background-image:linear-gradient(to right,#d9f3ff 1px,transparent 1px),linear-gradient(to bottom,#d9f3ff 1px,transparent 1px);background-size:calc(100% / var(--columns)) calc(100% / var(--rows)) }
+.season-zone-layer,.season-object-layer { position:absolute;inset:0;z-index:1;pointer-events:none }
+.season-object-layer { z-index:3 }
+.season-zone-layer i { position:absolute;left:calc(var(--column) * 100% / var(--columns));top:calc(var(--row) * 100% / var(--rows));width:calc(100% / var(--columns));height:calc(100% / var(--rows));background:rgba(255,100,100,.42);box-shadow:inset 0 0 0 1px rgba(255,180,180,.35) }
+.season-map-object { pointer-events:auto;position:absolute;left:calc(var(--column) * 100% / var(--columns));top:calc(var(--row) * 100% / var(--rows));width:calc(var(--width) * 100% / var(--columns));height:calc(var(--height) * 100% / var(--rows));display:grid;place-content:center;border:2px solid #5be0ff;background:rgba(10,115,160,.46);color:white;overflow:visible;padding:0;min-height:0;cursor:grab;touch-action:none }
+.season-map-object.alliance-center { border:4px double #ffd465;background:repeating-linear-gradient(45deg,rgba(156,111,15,.42),rgba(156,111,15,.42) 7px,rgba(255,206,84,.22) 7px,rgba(255,206,84,.22) 14px) }
+.season-map-object.selected { outline:3px solid white;outline-offset:2px }
+.season-map-object b { font-size:clamp(8px,1.3vw,18px) }.season-map-object span { position:absolute;left:50%;bottom:-20px;transform:translateX(-50%);white-space:nowrap;background:rgba(2,10,18,.9);padding:2px 5px;border-radius:3px;font-size:11px }
+.season-object-details { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;border-top:1px solid #31506b;padding-top:12px }.season-object-details h4,.season-object-details p{grid-column:1/-1}
+.season-map-message.error { color:#ff9f9f }
+@media(max-width:800px){.battle-planning-cards,.season-battle-layout,.season-battle-details{grid-template-columns:1fr}.season-battle-list{grid-template-columns:repeat(2,minmax(0,1fr))}.season-object-details{grid-template-columns:1fr}.season-map-stage{min-width:520px}}
 .admin-account-identity { align-items: center; display: flex; gap: 12px; }
 .admin-account-identity img { border: 1px solid var(--line-soft); border-radius: 50%; height: 54px; object-fit: cover; width: 54px; }
 .admin-account-identity div { display: grid; gap: 3px; min-width: 0; }

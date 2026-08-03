@@ -191,6 +191,12 @@ export const api = {
   async addAnnouncement(payload) {
     return request("/api/announcements", { method: "POST", body: JSON.stringify(payload) });
   },
+  async listSeasonBattles() { return request("/api/season-battles"); },
+  async createSeasonBattle(payload) { return request("/api/season-battles", { method: "POST", body: JSON.stringify(payload) }); },
+  async updateSeasonBattle(id, payload) { return request(`/api/season-battles/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) }); },
+  async uploadSeasonBattleScreenshot(id, file) { const body = new FormData(); body.append("screenshot", file); return request(`/api/season-battles/${encodeURIComponent(id)}/screenshot`, { method: "POST", body, headers: {} }); },
+  async seasonBattleAction(id, action, payload = {}) { return request(`/api/season-battles/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(payload) }); },
+  async getSeasonBattleImage(url) { const response = await authFetch(url); if (!response.ok) throw new Error("Map screenshot could not be loaded"); return URL.createObjectURL(await response.blob()); },
   async getAdminAccounts() {
     return request("/api/admin/accounts");
   },

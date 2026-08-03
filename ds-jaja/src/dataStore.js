@@ -33,6 +33,7 @@ import {
 } from "./domain.js";
 import { sanitizeTextFields } from "./textSanitization.js";
 import { awardAchievement, awardTopThree, goalsForUser, isFinalResultStatus, normalizeGoal, normalizePrivateJournal } from "./personalCompanion.js";
+import { normalizeSeasonBattle, SEASON_BATTLE_PERMISSIONS, validateSeasonBattle } from "./seasonBattleDomain.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.join(__dirname, "..");
@@ -404,6 +405,8 @@ export async function getClientState(user) {
     strategyTemplates: user.role === "member" ? [] : Object.values(state.strategyTemplates).filter((template) => template.active),
     eventStrategy: activeEvent ? mapStrategyForUser(state, activeEvent.id, user) : {},
     eventMap: activeEvent ? mapPlanForUser(state, activeEvent.id, user) : null,
+    seasonBattles: (await listSeasonBattles(user)),
+    activeSeasonBattleId: state.activeSeasonBattleId || null,
     allianceWeeklyEvents: Object.values(state.allianceWeeklyEvents)
       .filter((item) => item.active)
       .sort((left, right) => `${left.date}T${left.time}`.localeCompare(`${right.date}T${right.time}`)),
@@ -1493,12 +1496,130 @@ export async function listUsers() {
   return Object.values((await getState()).users);
 }
 
-export const OFFICER_PERMISSIONS = ["manageRoster", "manageEvents", "manageStrategies", "manageMap", "manageVsScores", "manageBriefings", "viewAdministration", "manageAccountAccess", "manageOfficerPermissions"];
+export const OFFICER_PERMISSIONS = ["manageRoster", "manageEvents", "manageStrategies", "manageMap", "manageVsScores", "manageBriefings", "viewAdministration", "manageAccountAccess", "manageOfficerPermissions", ...SEASON_BATTLE_PERMISSIONS];
 
 export async function listAdminAccounts() {
   const state = await getState();
   return Object.values(state.users).map((user) => adminAccountProjection(state, user));
 }
+
+export async function listSeasonBattles(actor) {
+  const state = await getState();
+  const canManage = canManageSeasonBattles(actor);
+  return Object.values(state.seasonBattles || {})
+    .filter((plan) => canManage || !["draft", "cancelled"].includes(plan.status))
+    .map((plan) => seasonBattleProjection(plan, actor))
+    .sort((left, right) => String(right.battleDate || "").localeCompare(String(left.battleDate || "")));
+}
+
+export async function createSeasonBattle(input, actor) {
+  requireSeasonBattlePermission(actor, "manageSeasonBattlePlans");
+  const state = await getState();
+  const plan = normalizeSeasonBattle({ ...input, status: "draft", createdBy: actor.uid, updatedBy: actor.uid });
+  state.seasonBattles[plan.id] = plan;
+  addAudit(state, actor, { action: "season_battle_created", recordType: "seasonBattle", recordId: plan.id, after: { title: plan.title } });
+  await saveState();
+  return seasonBattleProjection(plan, actor);
+}
+
+export async function updateSeasonBattle(planId, input, actor) {
+  requireSeasonBattlePermission(actor, "manageSeasonBattlePlans");
+  const state = await getState();
+  const current = state.seasonBattles[planId];
+  if (!current) throw statusError(404, "Season Battle plan was not found");
+  assertVersion(current, input.expectedVersion);
+  if (["completed", "archived"].includes(current.status)) throw statusError(409, "Completed and archived plans are read-only");
+  const before = structuredClone(current);
+  const next = normalizeSeasonBattle({ ...current, ...input, id: current.id, screenshot: current.screenshot, status: current.status, createdAt: current.createdAt, createdBy: current.createdBy, updatedAt: now(), updatedBy: actor.uid, version: current.version + 1 });
+  const validation = validateSeasonBattle(next);
+  if (validation.errors.some((error) => !error.includes("screenshot is missing"))) throw Object.assign(statusError(422, "Season Battle map validation failed"), { details: validation });
+  state.seasonBattles[planId] = next;
+  addAudit(state, actor, { action: "season_battle_updated", recordType: "seasonBattle", recordId: planId, before: { version: before.version }, after: { version: next.version } });
+  await saveState();
+  return seasonBattleProjection(next, actor);
+}
+
+export async function attachSeasonBattleScreenshot(planId, upload, actor) {
+  requireSeasonBattlePermission(actor, "manageSeasonBattlePlans");
+  const state = await getState();
+  const plan = state.seasonBattles[planId];
+  if (!plan) throw statusError(404, "Season Battle plan was not found");
+  const inspected = inspectMapImage(upload.buffer);
+  const assetId = newId("season-map-asset");
+  const extension = inspected.mimeType === "image/png" ? "png" : inspected.mimeType === "image/webp" ? "webp" : "jpg";
+  const assetDirectory = path.join(dataDir, "season-battle-assets");
+  await mkdir(assetDirectory, { recursive: true });
+  await writeFile(path.join(assetDirectory, `${assetId}.${extension}`), upload.buffer);
+  state.seasonBattleAssets[assetId] = { id: assetId, ownerType: "seasonBattle", ownerId: planId, originalName: String(upload.originalName || "map screenshot").slice(0, 180), mimeType: inspected.mimeType, width: inspected.width, height: inspected.height, sizeBytes: upload.buffer.length, storagePath: `${assetId}.${extension}`, uploadedAt: now(), uploadedBy: actor.uid };
+  const beforeAssetId = plan.screenshot?.assetId || null;
+  plan.screenshot = { assetId, originalUrl: `/api/season-battle-assets/${assetId}`, width: inspected.width, height: inspected.height, mimeType: inspected.mimeType };
+  plan.updatedAt = now(); plan.updatedBy = actor.uid; plan.version += 1;
+  addAudit(state, actor, { action: "season_battle_screenshot_replaced", recordType: "seasonBattle", recordId: planId, before: { assetId: beforeAssetId }, after: { assetId } });
+  await saveState();
+  return seasonBattleProjection(plan, actor);
+}
+
+export async function getSeasonBattleAsset(assetId, actor) {
+  const state = await getState();
+  const asset = state.seasonBattleAssets[assetId];
+  const plan = asset ? state.seasonBattles[asset.ownerId] : null;
+  if (!asset || !plan) throw statusError(404, "Map screenshot was not found");
+  if (["draft", "cancelled"].includes(plan.status) && !canManageSeasonBattles(actor)) throw statusError(403, "This draft screenshot is private");
+  return { metadata: asset, buffer: await readFile(path.join(dataDir, "season-battle-assets", asset.storagePath)) };
+}
+
+export async function transitionSeasonBattle(planId, action, input, actor) {
+  const state = await getState();
+  const plan = state.seasonBattles[planId];
+  if (!plan) throw statusError(404, "Season Battle plan was not found");
+  assertVersion(plan, input.expectedVersion);
+  if (action === "publish") {
+    requireSeasonBattlePermission(actor, "publishSeasonBattlePlans");
+    const validation = validateSeasonBattle(plan, { requireDetails: true });
+    if (!validation.valid) throw Object.assign(statusError(422, "Resolve map errors before publishing"), { details: validation });
+    const snapshotVersion = plan.publishedVersion + 1;
+    state.seasonBattleSnapshots[planId] ||= {};
+    state.seasonBattleSnapshots[planId][snapshotVersion] = structuredClone({ ...plan, officerNotes: "", publishedVersion: snapshotVersion, publishedAt: now(), publishedBy: actor.uid });
+    plan.publishedVersion = snapshotVersion; plan.publishedAt = now(); plan.publishedBy = actor.uid;
+    plan.status = input.activate ? "active" : "scheduled";
+    if (input.activate) state.activeSeasonBattleId = planId;
+  } else if (action === "archive") {
+    requireSeasonBattlePermission(actor, "archiveSeasonBattlePlans");
+    if (!plan.publishedVersion) throw statusError(409, "Publish this plan before archiving it");
+    plan.status = "archived"; plan.archivedAt = now();
+    if (state.activeSeasonBattleId === planId) state.activeSeasonBattleId = null;
+  } else if (action === "duplicate") {
+    requireSeasonBattlePermission(actor, "manageSeasonBattlePlans");
+    const duplicate = normalizeSeasonBattle({ ...structuredClone(plan), id: null, title: `${plan.title} — Copy`, status: "draft", publishedVersion: 0, publishedAt: null, publishedBy: null, archivedAt: null, createdAt: now(), createdBy: actor.uid, updatedAt: now(), updatedBy: actor.uid, version: 1 });
+    state.seasonBattles[duplicate.id] = duplicate; await saveState(); return seasonBattleProjection(duplicate, actor);
+  } else throw statusError(422, "Choose a valid Season Battle action");
+  plan.updatedAt = now(); plan.updatedBy = actor.uid; plan.version += 1;
+  addAudit(state, actor, { action: `season_battle_${action}`, recordType: "seasonBattle", recordId: planId, after: { status: plan.status, publishedVersion: plan.publishedVersion } });
+  await saveState();
+  return seasonBattleProjection(plan, actor);
+}
+
+function seasonBattleProjection(plan, actor) {
+  const copy = structuredClone(plan);
+  if (!canManageSeasonBattles(actor)) delete copy.officerNotes;
+  return copy;
+}
+
+function canManageSeasonBattles(actor) { return actor?.role === "administrator" || (actor?.role === "officer" && (actor.officerPermissions || []).includes("manageSeasonBattlePlans")); }
+function requireSeasonBattlePermission(actor, permission) { if (!(actor?.role === "administrator" || (actor?.role === "officer" && (actor.officerPermissions || []).includes(permission)))) throw statusError(403, `This action requires ${permission} permission`); }
+
+export function inspectMapImage(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 24 || buffer.length > 15_000_000) throw statusError(422, "Screenshot is corrupted or too large");
+  let mimeType; let width; let height;
+  if (buffer.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) && buffer.includes(Buffer.from("IEND"))) { mimeType = "image/png"; width = buffer.readUInt32BE(16); height = buffer.readUInt32BE(20); }
+  else if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[buffer.length - 2] === 0xff && buffer[buffer.length - 1] === 0xd9) { mimeType = "image/jpeg"; ({ width, height } = jpegDimensions(buffer)); }
+  else if (buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WEBP" && buffer.readUInt32LE(4) + 8 <= buffer.length) { mimeType = "image/webp"; ({ width, height } = webpDimensions(buffer)); }
+  else throw statusError(422, "Choose a genuine JPEG, PNG, or WebP image");
+  if (!width || !height || width > 12000 || height > 12000) throw statusError(422, "Screenshot dimensions are invalid");
+  return { mimeType, width, height };
+}
+function jpegDimensions(buffer) { let offset = 2; while (offset + 9 < buffer.length) { if (buffer[offset] !== 0xff) { offset += 1; continue; } const marker = buffer[offset + 1]; const length = buffer.readUInt16BE(offset + 2); if ([0xc0,0xc1,0xc2,0xc3,0xc5,0xc6,0xc7,0xc9,0xca,0xcb,0xcd,0xce,0xcf].includes(marker)) return { height: buffer.readUInt16BE(offset + 5), width: buffer.readUInt16BE(offset + 7) }; offset += 2 + length; } return {}; }
+function webpDimensions(buffer) { const type = buffer.toString("ascii", 12, 16); if (type === "VP8X" && buffer.length >= 30) return { width: 1 + buffer.readUIntLE(24, 3), height: 1 + buffer.readUIntLE(27, 3) }; if (type === "VP8 " && buffer.length >= 30 && buffer[23] === 0x9d && buffer[24] === 0x01 && buffer[25] === 0x2a) return { width: buffer.readUInt16LE(26) & 0x3fff, height: buffer.readUInt16LE(28) & 0x3fff }; if (type === "VP8L" && buffer.length >= 25 && buffer[20] === 0x2f) { const bits = buffer.readUInt32LE(21); return { width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 }; } return {}; }
 
 export async function getAdminAccount(userId) {
   const state = await getState();
@@ -2721,12 +2842,19 @@ function legacyBattleProjection(event, participants) {
 }
 
 function permissionsFor(user) {
+  const capabilities = new Set(user.officerPermissions || []);
+  const capability = (name) => user.role === "administrator" || capabilities.has("*") || capabilities.has(name);
   return {
     isMember: user.role === "member",
     isOfficer: ["officer", "administrator"].includes(user.role),
     isAdministrator: user.role === "administrator",
     canManageEvents: ["officer", "administrator"].includes(user.role),
-    canManageUsers: user.role === "administrator"
+    canManageUsers: user.role === "administrator",
+    viewSeasonBattlePlans: ["member", "officer", "administrator"].includes(user.role),
+    manageSeasonBattlePlans: capability("manageSeasonBattlePlans"),
+    publishSeasonBattlePlans: capability("publishSeasonBattlePlans"),
+    archiveSeasonBattlePlans: capability("archiveSeasonBattlePlans"),
+    deleteSeasonBattleDrafts: capability("deleteSeasonBattleDrafts")
   };
 }
 

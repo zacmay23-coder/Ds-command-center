@@ -56,6 +56,15 @@ let selectedVsDate = "";
 let selectedVsScoreFilter = "all";
 let latestVsAudit = null;
 let selectedEventFilter = "all";
+let selectedSeasonBattleId = "";
+let seasonBattleTool = "select";
+let selectedSeasonObjectId = "";
+let seasonBattleDraft = null;
+const seasonBattleUndo = [];
+const seasonBattleRedo = [];
+let seasonBattleDrag = null;
+let seasonBattleSuppressClick = false;
+let seasonBattleZoom = 1;
 const rosterStore = { membersById: new Map(), orderedMemberIds: [], viewModel: null, loaded: false, updatedAt: null };
 const rosterSelectorState = { selectedMemberIds: new Set(), config: null };
 const eventRosterConfig = {
@@ -169,6 +178,9 @@ elements.createStrategyA = document.querySelector("#createStrategyA");
 elements.createStrategyB = document.querySelector("#createStrategyB");
 elements.publishDsSetupButton = document.querySelector("#publishDsSetupButton");
 elements.activateDsButton = document.querySelector("#activateDsButton");
+elements.battlePlanningOverview = document.querySelector("#battlePlanningOverview");
+elements.seasonBattleWorkspace = document.querySelector("#seasonBattleWorkspace");
+elements.seasonBattleCreateForm = document.querySelector("#seasonBattleCreateForm");
 elements.announcementForm = document.querySelector("#announcementForm");
 elements.announcementList = document.querySelector("#announcementList");
 elements.privateMessageForm = document.querySelector("#privateMessageForm");
@@ -354,6 +366,13 @@ function bindControls() {
   elements.createdThemeManagement.addEventListener("submit", handleOfficerThemeSubmission);
   elements.publishDsSetupButton.addEventListener("click", publishDsSetup);
   elements.activateDsButton.addEventListener("click", activateDsEvent);
+  elements.seasonBattleCreateForm.addEventListener("submit", createSeasonBattlePlan);
+  elements.seasonBattleWorkspace.addEventListener("click", handleSeasonBattleClick);
+  elements.seasonBattleWorkspace.addEventListener("submit", handleSeasonBattleSubmit);
+  elements.seasonBattleWorkspace.addEventListener("change", handleSeasonBattleChange);
+  elements.seasonBattleWorkspace.addEventListener("keydown", handleSeasonBattleKeydown);
+  elements.seasonBattleWorkspace.addEventListener("pointerdown", handleSeasonBattlePointerDown);
+  elements.seasonBattleWorkspace.addEventListener("pointerup", handleSeasonBattlePointerUp);
   elements.announcementForm.addEventListener("submit", postAnnouncement);
   elements.announcementList.addEventListener("click", handleAnnouncementClick);
   elements.announcementList.addEventListener("submit", handleAnnouncementEditSubmit);
@@ -442,6 +461,8 @@ function render() {
   renderHistory();
   renderStrategyTimeline();
   renderStrategyLibrary();
+  renderBattlePlanningOverview();
+  renderSeasonBattles();
   renderAllianceWeeklyEvents();
   renderThemeWeeks();
   renderVsScores();
@@ -1132,7 +1153,7 @@ async function renderAdministration() {
           <label>Account status<select name="accountStatus">${optionHtml(["pending", "active", "suspended", "revoked"], user.accountStatus)}</select></label>
           <label>Roster linkage<select name="playerId"><option value="">Unlinked</option>${state.players.map((player) => `<option value="${escapeHtml(player.id)}" ${player.id === (user.playerId || user.requestedPlayerId) ? "selected" : ""}>${escapeHtml(player.gameName)} · ${escapeHtml(player.rank)}</option>`).join("")}</select></label>
         </div>
-        <fieldset class="admin-capability-grid"><legend>Officer capabilities</legend>${["manageRoster", "manageEvents", "manageStrategies", "manageMap", "manageVsScores", "manageBriefings", "viewAdministration", "manageAccountAccess", "manageOfficerPermissions"].map((permission) => `<label><input name="officerPermissions" type="checkbox" value="${permission}" ${user.officerPermissions.includes("*") || user.officerPermissions.includes(permission) ? "checked" : ""}> ${escapeHtml(humanize(permission))}</label>`).join("")}</fieldset>
+        <fieldset class="admin-capability-grid"><legend>Officer capabilities</legend>${["manageRoster", "manageEvents", "manageStrategies", "manageMap", "manageVsScores", "manageBriefings", "viewAdministration", "manageAccountAccess", "manageOfficerPermissions", "viewSeasonBattlePlans", "manageSeasonBattlePlans", "publishSeasonBattlePlans", "archiveSeasonBattlePlans", "deleteSeasonBattleDrafts"].map((permission) => `<label><input name="officerPermissions" type="checkbox" value="${permission}" ${user.officerPermissions.includes("*") || user.officerPermissions.includes(permission) ? "checked" : ""}> ${escapeHtml(humanize(permission))}</label>`).join("")}</fieldset>
         <label>Administrative notes<textarea name="administrativeNotes" maxlength="1000">${escapeHtml(user.administrativeNotes || "")}</textarea></label>
         <div class="record-actions">${user.accountStatus === "pending" ? `<button class="secondary-button" name="reviewAction" value="approve-member">Approve as Member</button><button class="secondary-button" name="reviewAction" value="approve-officer">Approve as Officer</button><button class="danger-button" name="reviewAction" value="reject">Reject</button>` : ""}<button class="primary-button" type="submit">Save Account & Permissions</button></div>
         <small>Last reviewed: ${escapeHtml(user.reviewedAt ? formatDateTime(user.reviewedAt) : "Not reviewed")} ${user.reviewedBy ? `· ${escapeHtml(user.reviewedBy)}` : ""}</small>
@@ -2850,6 +2871,147 @@ async function renderParticipation() {
   } catch (error) {
     elements.participationRows.innerHTML = emptyState(error.message);
   }
+}
+
+function renderBattlePlanningOverview() {
+  const plans = state.seasonBattles || [];
+  const activeSeason = plans.find((plan) => plan.id === state.activeSeasonBattleId) || plans.find((plan) => plan.status === "active");
+  elements.battlePlanningOverview.innerHTML = `<div class="battle-planning-cards">
+    <article class="panel battle-planning-card"><p class="eyebrow">Desert Storm</p><h3>${escapeHtml(state.activeEvent ? `vs. ${state.activeEvent.opponent || "Opponent pending"}` : "No active event")}</h3><p>The established Team A/B map, Strategy Library, assignments, and 30-minute timeline.</p><button class="primary-button" type="button" data-view-shortcut="strategyTimeline">Open Desert Storm Map</button></article>
+    <article class="panel battle-planning-card"><p class="eyebrow">Season Battles</p><h3>${escapeHtml(activeSeason?.title || "No active Season Battle")}</h3><p>${activeSeason ? `${escapeHtml(activeSeason.battleDate || "Date pending")} · ${escapeHtml(activeSeason.mapAreaName || "Area pending")}` : `${plans.length} saved plan${plans.length === 1 ? "" : "s"}`}</p><button class="primary-button" type="button" data-view-shortcut="seasonBattles">Open Season Battles</button></article>
+  </div><section class="panel"><h3>Planning boundaries</h3><p>Desert Storm records and Season Battle records use separate maps, validation rules, snapshots, and active-plan indexes.</p></section>`;
+}
+
+async function createSeasonBattlePlan(event) {
+  event.preventDefault();
+  try {
+    const payload = Object.fromEntries(new FormData(event.currentTarget));
+    const plan = await api.createSeasonBattle(payload);
+    selectedSeasonBattleId = plan.id; seasonBattleDraft = structuredClone(plan);
+    await refreshState(); setStatus("Season Battle draft created");
+  } catch (error) { setStatus(error.message, true); }
+}
+
+function renderSeasonBattles() {
+  const plans = state.seasonBattles || [];
+  const canManage = Boolean(state.permissions.manageSeasonBattlePlans);
+  document.querySelector("#seasonBattleCreator").hidden = !canManage;
+  if (!selectedSeasonBattleId || !plans.some((plan) => plan.id === selectedSeasonBattleId)) selectedSeasonBattleId = plans[0]?.id || "";
+  const stored = plans.find((plan) => plan.id === selectedSeasonBattleId);
+  if (!stored) { elements.seasonBattleWorkspace.innerHTML = emptyState(canManage ? "Create the first Season Battle map." : "No Season Battle plan has been published."); return; }
+  if (!seasonBattleDraft || seasonBattleDraft.id !== stored.id || seasonBattleDraft.version !== stored.version) seasonBattleDraft = structuredClone(stored);
+  const plan = seasonBattleDraft;
+  const readOnly = !canManage || ["completed", "archived"].includes(plan.status);
+  const selected = plan.objects.find((item) => item.id === selectedSeasonObjectId);
+  elements.seasonBattleWorkspace.innerHTML = `<div class="season-battle-layout">
+    <aside class="panel season-battle-list"><h3>Plans</h3>${plans.map((item) => `<button type="button" data-season-select="${escapeHtml(item.id)}" class="${item.id === plan.id ? "active" : ""}"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.status)} · ${escapeHtml(item.battleDate || "Date pending")}</small></button>`).join("")}</aside>
+    <section class="season-battle-main">
+      <form class="panel season-battle-details" data-season-details><input name="expectedVersion" type="hidden" value="${plan.version}"><div><p class="eyebrow">${escapeHtml(plan.seasonName || "Season Battle")}</p><h3>${escapeHtml(plan.title)}</h3><p>${escapeHtml(plan.mapAreaName || "Map area pending")} · ${escapeHtml(plan.opponent || "Target pending")}</p></div><span class="status-pill">${escapeHtml(plan.status)}</span>
+        ${canManage && !readOnly ? `<label>Title<input name="title" value="${escapeHtml(plan.title)}" required></label><label>Season<input name="seasonName" value="${escapeHtml(plan.seasonName)}"></label><label>Date<input name="battleDate" type="date" value="${escapeHtml(plan.battleDate || "")}"></label><label>Server time<input name="serverTime" type="time" value="${escapeHtml(plan.serverTime || "")}"></label><label>Opponent<input name="opponent" value="${escapeHtml(plan.opponent)}"></label><label>Area<input name="mapAreaName" value="${escapeHtml(plan.mapAreaName)}"></label><label class="wide-field">Description<textarea name="description">${escapeHtml(plan.description)}</textarea></label><button class="secondary-button" type="submit">Save details</button>` : ""}
+      </form>
+      ${canManage && !readOnly ? `<section class="panel season-upload"><label class="primary-button">${plan.screenshot ? "Replace screenshot" : "Upload screenshot"}<input data-season-screenshot type="file" accept="image/jpeg,image/png,image/webp"></label><small>JPEG, PNG, or WebP · 15 MB maximum. Replacing an image may require grid recalibration.</small></section>` : ""}
+      ${plan.screenshot ? renderSeasonBattleEditor(plan, readOnly, selected) : `<section class="panel"><h3>Screenshot required</h3><p>The original screenshot remains a protected base layer. Grid and object data are stored separately.</p></section>`}
+      ${canManage ? `<div class="panel record-actions"><button class="secondary-button" type="button" data-season-action="duplicate">Duplicate Draft</button>${!readOnly ? `<button class="primary-button" type="button" data-season-action="publish">Publish Snapshot</button>` : ""}${plan.publishedVersion && plan.status !== "archived" ? `<button class="secondary-button" type="button" data-season-action="archive">Archive</button>` : ""}</div>` : ""}
+    </section></div>`;
+  hydrateSeasonBattleImage(plan);
+}
+
+function renderSeasonBattleEditor(plan, readOnly, selected) {
+  const grid = plan.grid;
+  const inaccessible = new Set(plan.inaccessibleCells || []);
+  return `<section class="panel season-map-panel">
+    <div class="season-map-toolbar" role="toolbar" aria-label="Season Battle map tools">
+      ${!readOnly ? ["select", "base", "allianceCenter", "inaccessible", "erase"].map((tool) => `<button type="button" data-season-tool="${tool}" class="secondary-button ${seasonBattleTool === tool ? "active" : ""}">${{select:"Select / Move",base:"Add Base",allianceCenter:"Add Alliance Center",inaccessible:"Mark Inaccessible",erase:"Erase Zone"}[tool]}</button>`).join("") : ""}
+      ${!readOnly ? `<button type="button" class="secondary-button" data-season-action="undo" ${seasonBattleUndo.length ? "" : "disabled"}>Undo</button><button type="button" class="secondary-button" data-season-action="redo" ${seasonBattleRedo.length ? "" : "disabled"}>Redo</button>` : ""}
+      <button type="button" class="secondary-button" data-season-action="zoom-out">Zoom −</button><button type="button" class="secondary-button" data-season-action="zoom-in">Zoom +</button><button type="button" class="secondary-button" data-season-action="reset-view">Reset View</button><label>Grid <input data-season-toggle-grid type="checkbox" ${grid.showGrid ? "checked" : ""}></label><label>Zones <input data-season-toggle-zones type="checkbox" checked></label>
+    </div>
+    ${!readOnly ? `<div class="season-grid-settings"><label>Columns<input data-season-grid="columns" type="number" min="10" max="120" value="${grid.columns}"></label><label>Rows<input data-season-grid="rows" type="number" min="10" max="120" value="${grid.rows}"></label><label>Grid opacity<input data-season-grid="gridOpacity" type="range" min="0.05" max="1" step="0.05" value="${grid.gridOpacity}"></label><button class="primary-button" type="button" data-season-action="save-map">Save Draft Map</button></div>` : ""}
+    <div class="season-map-scroll"><div class="season-map-stage ${grid.showGrid ? "show-grid" : ""}" tabindex="0" data-season-stage style="--columns:${grid.columns};--rows:${grid.rows};--grid-opacity:${grid.gridOpacity};--zoom:${seasonBattleZoom};aspect-ratio:${plan.screenshot.width}/${plan.screenshot.height}">
+      <img data-season-map-image alt="${escapeHtml(plan.title)} map screenshot">
+      <div class="season-zone-layer">${[...inaccessible].map((key) => { const [row,column] = key.split(":").map(Number); return `<i style="--row:${row};--column:${column}"></i>`; }).join("")}</div>
+      <div class="season-object-layer">${plan.objects.map((object) => `<button type="button" data-season-object="${escapeHtml(object.id)}" class="season-map-object ${object.type === "allianceCenter" ? "alliance-center" : "base"} ${object.id === selectedSeasonObjectId ? "selected" : ""}" style="--row:${object.anchor.row};--column:${object.anchor.column};--width:${object.widthCells};--height:${object.heightCells}" aria-label="${escapeHtml(object.label)}"><b>${object.type === "allianceCenter" ? "AC" : "B"}</b><span>${escapeHtml(object.label)}</span></button>`).join("")}</div>
+    </div></div><p class="season-map-message" data-season-message>${readOnly ? "Published read-only map. Zoom with your browser and select objects for details." : "Choose a tool, then click a grid cell. Objects snap to grid coordinates."}</p>
+    ${selected ? `<aside class="season-object-details"><h4>${escapeHtml(selected.label)}</h4><p>${selected.type === "base" ? "Base · 3 × 3 cells" : "Alliance Center · 9 × 9 cells"}</p>${!readOnly ? `<label>Label<input data-season-object-field="label" value="${escapeHtml(selected.label)}"></label><label>Assigned member<select data-season-object-field="assignedMemberId"><option value="">Unassigned</option>${state.players.map((player) => `<option value="${escapeHtml(player.id)}" ${player.id === selected.assignedMemberId ? "selected" : ""}>${escapeHtml(player.gameName)}</option>`).join("")}</select></label><label>Notes<textarea data-season-object-field="notes">${escapeHtml(selected.notes)}</textarea></label><button class="danger-button" type="button" data-season-action="delete-object">Delete</button>` : `<p>${escapeHtml(selected.notes || "No published notes.")}</p>`}</aside>` : ""}
+  </section>`;
+}
+
+async function hydrateSeasonBattleImage(plan) { const image = elements.seasonBattleWorkspace.querySelector("[data-season-map-image]"); if (!image) return; try { image.src = await api.getSeasonBattleImage(plan.screenshot.originalUrl); } catch (error) { elements.seasonBattleWorkspace.querySelector("[data-season-message]").textContent = error.message; } }
+
+async function handleSeasonBattleSubmit(event) {
+  const form = event.target.closest("[data-season-details]"); if (!form) return; event.preventDefault();
+  try { await api.updateSeasonBattle(seasonBattleDraft.id, { ...Object.fromEntries(new FormData(form)), expectedVersion: seasonBattleDraft.version }); await refreshState(); setStatus("Season Battle details saved"); } catch (error) { setStatus(error.message, true); }
+}
+
+async function handleSeasonBattleChange(event) {
+  if (event.target.matches("[data-season-screenshot]")) {
+    const file = event.target.files[0]; if (!file) return;
+    if (!window.confirm("Replace the screenshot? Existing grid alignment and placements will be retained for review.")) { event.target.value = ""; return; }
+    try { await api.uploadSeasonBattleScreenshot(seasonBattleDraft.id, file); await refreshState(); setStatus("Protected map screenshot uploaded"); } catch (error) { setStatus(error.message, true); }
+    return;
+  }
+  if (event.target.matches("[data-season-grid]")) { pushSeasonUndo(); seasonBattleDraft.grid[event.target.dataset.seasonGrid] = Number(event.target.value); renderSeasonBattles(); return; }
+  if (event.target.matches("[data-season-toggle-grid]")) { seasonBattleDraft.grid.showGrid = event.target.checked; renderSeasonBattles(); return; }
+  if (event.target.matches("[data-season-toggle-zones]")) { elements.seasonBattleWorkspace.querySelector(".season-zone-layer").hidden = !event.target.checked; return; }
+  if (event.target.matches("[data-season-object-field]")) { pushSeasonUndo(); const object = seasonBattleDraft.objects.find((item) => item.id === selectedSeasonObjectId); object[event.target.dataset.seasonObjectField] = event.target.value || null; renderSeasonBattles(); }
+}
+
+async function handleSeasonBattleClick(event) {
+  if (seasonBattleSuppressClick) { seasonBattleSuppressClick = false; return; }
+  const planButton = event.target.closest("[data-season-select]"); if (planButton) { selectedSeasonBattleId = planButton.dataset.seasonSelect; seasonBattleDraft = null; selectedSeasonObjectId = ""; renderSeasonBattles(); return; }
+  const tool = event.target.closest("[data-season-tool]"); if (tool) { seasonBattleTool = tool.dataset.seasonTool; renderSeasonBattles(); return; }
+  const objectButton = event.target.closest("[data-season-object]"); if (objectButton && seasonBattleTool === "select") { selectedSeasonObjectId = objectButton.dataset.seasonObject; renderSeasonBattles(); return; }
+  const action = event.target.closest("[data-season-action]"); if (action) { await runSeasonBattleAction(action.dataset.seasonAction); return; }
+  const stage = event.target.closest("[data-season-stage]"); if (!stage || !state.permissions.manageSeasonBattlePlans) return;
+  const rect = stage.getBoundingClientRect(); const column = Math.min(seasonBattleDraft.grid.columns - 1, Math.max(0, Math.floor((event.clientX - rect.left) / rect.width * seasonBattleDraft.grid.columns))); const row = Math.min(seasonBattleDraft.grid.rows - 1, Math.max(0, Math.floor((event.clientY - rect.top) / rect.height * seasonBattleDraft.grid.rows)));
+  applySeasonBattleGridAction(row, column);
+}
+
+function applySeasonBattleGridAction(row, column) {
+  const key = `${row}:${column}`; pushSeasonUndo();
+  if (["inaccessible", "erase"].includes(seasonBattleTool)) { const cells = new Set(seasonBattleDraft.inaccessibleCells); if (seasonBattleTool === "erase") cells.delete(key); else if (!seasonBattleDraft.objects.some((object) => cellInsideObject(row, column, object))) cells.add(key); seasonBattleDraft.inaccessibleCells = [...cells]; renderSeasonBattles(); return; }
+  if (["base", "allianceCenter"].includes(seasonBattleTool)) { const size = seasonBattleTool === "base" ? 3 : 9; const validation = clientValidateSeasonPlacement(seasonBattleTool, row, column, size, size); if (!validation.valid) { seasonBattleUndo.pop(); showSeasonMessage(validation.message, true); return; } const id = crypto.randomUUID(); seasonBattleDraft.objects.push({ id, type: seasonBattleTool, anchor: { row, column }, widthCells: size, heightCells: size, label: seasonBattleTool === "base" ? `Base ${seasonBattleDraft.objects.filter((item) => item.type === "base").length + 1}` : "Alliance Center", assignedMemberId: null, allianceName: "", notes: "" }); selectedSeasonObjectId = id; seasonBattleTool = "select"; renderSeasonBattles(); }
+}
+
+function clientValidateSeasonPlacement(type, row, column, width, height, ignoreId = "") { if (row < 0 || column < 0 || row + height > seasonBattleDraft.grid.rows || column + width > seasonBattleDraft.grid.columns) return { valid:false, message:`${type === "base" ? "A Base" : "The Alliance Center"} extends outside the configured grid.` }; const cells=[]; for(let r=row;r<row+height;r++) for(let c=column;c<column+width;c++) cells.push(`${r}:${c}`); if(cells.some((key)=>seasonBattleDraft.inaccessibleCells.includes(key))) return {valid:false,message:"Placement overlaps an inaccessible zone."}; for(const object of seasonBattleDraft.objects.filter((item)=>item.id!==ignoreId)) if(cells.some((key)=>{const [r,c]=key.split(":").map(Number);return cellInsideObject(r,c,object)})) return {valid:false,message:`Placement overlaps ${object.label}.`}; return {valid:true,message:"Valid placement"}; }
+function cellInsideObject(row,column,object){return row>=object.anchor.row&&row<object.anchor.row+object.heightCells&&column>=object.anchor.column&&column<object.anchor.column+object.widthCells;}
+function pushSeasonUndo(){seasonBattleUndo.push(structuredClone(seasonBattleDraft));if(seasonBattleUndo.length>50)seasonBattleUndo.shift();seasonBattleRedo.length=0;}
+function showSeasonMessage(message,error=false){const target=elements.seasonBattleWorkspace.querySelector("[data-season-message]");if(target){target.textContent=message;target.classList.toggle("error",error);}}
+
+async function runSeasonBattleAction(action) {
+  try {
+    if (action === "undo" && seasonBattleUndo.length) { seasonBattleRedo.push(structuredClone(seasonBattleDraft)); seasonBattleDraft = seasonBattleUndo.pop(); renderSeasonBattles(); return; }
+    if (action === "redo" && seasonBattleRedo.length) { seasonBattleUndo.push(structuredClone(seasonBattleDraft)); seasonBattleDraft = seasonBattleRedo.pop(); renderSeasonBattles(); return; }
+    if (action === "delete-object") { pushSeasonUndo(); seasonBattleDraft.objects = seasonBattleDraft.objects.filter((item) => item.id !== selectedSeasonObjectId); selectedSeasonObjectId = ""; renderSeasonBattles(); return; }
+    if (["zoom-in", "zoom-out", "reset-view"].includes(action)) { seasonBattleZoom = action === "zoom-in" ? Math.min(3, seasonBattleZoom + .25) : action === "zoom-out" ? Math.max(1, seasonBattleZoom - .25) : 1; renderSeasonBattles(); return; }
+    if (action === "save-map") { await api.updateSeasonBattle(seasonBattleDraft.id, { expectedVersion: seasonBattleDraft.version, grid: seasonBattleDraft.grid, objects: seasonBattleDraft.objects, inaccessibleCells: seasonBattleDraft.inaccessibleCells, annotations: seasonBattleDraft.annotations }); await refreshState(); setStatus("Season Battle draft saved"); return; }
+    if (action === "publish" && !window.confirm("Publish an immutable member-visible snapshot of this map?")) return;
+    if (action === "archive" && !window.confirm("Archive this published Season Battle plan as read-only history?")) return;
+    const result = await api.seasonBattleAction(seasonBattleDraft.id, action, { expectedVersion: seasonBattleDraft.version, activate: action === "publish" }); selectedSeasonBattleId = result.id; seasonBattleDraft = null; await refreshState(); setStatus(`Season Battle ${action} complete`);
+  } catch (error) { setStatus(error.details?.errors?.join(" ") || error.message, true); showSeasonMessage(error.details?.errors?.join(" ") || error.message, true); }
+}
+
+function handleSeasonBattleKeydown(event) {
+  const stage = event.target.closest("[data-season-stage]"); if (!stage || !selectedSeasonObjectId || !state.permissions.manageSeasonBattlePlans || !["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(event.key)) return;
+  event.preventDefault(); const object = seasonBattleDraft.objects.find((item) => item.id === selectedSeasonObjectId); const row = object.anchor.row + (event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0); const column = object.anchor.column + (event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0); const validation = clientValidateSeasonPlacement(object.type,row,column,object.widthCells,object.heightCells,object.id); if(!validation.valid){showSeasonMessage(validation.message,true);return;} pushSeasonUndo(); object.anchor={row,column}; renderSeasonBattles(); elements.seasonBattleWorkspace.querySelector("[data-season-stage]")?.focus();
+}
+
+function handleSeasonBattlePointerDown(event) {
+  const object = event.target.closest("[data-season-object]");
+  if (!object || seasonBattleTool !== "select" || !state.permissions.manageSeasonBattlePlans) return;
+  seasonBattleDrag = { id: object.dataset.seasonObject, x: event.clientX, y: event.clientY };
+}
+
+function handleSeasonBattlePointerUp(event) {
+  if (!seasonBattleDrag) return;
+  const drag = seasonBattleDrag; seasonBattleDrag = null;
+  if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 5) return;
+  const stage = event.target.closest("[data-season-stage]") || elements.seasonBattleWorkspace.querySelector("[data-season-stage]");
+  const object = seasonBattleDraft.objects.find((item) => item.id === drag.id); if (!stage || !object) return;
+  const rect = stage.getBoundingClientRect(); const column = Math.floor((event.clientX - rect.left) / rect.width * seasonBattleDraft.grid.columns); const row = Math.floor((event.clientY - rect.top) / rect.height * seasonBattleDraft.grid.rows);
+  const validation = clientValidateSeasonPlacement(object.type, row, column, object.widthCells, object.heightCells, object.id);
+  seasonBattleSuppressClick = true;
+  if (!validation.valid) { showSeasonMessage(`${validation.message} Previous position retained.`, true); return; }
+  pushSeasonUndo(); object.anchor = { row, column }; selectedSeasonObjectId = object.id; renderSeasonBattles();
 }
 
 function renderStrategyTimeline() {

@@ -15,6 +15,9 @@ const mimeTypes = new Map([
   [".json", "application/json; charset=utf-8"],
   [".webmanifest", "application/manifest+json; charset=utf-8"],
   [".png", "image/png"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".webp", "image/webp"],
   [".svg", "image/svg+xml"]
 ]);
 
@@ -42,6 +45,17 @@ server.listen(port, () => {
 });
 
 async function serveStatic(url, response) {
+  const redirects = {
+    "/desert-storm": "/?view=strategyTimeline",
+    "/battle-planning": "/?view=battlePlanning",
+    "/battle-planning/desert-storm": "/?view=strategyTimeline",
+    "/battle-planning/season-battles": "/?view=seasonBattles"
+  };
+  if (redirects[url.pathname]) {
+    response.writeHead(302, { Location: redirects[url.pathname], "Cache-Control": "no-store" });
+    response.end();
+    return;
+  }
   const pathname = url.pathname === "/" ? "/index.html" : url.pathname;
   const requestedPath = path.normalize(path.join(publicDir, pathname));
 

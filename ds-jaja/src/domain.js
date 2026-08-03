@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { normalizeRole, ROLES } from "./permissions.js";
 import { EVENT_STATUSES, SERVER_TIMES, UNITS, validateEventForPublish, validatePhases } from "./validation.js";
+import { normalizeSeasonBattle } from "./seasonBattleDomain.js";
 
 export const CURRENT_SCHEMA = "dscc-events-v3";
 export const MIGRATION_ID = "legacy-weekly-to-events-v1";
@@ -162,6 +163,10 @@ export function normalizeState(input = {}) {
     activeEventsByType: input.activeEventsByType && typeof input.activeEventsByType === "object" ? input.activeEventsByType : {},
     eventMapDrafts: input.eventMapDrafts && typeof input.eventMapDrafts === "object" ? input.eventMapDrafts : {},
     eventMapSnapshots: input.eventMapSnapshots && typeof input.eventMapSnapshots === "object" ? input.eventMapSnapshots : {},
+    seasonBattles: objectMap(input.seasonBattles, normalizeSeasonBattle),
+    seasonBattleSnapshots: input.seasonBattleSnapshots && typeof input.seasonBattleSnapshots === "object" ? input.seasonBattleSnapshots : {},
+    seasonBattleAssets: input.seasonBattleAssets && typeof input.seasonBattleAssets === "object" ? input.seasonBattleAssets : {},
+    activeSeasonBattleId: input.activeSeasonBattleId || null,
     eventParticipants: nestedObjectMap(input.eventParticipants, normalizeParticipant),
     activeEventId: input.activeEventId || newestEditableEventId(input.events),
     strategyTemplates: objectMap(input.strategyTemplates, normalizeTemplate),

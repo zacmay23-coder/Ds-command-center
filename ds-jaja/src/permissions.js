@@ -33,6 +33,8 @@ export function permissionsFor(user) {
   const guest = user?.role === ROLES.GUEST;
   const officer = hasRole(user, ROLES.OFFICER);
   const admin = hasRole(user, ROLES.ADMIN);
+  const capabilities = new Set(user?.officerPermissions || []);
+  const hasCapability = (name) => admin || capabilities.has("*") || capabilities.has(name);
   return {
     viewGuestDashboard: guest,
     viewPublishedEvents: guest || hasRole(user, ROLES.MEMBER),
@@ -50,8 +52,21 @@ export function permissionsFor(user) {
     canArchiveEvents: officer,
     canCancelEvents: officer,
     canDeleteEvents: admin,
-    canManageAccounts: admin
+    canManageAccounts: admin,
+    viewSeasonBattlePlans: !guest && hasRole(user, ROLES.MEMBER),
+    manageSeasonBattlePlans: officer && hasCapability("manageSeasonBattlePlans"),
+    publishSeasonBattlePlans: officer && hasCapability("publishSeasonBattlePlans"),
+    archiveSeasonBattlePlans: officer && hasCapability("archiveSeasonBattlePlans"),
+    deleteSeasonBattleDrafts: officer && hasCapability("deleteSeasonBattleDrafts")
   };
+}
+
+export function requireCapability(user, capability) {
+  if (!permissionsFor(user)[capability]) {
+    const error = new Error(`This action requires ${capability} permission`);
+    error.statusCode = 403;
+    throw error;
+  }
 }
 
 export function canViewEvent(user, event) {

@@ -60,9 +60,13 @@
         <button data-view="events">Events</button>
         <button data-view="directory">Roster</button>
         <button data-view="teams">Teams</button>
-        <p class="nav-group-label">Desert Storm</p>
+        <p class="nav-group-label">Battle Planning</p>
+        <button data-view="battlePlanning">Overview</button>
+        <p class="nav-subcategory">Desert Storm</p>
         <button data-view="strategyTimeline">Interactive Map</button>
         <button data-view="strategyLibrary" data-role="officer">Strategy Library</button>
+        <p class="nav-subcategory">Season Battles</p>
+        <button data-view="seasonBattles">Season Battles</button>
         <button data-view="results" data-role="officer">Results</button>
         <button data-view="participation" data-role="officer">Participation</button>
         <button data-view="history">History</button>
@@ -632,6 +636,27 @@
           </div>
           <div id="participationSummary" class="summary-grid"></div>
           <div id="participationRows" class="member-card-grid"></div>
+        </section>
+
+        <section id="battlePlanning" class="view">
+          <div class="section-title"><div><span class="tactical-kicker">Battle Planning</span><h2>Battle Planning Overview</h2></div><p>Desert Storm doctrine and screenshot-based Season Battle maps remain separate planning systems.</p></div>
+          <div id="battlePlanningOverview" class="battle-planning-overview"></div>
+        </section>
+
+        <section id="seasonBattles" class="view">
+          <div class="section-title"><div><span class="tactical-kicker">Battle Planning</span><h2>Season Battles</h2></div><p>Build strategic maps on protected game screenshots using a calibrated grid, fixed-size bases, Alliance Centers, and inaccessible zones.</p></div>
+          <details id="seasonBattleCreator" class="panel focused-creator" data-season-manage><summary>Create Season Battle Map</summary>
+            <form id="seasonBattleCreateForm" class="form-grid">
+              <label>Plan title<input name="title" maxlength="160" required></label><label>Season<input name="seasonName" maxlength="80"></label>
+              <label>Battle date<input name="battleDate" type="date" required></label><label>Server time<input name="serverTime" type="time"></label>
+              <label>Opponent / target<input name="opponent" maxlength="120"></label><label>Map-area name<input name="mapAreaName" maxlength="120"></label>
+              <label class="wide-field">Planning description<textarea name="description" maxlength="1000"></textarea></label>
+              <label class="wide-field">Officer notes<textarea name="officerNotes" maxlength="3000"></textarea></label>
+              <label>Visibility<select name="visibility"><option value="members">Members</option><option value="officers">Officers</option></select></label>
+              <button class="primary-button" type="submit">Create Draft</button>
+            </form>
+          </details>
+          <div id="seasonBattleWorkspace"></div>
         </section>
 
         <section id="strategyTimeline" class="view">

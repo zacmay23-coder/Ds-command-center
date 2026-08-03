@@ -95,6 +95,12 @@ import {
   ,listAdminAccounts
   ,reviewSignup
   ,updateAdminAccount
+  ,listSeasonBattles
+  ,createSeasonBattle
+  ,updateSeasonBattle
+  ,attachSeasonBattleScreenshot
+  ,getSeasonBattleAsset
+  ,transitionSeasonBattle
 } from "../dataStore.js";
 import { sanitizeTextFields } from "../textSanitization.js";
 import { parseDuelLeagueStandings, readResultScreenshot, readScreenshotText } from "../resultScreenshotReader.js";
@@ -187,6 +193,20 @@ export async function handleApi(request, response, url) {
     return;
   }
 
+  if (user.accountStatus === "pending" || user.accountStatus === "suspended" || user.accountStatus === "revoked") {
+    if (request.method === "GET" && ["/api/available-player-profiles", "/api/profile-options", "/api/profiles"].includes(url.pathname) && user.accountStatus === "pending") {
+      sendJson(response, 200, await listAvailablePlayerProfiles(user.uid));
+      return;
+    }
+    if (request.method === "POST" && ["/api/link-player", "/api/profile-link"].includes(url.pathname) && user.accountStatus === "pending") {
+      const body = await readJsonBody(request);
+      sendJson(response, 200, await linkOwnPlayer(user.uid, body.playerId));
+      return;
+    }
+    sendJson(response, 403, { error: "ACCOUNT_NOT_ACTIVE", message: user.accountStatus === "pending" ? "Your roster selection is awaiting administrator approval." : "This account is not active." });
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/state") {
     sendJson(response, 200, await getClientState(user));
     return;
@@ -210,24 +230,41 @@ export async function handleApi(request, response, url) {
     sendJson(response, 200, await updateAnnouncement(decodeURIComponent(announcementRoute[1]), await readJsonBody(request), user));
     return;
   }
-  if (user.accountStatus === "pending" || user.accountStatus === "suspended" || user.accountStatus === "revoked") {
-    if (request.method === "GET" && ["/api/available-player-profiles", "/api/profile-options", "/api/profiles"].includes(url.pathname) && user.accountStatus === "pending") {
-      sendJson(response, 200, await listAvailablePlayerProfiles(user.uid));
-      return;
-    }
-    if (request.method === "POST" && ["/api/link-player", "/api/profile-link"].includes(url.pathname) && user.accountStatus === "pending") {
-      const body = await readJsonBody(request);
-      sendJson(response, 200, await linkOwnPlayer(user.uid, body.playerId));
-      return;
-    }
-    sendJson(response, 403, { error: "ACCOUNT_NOT_ACTIVE", message: user.accountStatus === "pending" ? "Your roster selection is awaiting administrator approval." : "This account is not active." });
-    return;
-  }
-
   if (request.method === "GET" && ["/api/admin/accounts", "/api/admin/signups"].includes(url.pathname)) {
     requireRole(user, ROLES.ADMIN);
     const accounts = await listAdminAccounts();
     sendJson(response, 200, url.pathname.endsWith("signups") ? accounts.filter((item) => item.accountStatus === "pending" || item.linkStatus !== "linked") : accounts);
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/season-battles") {
+    sendJson(response, 200, await listSeasonBattles(user));
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/season-battles") {
+    sendJson(response, 201, await createSeasonBattle(await readJsonBody(request), user));
+    return;
+  }
+  const seasonBattleAssetRoute = url.pathname.match(/^\/api\/season-battle-assets\/([^/]+)$/);
+  if (seasonBattleAssetRoute && request.method === "GET") {
+    const asset = await getSeasonBattleAsset(decodeURIComponent(seasonBattleAssetRoute[1]), user);
+    response.writeHead(200, { "Content-Type": asset.metadata.mimeType, "Content-Length": asset.buffer.length, "Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff" });
+    response.end(asset.buffer);
+    return;
+  }
+  const seasonBattleScreenshotRoute = url.pathname.match(/^\/api\/season-battles\/([^/]+)\/screenshot$/);
+  if (seasonBattleScreenshotRoute && request.method === "POST") {
+    sendJson(response, 200, await attachSeasonBattleScreenshot(decodeURIComponent(seasonBattleScreenshotRoute[1]), await readMultipartImage(request), user));
+    return;
+  }
+  const seasonBattleActionRoute = url.pathname.match(/^\/api\/season-battles\/([^/]+)\/(publish|archive|duplicate)$/);
+  if (seasonBattleActionRoute && request.method === "POST") {
+    sendJson(response, 200, await transitionSeasonBattle(decodeURIComponent(seasonBattleActionRoute[1]), seasonBattleActionRoute[2], await readJsonBody(request), user));
+    return;
+  }
+  const seasonBattleRoute = url.pathname.match(/^\/api\/season-battles\/([^/]+)$/);
+  if (seasonBattleRoute && request.method === "PATCH") {
+    sendJson(response, 200, await updateSeasonBattle(decodeURIComponent(seasonBattleRoute[1]), await readJsonBody(request), user));
     return;
   }
   const adminAccountRoute = url.pathname.match(/^\/api\/admin\/accounts\/([^/]+)$/);
@@ -1039,5 +1076,7 @@ async function readMultipartImage(request) {
     throw new Error("Screenshot upload could not be read");
   }
 
-  return { buffer: body.subarray(start + 4, end) };
+  const headers = body.subarray(0, start).toString("utf8");
+  const originalName = headers.match(/filename="([^"]+)"/)?.[1] || "screenshot";
+  return { buffer: body.subarray(start + 4, end), originalName };
 }
