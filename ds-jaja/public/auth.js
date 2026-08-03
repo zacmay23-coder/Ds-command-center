@@ -32,6 +32,9 @@ export function saveSession(session) {
     idToken: session.idToken,
     refreshToken: session.refreshToken,
     uid: session.localId,
+    role: session.role,
+    accountType: session.accountType,
+    isAnonymous: Boolean(session.isAnonymous),
     expiresAt: Date.now() + Number(session.expiresIn || 3600) * 1000,
     savedAt: new Date().toISOString()
   }));
@@ -39,6 +42,22 @@ export function saveSession(session) {
 
 export function clearSession() {
   localStorage.removeItem(sessionKey);
+}
+
+export async function startGuestSession() {
+  const response = await fetch("/api/auth/guest-session", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.message || payload.error || "Guest Preview is temporarily unavailable.");
+  saveSession(payload);
+  return payload;
+}
+
+export async function endGuestSession() {
+  const session = getSession();
+  if (session?.accountType === "guest") {
+    try { await fetch("/api/auth/guest-signout", { method: "POST", headers: { Authorization: `Bearer ${session.idToken}` } }); } catch {}
+  }
+  clearSession();
 }
 
 export async function authFetch(url, options = {}) {
@@ -82,6 +101,7 @@ export function liveUpdatesUrl() {
 }
 
 async function refreshSession(session) {
+  if (session?.accountType === "guest") throw new Error("Your guest session has expired");
   if (!session?.refreshToken) throw new Error("No refresh token is available");
   const response = await fetch(
     `https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(firebaseConfig.apiKey)}`,

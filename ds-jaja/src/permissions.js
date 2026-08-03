@@ -1,10 +1,12 @@
 export const ROLES = Object.freeze({
+  GUEST: "guest",
   MEMBER: "member",
   OFFICER: "officer",
   ADMIN: "administrator"
 });
 
 const ROLE_WEIGHT = {
+  [ROLES.GUEST]: 0,
   [ROLES.MEMBER]: 1,
   [ROLES.OFFICER]: 2,
   [ROLES.ADMIN]: 3
@@ -28,9 +30,18 @@ export function requireRole(user, minimumRole) {
 }
 
 export function permissionsFor(user) {
+  const guest = user?.role === ROLES.GUEST;
   const officer = hasRole(user, ROLES.OFFICER);
   const admin = hasRole(user, ROLES.ADMIN);
   return {
+    viewGuestDashboard: guest,
+    viewPublishedEvents: guest || hasRole(user, ROLES.MEMBER),
+    viewPublishedStrategies: guest || hasRole(user, ROLES.MEMBER),
+    viewInteractiveMap: guest || hasRole(user, ROLES.MEMBER),
+    runMapSimulation: guest || hasRole(user, ROLES.MEMBER),
+    switchMapTeams: guest || hasRole(user, ROLES.MEMBER),
+    exploreNavigation: guest,
+    viewPrivateBriefings: !guest && hasRole(user, ROLES.MEMBER),
     canCreateEvents: officer,
     canEditEvents: officer,
     canPublishEvents: officer,

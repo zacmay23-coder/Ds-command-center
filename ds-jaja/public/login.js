@@ -1,4 +1,4 @@
-import { authFetch, signIn } from "./auth.js";
+import { authFetch, signIn, startGuestSession } from "./auth.js";
 
 const form = document.querySelector("#loginForm");
 const message = document.querySelector("#authMessage");
@@ -11,6 +11,19 @@ document.querySelectorAll("[data-toggle-password]").forEach((button) => {
     button.textContent = reveal ? "Hide" : "Show";
     button.setAttribute("aria-label", reveal ? "Hide password" : "Show password");
   });
+});
+
+document.querySelector("#guestPreviewButton").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  try {
+    message.textContent = "Starting Guest Preview…";
+    button.disabled = true;
+    await startGuestSession();
+    window.location.href = "/guest.html";
+  } catch (error) {
+    message.textContent = error.message || "Guest Preview is temporarily unavailable. Please try again.";
+    button.disabled = false;
+  }
 });
 
 form.addEventListener("submit", async (event) => {

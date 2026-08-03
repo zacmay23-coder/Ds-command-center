@@ -22,7 +22,7 @@
         <small><i></i>Alliance Operations<i></i></small>
       </header>
       <section class="auth-card">
-        <p class="eyebrow">Command Access</p>
+        <p class="eyebrow">Member / Officer Access</p>
         <h2>Sign in</h2>
         <p class="muted">Enter your credentials to access the Alliance Operations center.</p>
 
@@ -31,6 +31,10 @@
           <label>Password<div class="auth-password-field"><input name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required><button type="button" data-toggle-password aria-label="Show password">Show</button></div></label>
           <button class="primary-button auth-submit" type="submit">Sign In <span aria-hidden="true">→</span></button>
         </form>
+
+        <div class="auth-guest-divider"><span>or explore safely</span></div>
+        <button id="guestPreviewButton" class="secondary-button auth-guest-button" type="button">Explore as Guest</button>
+        <p class="auth-guest-copy">Preview the Command Center in read-only mode. No account required.</p>
 
         <p id="authMessage" class="auth-message"></p>
         <p class="auth-link">Need access? <a href="/register.html">Register an account</a></p>

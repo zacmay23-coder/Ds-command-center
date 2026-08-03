@@ -4360,6 +4360,52 @@ th {
   grid-template-columns: repeat(6, minmax(82px, 1fr));
 }
 
+.auth-guest-divider { align-items: center; color: var(--muted); display: flex; font-size: 11px; gap: 10px; margin: 18px 0 12px; text-transform: uppercase; }
+.auth-guest-divider::before, .auth-guest-divider::after { background: var(--line-soft); content: ""; flex: 1; height: 1px; }
+.auth-guest-button { width: 100%; }
+.auth-guest-copy { color: var(--muted); font-size: 12px; margin: 8px 0 0; text-align: center; }
+
+.guest-preview-page { background: #030914; color: var(--text); min-height: 100vh; }
+.guest-header { align-items: center; background: rgba(3, 9, 20, .96); border-bottom: 1px solid var(--line-soft); display: grid; gap: 16px; grid-template-columns: 1fr auto 1fr; padding: 12px 22px; position: sticky; top: 0; z-index: 20; }
+.guest-header > div, .guest-header p, .guest-header nav { align-items: center; display: flex; gap: 10px; margin: 0; }
+.guest-header p { border: 1px solid #4b8dbe; border-radius: 999px; padding: 7px 12px; }
+.guest-header p span { color: #79c2ff; font-size: 10px; text-transform: uppercase; }
+.guest-header nav { justify-content: flex-end; }
+.guest-header a, .guest-header button { color: var(--text); font-size: 11px; }
+.guest-shell { display: grid; grid-template-columns: 190px minmax(0, 1fr); margin: 0 auto; max-width: 1500px; min-height: calc(100vh - 72px); }
+.guest-nav { border-right: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 6px; padding: 22px 12px; }
+.guest-nav button { background: transparent; border: 1px solid transparent; color: var(--muted); text-align: left; }
+.guest-nav button.active { background: rgba(44, 139, 220, .14); border-color: #326f9f; color: #8bcaff; }
+.guest-content { min-width: 0; padding: 24px; }
+.guest-hero { padding: clamp(22px, 5vw, 56px); }
+.guest-hero h1 { font-size: clamp(28px, 5vw, 58px); margin: 8px 0; }
+.guest-actions, .guest-preview-grid { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
+.guest-preview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.guest-locked-card > span { font-size: 24px; }
+.guest-map-controls { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; }
+.guest-map-controls > div, .guest-phase-row { display: flex; gap: 5px; overflow-x: auto; }
+.guest-map-controls button.active, .guest-phase-row button.active { background: #1f78b4; border-color: #79c2ff; }
+.guest-phase-row { margin: 10px 0; }
+.guest-map-layout { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr) minmax(250px, 340px); }
+.guest-map-stage { aspect-ratio: 1.45; background: #07111b; border: 1px solid var(--line-soft); border-radius: 14px; min-height: 340px; overflow: hidden; position: relative; }
+.guest-map-stage > img { height: 100%; object-fit: cover; width: 100%; }
+.guest-map-node { background: rgba(4, 12, 21, .9); border: 1px solid #607487; border-radius: 50%; height: 18px; padding: 0; position: absolute; transform: translate(-50%, -50%); width: 18px; }
+.guest-map-node span { background: rgba(3, 9, 16, .88); border-radius: 4px; color: #dbeeff; font-size: 9px; left: 50%; padding: 2px 4px; position: absolute; top: 18px; transform: translateX(-50%); white-space: nowrap; }
+.guest-map-node.active { border: 3px solid var(--accent); box-shadow: 0 0 12px rgba(215, 168, 77, .55); }
+.guest-map-node.selected { outline: 3px solid #79c2ff; outline-offset: 3px; }
+.guest-structure-panel article { border-left: 3px solid #409de5; margin: 12px 0; padding-left: 10px; }
+
+@media (max-width: 760px) {
+  .guest-header { grid-template-columns: 1fr auto; }
+  .guest-header nav { grid-column: 1 / -1; justify-content: flex-start; overflow-x: auto; }
+  .guest-shell { display: block; }
+  .guest-nav { border-bottom: 1px solid var(--line-soft); border-right: 0; flex-direction: row; overflow-x: auto; padding: 10px; position: sticky; top: 118px; z-index: 10; }
+  .guest-nav button { flex: 0 0 auto; }
+  .guest-content { padding: 14px; }
+  .guest-map-layout { grid-template-columns: 1fr; }
+  .guest-map-stage { min-height: 200px; }
+}
+
 .timeline-simulation-label { align-items: center; color: var(--muted); display: flex; gap: 12px; justify-content: space-between; padding: 8px 14px 0; }
 .timeline-simulation-label strong { color: var(--text); }
 .show-my-map-assignment { margin: 10px 12px; }

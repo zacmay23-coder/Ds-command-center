@@ -11,6 +11,8 @@ const APP_SHELL = [
   "/auth.js",
   "/battle-plan.js",
   "/login.js",
+  "/guest.html",
+  "/guest.js",
   "/register.js",
   "/profile-link.js",
   "/manifest.webmanifest",

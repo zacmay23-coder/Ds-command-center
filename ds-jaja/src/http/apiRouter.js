@@ -96,8 +96,13 @@ import { sanitizeTextFields } from "../textSanitization.js";
 import { parseDuelLeagueStandings, readResultScreenshot, readScreenshotText } from "../resultScreenshotReader.js";
 import { canEditOwnAvailability, permissionsFor, requireRole, ROLES } from "../permissions.js";
 import { getFirebasePersistenceStatus } from "../firebasePersistence.js";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { battlePhases, objectivePositions, strategyPlans, tacticalGroups } from "../../public/battle-plan.js";
 
 const firebaseApiKey = "AIzaSyCnccjJ6h-RlTU1Qbp3Zgd2WQag0YVwsWs";
+const guestSessionLifetimeMs = 2 * 60 * 60 * 1000;
+const guestSessionAttempts = new Map();
+const guestSigningSecret = process.env.DSCC_GUEST_SESSION_SECRET || randomUUID();
 
 export async function handleApi(request, response, url) {
   url.pathname = normalizeApiPath(url.pathname);
@@ -132,9 +137,15 @@ export async function handleApi(request, response, url) {
     return;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/auth/guest-session") {
+    enforceGuestSessionRateLimit(request);
+    sendJson(response, 201, createGuestSession());
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/live") {
     const firebaseUser = await verifyFirebaseToken(url.searchParams.get("token") || "");
-    if (!firebaseUser) {
+    if (!firebaseUser || firebaseUser.guest) {
       sendJson(response, 401, { error: "Your sign-in session expired. Please sign in again." });
       return;
     }
@@ -144,7 +155,24 @@ export async function handleApi(request, response, url) {
 
   const firebaseUser = await requireFirebaseUser(request, response);
   if (!firebaseUser) return;
-  const user = await getOrCreateUser(firebaseUser);
+  const user = firebaseUser.guest ? firebaseUser : await getOrCreateUser(firebaseUser);
+
+  if (user.role === ROLES.GUEST) {
+    if (request.method === "POST" && url.pathname === "/api/auth/guest-signout") {
+      sendJson(response, 200, { signedOut: true });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/guest/bootstrap") {
+      sendJson(response, 200, guestBootstrap(user));
+      return;
+    }
+    if (!["GET", "HEAD"].includes(request.method)) {
+      sendJson(response, 403, { error: "GUEST_READ_ONLY", message: "Guest Preview is read-only. Sign in with an authorized account to make changes." });
+      return;
+    }
+    sendJson(response, 403, { error: "GUEST_FORBIDDEN", message: "This private feature is available to verified alliance members." });
+    return;
+  }
 
   if (request.method === "GET" && url.pathname === "/api/me") {
     sendJson(response, 200, { ...user, status: user.status || "active", permissions: permissionsFor(user) });
@@ -768,6 +796,8 @@ async function requireFirebaseUser(request, response) {
 
 async function verifyFirebaseToken(token) {
   if (!token) return null;
+  const guest = verifyGuestSession(token);
+  if (guest) return guest;
   try {
     const lookupResponse = await fetch(
       `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(firebaseApiKey)}`,
@@ -787,6 +817,81 @@ async function verifyFirebaseToken(token) {
   } catch {
     return null;
   }
+}
+
+function guestSessionSecret() {
+  return guestSigningSecret;
+}
+
+export function createGuestSession() {
+  const createdAt = Date.now();
+  const payload = {
+    jti: randomUUID(), role: "guest", accountType: "guest", isAnonymous: true,
+    displayName: "Guest Viewer", createdAt, expiresAt: createdAt + guestSessionLifetimeMs
+  };
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = createHmac("sha256", guestSessionSecret()).update(encoded).digest("base64url");
+  return {
+    idToken: `guest.${encoded}.${signature}`,
+    localId: `guest-${payload.jti}`,
+    displayName: payload.displayName,
+    role: payload.role,
+    accountType: payload.accountType,
+    isAnonymous: true,
+    expiresIn: String(Math.floor(guestSessionLifetimeMs / 1000)),
+    expiresAt: payload.expiresAt
+  };
+}
+
+export function verifyGuestSession(token) {
+  const [prefix, encoded, signature] = String(token).split(".");
+  if (prefix !== "guest" || !encoded || !signature) return null;
+  const expected = createHmac("sha256", guestSessionSecret()).update(encoded).digest("base64url");
+  const suppliedBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (suppliedBuffer.length !== expectedBuffer.length || !timingSafeEqual(suppliedBuffer, expectedBuffer)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    if (payload.role !== "guest" || Number(payload.expiresAt) <= Date.now()) return null;
+    return {
+      uid: `guest-${payload.jti}`, localId: `guest-${payload.jti}`, displayName: "Guest Viewer",
+      role: ROLES.GUEST, accountType: "guest", isAnonymous: true, guest: true,
+      playerId: null, memberId: null, active: true, createdAt: new Date(payload.createdAt).toISOString(),
+      expiresAt: new Date(payload.expiresAt).toISOString(), permissions: permissionsFor({ role: ROLES.GUEST, active: true })
+    };
+  } catch { return null; }
+}
+
+function enforceGuestSessionRateLimit(request) {
+  const key = String(request.headers["cf-connecting-ip"] || request.socket?.remoteAddress || "unknown");
+  const cutoff = Date.now() - 60_000;
+  const attempts = (guestSessionAttempts.get(key) || []).filter((timestamp) => timestamp > cutoff);
+  if (attempts.length >= 10) throw statusError(429, "Guest Preview is temporarily rate limited. Try again shortly.");
+  attempts.push(Date.now());
+  guestSessionAttempts.set(key, attempts);
+}
+
+export function guestBootstrap(user) {
+  const demoParticipants = Object.fromEntries(["Unit A", "Unit B", "Unit C", "Unit D", "Strike Team", "Scout + Support", "Reserve"].map((group, index) => [group, {
+    count: group === "Reserve" ? 3 : 5,
+    labels: [`Player ${String(index * 2 + 1).padStart(2, "0")}`, `Player ${String(index * 2 + 2).padStart(2, "0")}`]
+  }]));
+  return {
+    me: user,
+    notice: "Guest Preview uses demonstration or officer-approved public information. Private alliance records are not shown.",
+    event: { id: "demo-desert-storm", type: "desertStorm", title: "Desert Storm Strategy Demonstration", status: "active", startDate: "Preview", summary: "Explore a fictionalized 30-minute operation without exposing alliance records." },
+    map: {
+      mapDefinitionId: "desert-storm-standard-v1", phases: battlePhases, objectivePositions, tacticalGroups,
+      teams: Object.fromEntries(["A", "B"].map((team) => [team, { strategyName: strategyPlans[team].name, phases: strategyPlans[team].phases, participants: demoParticipants }]))
+    },
+    strategies: Object.values(strategyPlans).map((strategy, index) => ({ id: `demo-strategy-${index + 1}`, name: strategy.name, description: "Six-phase demonstration strategy." })),
+    features: [
+      { id: "briefing", title: "My Briefing", locked: true, description: "Verified members receive personal assignments, reminders, strategy updates, and goals." },
+      { id: "journal", title: "Private Journal & Goals", locked: true, description: "Members can maintain private journal entries and daily or weekly goals." },
+      { id: "officer", title: "Officer Operations", locked: true, description: "Officers create events, assign teams, edit strategies, publish briefings, and archive results." },
+      { id: "vs", title: "VS Tracking", locked: true, description: "Authorized members use audited scoring and weekly standings workflows." }
+    ]
+  };
 }
 
 async function proxyFirebaseAuth(action, input) {
