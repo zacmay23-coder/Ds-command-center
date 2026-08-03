@@ -4360,6 +4360,21 @@ th {
   grid-template-columns: repeat(6, minmax(82px, 1fr));
 }
 
+.timeline-simulation-label { align-items: center; color: var(--muted); display: flex; gap: 12px; justify-content: space-between; padding: 8px 14px 0; }
+.timeline-simulation-label strong { color: var(--text); }
+.show-my-map-assignment { margin: 10px 12px; }
+.strategy-objective.inactive { opacity: .52; }
+.strategy-objective.selected { opacity: 1; outline: 3px solid #79c2ff; outline-offset: 3px; }
+.map-objective-brief { display: grid; gap: 12px; }
+.objective-command-list { display: grid; gap: 8px; }
+.objective-command-list > div { border-left: 3px solid var(--tactical-blue); display: grid; gap: 3px; padding: 7px 10px; }
+.objective-command-list span { color: var(--muted); font-size: 11px; }
+
+@media (max-width: 600px) {
+  .timeline-simulation-label { align-items: flex-start; flex-direction: column; }
+  .strategy-objective span { font-size: 7px; max-width: 70px; }
+}
+
 /* Alliance Events schedule hub */
 .alliance-events-page {
   --event-accent: #58aaf7;

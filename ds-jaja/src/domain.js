@@ -160,6 +160,8 @@ export function normalizeState(input = {}) {
     eventIdempotency: input.eventIdempotency && typeof input.eventIdempotency === "object" ? input.eventIdempotency : {},
     eventBriefings: input.eventBriefings && typeof input.eventBriefings === "object" ? input.eventBriefings : {},
     activeEventsByType: input.activeEventsByType && typeof input.activeEventsByType === "object" ? input.activeEventsByType : {},
+    eventMapDrafts: input.eventMapDrafts && typeof input.eventMapDrafts === "object" ? input.eventMapDrafts : {},
+    eventMapSnapshots: input.eventMapSnapshots && typeof input.eventMapSnapshots === "object" ? input.eventMapSnapshots : {},
     eventParticipants: nestedObjectMap(input.eventParticipants, normalizeParticipant),
     activeEventId: input.activeEventId || newestEditableEventId(input.events),
     strategyTemplates: objectMap(input.strategyTemplates, normalizeTemplate),

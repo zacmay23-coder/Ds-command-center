@@ -50,6 +50,7 @@ let timelinePlaybackTimer = null;
 let timelineSelectedGroup = "";
 let timelineEditMode = false;
 let timelineMovementView = "all";
+let timelineSelectedObjective = "";
 let selectedVsWeekId = "";
 let selectedVsDate = "";
 let selectedVsScoreFilter = "all";
@@ -2827,7 +2828,7 @@ async function renderParticipation() {
 function renderStrategyTimeline() {
   const event = state.activeEvent;
   if (!event) {
-    elements.strategyTimelineContent.innerHTML = emptyState("No active event strategy.");
+    elements.strategyTimelineContent.innerHTML = emptyState("No published Desert Storm event is currently active.");
     return;
   }
   if (state.permissions.isOfficer) {
@@ -2866,7 +2867,11 @@ function renderStrategyTimeline() {
       <div class="tactical-strategy-identity"><span>Active strategy</span><strong>${escapeHtml(strategy?.name || event[`strategy${timelineTeam}`])}</strong><small>${escapeHtml(event[`battleTime${timelineTeam}`])} server time · ${escapeHtml(event.date || "Current battle")}</small></div>
     </div>
     ${phases.length ? `
+      <div class="timeline-simulation-label"><strong>Planned Battle Timeline</strong><span>Strategy simulation only — not live game tracking</span></div>
       <div class="timeline-playback-bar">
+        <button class="secondary-button" type="button" data-timeline-previous ${timelinePhaseIndex === 0 ? "disabled" : ""}>Previous phase</button>
+        <button class="secondary-button" type="button" data-timeline-next ${timelinePhaseIndex === phases.length - 1 ? "disabled" : ""}>Next phase</button>
+        <button class="secondary-button" type="button" data-timeline-reset>Reset</button>
         <button class="tactical-play-button" type="button" data-timeline-play><span>${timelinePlaybackTimer ? "â…¡" : "â–¶"}</span>${timelinePlaybackTimer ? "Pause playback" : "Play battle plan"}</button>
         <div><span>Battle progress</span><input aria-label="Battle timeline" data-timeline-scrubber type="range" min="0" max="5" step="1" value="${timelinePhaseIndex}"></div>
         <strong><small>Live interval</small>${Number(phase.startMinute)}–${Number(phase.endMinute)} min</strong>
@@ -2885,24 +2890,42 @@ function renderStrategyTimeline() {
               <button type="button" data-movement-view="selected" class="${timelineMovementView === "selected" ? "active" : ""}" ${selectedOrder ? "" : "disabled"}>Watch selected squad</button>
             </div>
           </div>
+          ${state.me.playerId ? `<button class="primary-button show-my-map-assignment" type="button" data-show-my-assignment>Show My Assignment</button>` : ""}
           <div class="strategy-tactical-map" aria-label="Interactive Desert Storm objective map">
             <img src="/assets/desert-storm-map-clean.png" alt="Desert Storm battle map">
             <div class="strategy-route-layer">${timelineRoutes(displayedOrders)}</div>
             <div class="strategy-group-layer">${timelineGroupMarkers(displayedOrders)}</div>
             <div class="strategy-objective-layer">${Object.entries(objectivePositions).map(([objective, [x, y]]) => `
-              <button type="button" class="strategy-objective ${activeObjectives.has(objective) ? "active" : ""}" style="left:${x}%;top:${y}%" data-map-objective="${escapeHtml(objective)}"><span>${escapeHtml(objective)}</span></button>
+              <button type="button" class="strategy-objective ${activeObjectives.has(objective) ? "active" : "inactive"} ${timelineSelectedObjective === objective ? "selected" : ""}" style="left:${x}%;top:${y}%" data-map-objective="${escapeHtml(objective)}" aria-label="Open ${escapeHtml(objective)} strategy details"><span>${escapeHtml(objective)}</span></button>
             `).join("")}</div>
           </div>
         </div>
         <aside class="strategy-unit-rail">
           <div class="strategy-legend-heading"><span>Unit legend</span><small>Choose a unit to inspect its orders</small></div>
           <div class="strategy-map-legend">${orders.map((order) => `<button type="button" data-map-group="${escapeHtml(order.group)}" class="${timelineSelectedGroup === order.group ? "active" : ""}"><i style="background:${tacticalGroupColor(order.group)}"></i><span><strong>${escapeHtml(order.group)}</strong><small>${order.members.length} players</small></span></button>`).join("")}</div>
-          ${selectedOrder ? timelineSelectedUnitPanel(selectedOrder, phases) : `<article class="map-selection-hint panel"><strong>No units available</strong><span>Assign players to tactical units to display battle commands.</span></article>`}
+          ${timelineSelectedObjective ? timelineSelectedObjectivePanel(timelineSelectedObjective, orders, phase) : selectedOrder ? timelineSelectedUnitPanel(selectedOrder, phases) : `<article class="map-selection-hint panel"><strong>No units available</strong><span>Assign players to tactical units to display battle commands.</span></article>`}
         </aside>
       </div>
     ` : `<article class="panel"><p class="muted">Apply a reusable strategy template to add timed battle phases and map commands.</p></article>`}
     </div>
   `;
+}
+
+function timelineSelectedObjectivePanel(objective, orders, phase) {
+  const assigned = orders.filter((order) => order.primaryObjective === objective || order.secondaryObjective === objective);
+  const primary = assigned.filter((order) => order.primaryObjective === objective);
+  const support = assigned.filter((order) => order.secondaryObjective === objective);
+  const participants = assigned.flatMap((order) => order.members.map((member) => ({ ...member, mapGroup: order.group })));
+  const x = objectivePositions[objective]?.[0] || 50;
+  const region = x < 35 ? "West" : x > 65 ? "East" : "Center";
+  const critical = ["Info Center", "Nuclear Silo"].includes(objective);
+  return `<article class="map-objective-brief panel">
+    <div class="selected-unit-heading"><div><p class="eyebrow">${region} region · ${critical ? "Critical strategic objective" : "Operational structure"}</p><h3>${escapeHtml(objective)}</h3></div><button class="secondary-button" type="button" data-close-objective>Close</button></div>
+    <dl class="strategy-order-details"><div><dt>Active phase</dt><dd>${phase.startMinute}–${phase.endMinute} minutes</dd></div><div><dt>Primary units</dt><dd>${escapeHtml(primary.map((item) => item.group).join(", ") || "Unassigned")}</dd></div><div><dt>Support units</dt><dd>${escapeHtml(support.map((item) => item.group).join(", ") || "None")}</dd></div><div><dt>Priority</dt><dd>${critical ? "Critical" : assigned.length ? "Assigned" : "Inactive"}</dd></div></dl>
+    <div class="objective-command-list">${assigned.map((order) => `<div><strong>${escapeHtml(order.group)} · ${escapeHtml(order.primaryObjective === objective ? order.primaryAction : order.secondaryAction)}</strong><span>${escapeHtml(order.goal || "Follow the phase strategy.")}</span></div>`).join("") || `<p class="muted">No unit is assigned during the selected phase.</p>`}</div>
+    <details class="selected-unit-members"><summary>Assigned and support players (${participants.length})</summary><div class="mini-profile-list">${participants.map((member) => memberMiniProfile(member.playerId, `${member.mapGroup} · Team ${timelineTeam}`)).join("") || "<small>No players assigned</small>"}</div></details>
+    <small>Last update: ${escapeHtml(state.eventMap?.updatedAt || state.updatedAt || "Not available")}</small>
+  </article>`;
 }
 
 function timelineSelectedUnitPanel(order, phases) {
@@ -3050,31 +3073,52 @@ function handleTimelineClick(event) {
   const objectiveButton = event.target.closest("[data-map-objective]");
   const groupButton = event.target.closest("[data-map-group]");
   const movementViewButton = event.target.closest("[data-movement-view]");
+  const previousButton = event.target.closest("[data-timeline-previous]");
+  const nextButton = event.target.closest("[data-timeline-next]");
+  const resetButton = event.target.closest("[data-timeline-reset]");
+  const myAssignmentButton = event.target.closest("[data-show-my-assignment]");
+  const closeObjectiveButton = event.target.closest("[data-close-objective]");
   if (teamButton) {
     stopTimelinePlayback();
     timelineTeam = teamButton.dataset.timelineTeam;
     timelinePhaseIndex = 0;
     timelineSelectedGroup = "";
+    timelineSelectedObjective = "";
     timelineMovementView = "all";
     renderStrategyTimeline();
   } else if (phaseButton) {
     stopTimelinePlayback();
     timelinePhaseIndex = Number(phaseButton.dataset.timelinePhase);
     timelineSelectedGroup = "";
+    timelineSelectedObjective = "";
     renderStrategyTimeline();
   } else if (playButton) {
     toggleTimelinePlayback();
+  } else if (previousButton || nextButton || resetButton) {
+    stopTimelinePlayback();
+    timelinePhaseIndex = resetButton ? 0 : Math.max(0, Math.min(battlePhases.length - 1, timelinePhaseIndex + (nextButton ? 1 : -1)));
+    renderStrategyTimeline();
+  } else if (myAssignmentButton) {
+    const participant = state.participants.find((item) => item.playerId === state.me.playerId);
+    if (!participant || !["A", "B"].includes(participant.team)) return setStatus("You do not currently have a team assignment", true);
+    timelineTeam = participant.team;
+    timelineSelectedGroup = participantTacticalGroup(participant);
+    timelineSelectedObjective = participant.openingObjective || participant.primaryUnit || participant.unit || "";
+    timelinePhaseIndex = 0;
+    renderStrategyTimeline();
+  } else if (closeObjectiveButton) {
+    timelineSelectedObjective = "";
+    renderStrategyTimeline();
   } else if (groupButton) {
     timelineSelectedGroup = groupButton.dataset.mapGroup;
+    timelineSelectedObjective = "";
     renderStrategyTimeline();
   } else if (movementViewButton) {
     timelineMovementView = movementViewButton.dataset.movementView;
     renderStrategyTimeline();
   } else if (objectiveButton) {
-    const objective = objectiveButton.dataset.mapObjective;
-    elements.strategyTimelineContent.querySelectorAll(".strategy-unit-order").forEach((card) => {
-      card.classList.toggle("highlighted", card.textContent.includes(objective));
-    });
+    timelineSelectedObjective = objectiveButton.dataset.mapObjective;
+    renderStrategyTimeline();
   }
 }
 

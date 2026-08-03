@@ -399,7 +399,8 @@ export async function getClientState(user) {
       legacyBattleProjection(event, state.eventParticipants[event.id] || {})
     ),
     strategyTemplates: user.role === "member" ? [] : Object.values(state.strategyTemplates).filter((template) => template.active),
-    eventStrategy: activeEvent ? state.eventStrategies[activeEvent.id] || {} : {},
+    eventStrategy: activeEvent ? mapStrategyForUser(state, activeEvent.id, user) : {},
+    eventMap: activeEvent ? mapPlanForUser(state, activeEvent.id, user) : null,
     allianceWeeklyEvents: Object.values(state.allianceWeeklyEvents)
       .filter((item) => item.active)
       .sort((left, right) => `${left.date}T${left.time}`.localeCompare(`${right.date}T${right.time}`)),
@@ -1245,7 +1246,11 @@ export async function transitionManagedEvent(eventId, action, actor, input = {})
   const timestamp = now();
   const next = { publish: "scheduled", activate: "active", complete: "completed", archive: "archived", cancel: "cancelled" }[action];
   event.status = next; event.active = next === "active"; event.updatedAt = timestamp; event.updatedBy = actor.uid; event.version += 1;
-  if (action === "publish") { event.publishedAt ||= timestamp; event.publishedBy ||= actor.uid; upsertEventBriefings(state, event); }
+  if (action === "publish") {
+    event.publishedAt ||= timestamp; event.publishedBy ||= actor.uid;
+    if (event.type === "desertStorm") publishMapSnapshot(state, event, actor);
+    upsertEventBriefings(state, event);
+  }
   if (action === "activate") state.activeEventsByType[event.type] = eventId;
   if (["complete", "archive", "cancel"].includes(action) && state.activeEventsByType[event.type] === eventId) delete state.activeEventsByType[event.type];
   if (action === "complete") event.closedAt = timestamp;
@@ -1526,6 +1531,15 @@ function captureHistoricalEventSnapshots(state, eventId) {
       roleAtEvent: participant.rosterStatus,
       capturedAt: now()
     };
+  }
+  state.eventMapSnapshots[eventId] ||= {};
+  if (!Object.keys(state.eventMapSnapshots[eventId]).length) {
+    state.eventMapSnapshots[eventId].legacy = structuredClone({
+      ...buildEventMapPlan(state, eventId, { status: "archived", version: 1 }),
+      publicationVersion: "legacy",
+      publishedAt: state.events[eventId]?.publishedAt || now(),
+      archivedAt: now()
+    });
   }
 }
 
@@ -1851,6 +1865,7 @@ export async function updateStrategyTemplate(templateId, patch, actor) {
 export async function applyTemplate(eventId, templateId, team, actor) {
   const state = await getState();
   const result = applyStrategyTemplate(state, eventId, templateId, team, actor);
+  updateMapDraft(state, eventId, actor);
   addAudit(state, actor, { eventId, action: "strategy_applied", recordType: "eventStrategy", recordId: team, after: templateId });
   await saveState();
   return result;
@@ -1896,9 +1911,80 @@ export async function updateAppliedStrategyOrder(eventId, team, input, actor) {
   }
   strategy.updatedAt = now();
   strategy.updatedBy = actor.uid;
+  updateMapDraft(state, eventId, actor);
   addAudit(state, actor, { eventId, action: "strategy_order_updated", recordType: "eventStrategy", recordId: team, field: `${input.phase}.${group}`, after: patch });
   await saveState();
   return strategy;
+}
+
+function updateMapDraft(state, eventId, actor) {
+  state.eventMapDrafts[eventId] = buildEventMapPlan(state, eventId, {
+    status: "draft", updatedAt: now(), updatedBy: actor.uid,
+    version: Number(state.eventMapDrafts[eventId]?.version || 0) + 1
+  });
+}
+
+function publishMapSnapshot(state, managedEvent, actor) {
+  const legacyEventId = managedEvent.legacyRef?.collection === "events" ? managedEvent.legacyRef.id : managedEvent.id;
+  const plan = buildEventMapPlan(state, legacyEventId, {
+    status: "published", updatedAt: now(), updatedBy: actor.uid,
+    version: Number(state.eventMapDrafts[legacyEventId]?.version || 0) + 1
+  });
+  validateEventMapPlan(state, legacyEventId, plan);
+  state.eventMapDrafts[legacyEventId] = plan;
+  state.eventMapSnapshots[legacyEventId] ||= {};
+  const publicationVersion = String(managedEvent.version + 1);
+  state.eventMapSnapshots[legacyEventId][publicationVersion] = structuredClone({
+    ...plan, status: "published", publicationVersion, publishedAt: now(), publishedBy: actor.uid
+  });
+  managedEvent.details = { ...managedEvent.details, mapPlanVersion: plan.version, mapPublicationVersion: publicationVersion };
+}
+
+function buildEventMapPlan(state, eventId, metadata = {}) {
+  const teams = {};
+  for (const team of ["A", "B"]) {
+    const strategy = structuredClone(state.eventStrategies[eventId]?.[team] || {});
+    teams[team] = {
+      strategyId: strategy.templateId || strategy.id || state.events[eventId]?.[`strategy${team}`] || "",
+      strategyName: strategy.name || state.events[eventId]?.[`strategy${team}`] || "",
+      phases: strategy.phases || [],
+      participantIds: Object.values(state.eventParticipants[eventId] || {}).filter((item) => item.selected && item.team === team).map((item) => item.playerId)
+    };
+  }
+  return {
+    version: Number(metadata.version || 1), mapDefinitionId: "desert-storm-standard-v1", eventId,
+    status: metadata.status || "draft", teams, updatedAt: metadata.updatedAt || now(), updatedBy: metadata.updatedBy || ""
+  };
+}
+
+function validateEventMapPlan(state, eventId, plan) {
+  const structures = new Set(["Info Center", "Field Hospital 4", "Arsenal", "Oil Refinery 1", "Field Hospital 2", "Nuclear Silo", "Field Hospital 1", "Oil Refinery 2", "Mercenary Factory", "Field Hospital 3", "Science Hub"]);
+  const actions = new Set(["Secure", "Support", "Rotate", "Attack", "Contest", "Hold", "Defend", "Capture", "Pressure", "Reinforce", "Disrupt", "Delay", "Finish", "Ignore"]);
+  for (const [team, definition] of Object.entries(plan.teams || {})) {
+    if (!["A", "B"].includes(team)) throw statusError(422, "The map contains an invalid DS team");
+    for (const phase of definition.phases || []) {
+      if (Number(phase.startMinute) < 0 || Number(phase.endMinute) > 30 || Number(phase.endMinute) <= Number(phase.startMinute)) throw statusError(422, "The map contains an invalid battle phase");
+      for (const order of Object.values(phase.groupOrders || {})) {
+        for (const field of ["primaryObjective", "secondaryObjective"]) if (order[field] && !structures.has(order[field])) throw statusError(422, `Unknown map structure: ${order[field]}`);
+        for (const field of ["primaryAction", "secondaryAction"]) if (order[field] && !actions.has(order[field])) throw statusError(422, `Unsupported map action: ${order[field]}`);
+      }
+    }
+    for (const playerId of definition.participantIds || []) if (!state.eventParticipants[eventId]?.[playerId]) throw statusError(422, "The map references an unknown event participant");
+  }
+}
+
+function latestMapSnapshot(state, eventId) {
+  return Object.values(state.eventMapSnapshots?.[eventId] || {}).sort((a, b) => Number(b.publicationVersion) - Number(a.publicationVersion))[0] || null;
+}
+
+function mapPlanForUser(state, eventId, user) {
+  return user.role === "member" ? latestMapSnapshot(state, eventId) || buildEventMapPlan(state, eventId, { status: "published" }) : state.eventMapDrafts?.[eventId] || buildEventMapPlan(state, eventId);
+}
+
+function mapStrategyForUser(state, eventId, user) {
+  const plan = mapPlanForUser(state, eventId, user);
+  if (plan?.teams) return Object.fromEntries(Object.entries(plan.teams).map(([team, value]) => [team, { id: value.strategyId, name: value.strategyName, phases: value.phases || [] }]));
+  return state.eventStrategies[eventId] || {};
 }
 
 export async function getAudit(eventId) {
