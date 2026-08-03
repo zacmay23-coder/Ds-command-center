@@ -62,7 +62,7 @@ async function linkProfile(event) {
   }
 
   const selectedName = playerSelect.selectedOptions[0]?.textContent || "this profile";
-  if (!confirm(`Link your account to ${selectedName}? An administrator is required to change it later.`)) return;
+  if (!confirm(`Request ${selectedName} as your roster identity? An administrator will review the selection before access is granted.`)) return;
 
   try {
     message.textContent = "Linking your profile…";
@@ -72,8 +72,8 @@ async function linkProfile(event) {
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Profile could not be linked");
-    sessionStorage.setItem("ewar-entering-command-center", "true");
-    window.location.href = "/";
+    message.textContent = "Roster selection submitted. Your account is pending administrator approval.";
+    event.currentTarget.querySelector("button[type='submit']").disabled = true;
   } catch (error) {
     message.textContent = error.message;
   }

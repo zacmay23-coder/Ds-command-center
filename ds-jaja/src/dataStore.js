@@ -90,6 +90,9 @@ export function restoreAdministratorIdentity(state, firebaseUser) {
     uid: firebaseUser.localId,
     email: firebaseUser.email,
     role: "administrator",
+    applicationRole: "administrator",
+    accountStatus: "active",
+    officerPermissions: ["*"],
     playerId: linkedPlayerId,
     active: true,
     version: Math.max(Number(user.version || 0), Number(bestMatch.version || 0)) + 1
@@ -1139,7 +1142,9 @@ export async function getOrCreateUser(firebaseUser) {
       email: firebaseUser.email || "",
       displayName: firebaseUser.displayName || firebaseUser.email || "Member",
       role: configuredAdmins.includes(firebaseUser.localId) || shouldRestoreAdministrator ? "administrator" : "member",
-      status: "active",
+      applicationRole: configuredAdmins.includes(firebaseUser.localId) || shouldRestoreAdministrator ? "administrator" : "member",
+      accountStatus: configuredAdmins.includes(firebaseUser.localId) || shouldRestoreAdministrator ? "active" : "pending",
+      officerPermissions: configuredAdmins.includes(firebaseUser.localId) || shouldRestoreAdministrator ? ["*"] : [],
       playerId: null,
       profileConfirmedAt: null,
       profileSelection: null,
@@ -1147,7 +1152,7 @@ export async function getOrCreateUser(firebaseUser) {
       profileTitle: "Alliance Member",
       profileBio: "",
       profileSetupCompletedAt: null,
-      active: true,
+      active: configuredAdmins.includes(firebaseUser.localId) || shouldRestoreAdministrator,
       createdAt: now(),
       lastLoginAt: now(),
       version: 1
@@ -1158,6 +1163,9 @@ export async function getOrCreateUser(firebaseUser) {
     let restoredAdministrator = restoredIdentity.changed;
     if (shouldRestoreAdministrator && (user.role !== "administrator" || !user.active)) {
       user.role = "administrator";
+      user.applicationRole = "administrator";
+      user.accountStatus = "active";
+      user.officerPermissions = ["*"];
       user.active = true;
       user.version = Number(user.version || 0) + 1;
       restoredAdministrator = true;
@@ -1485,6 +1493,91 @@ export async function listUsers() {
   return Object.values((await getState()).users);
 }
 
+export const OFFICER_PERMISSIONS = ["manageRoster", "manageEvents", "manageStrategies", "manageMap", "manageVsScores", "manageBriefings", "viewAdministration", "manageAccountAccess", "manageOfficerPermissions"];
+
+export async function listAdminAccounts() {
+  const state = await getState();
+  return Object.values(state.users).map((user) => adminAccountProjection(state, user));
+}
+
+export async function getAdminAccount(userId) {
+  const state = await getState();
+  const user = state.users[userId];
+  if (!user) throw statusError(404, "Account was not found");
+  return adminAccountProjection(state, user);
+}
+
+export async function updateAdminAccount(userId, input, actor) {
+  const state = await getState();
+  const user = state.users[userId];
+  if (!user) throw statusError(404, "Account was not found");
+  if (actor.role !== "administrator") throw statusError(403, "Administrator access is required");
+  if (Number(input.expectedVersion) !== Number(user.version)) throw Object.assign(statusError(409, "The account changed in another session"), { latest: adminAccountProjection(state, user) });
+  const before = structuredClone(user);
+  const nextRole = input.applicationRole ?? input.role;
+  const nextStatus = input.accountStatus;
+  const nextPlayerId = input.playerId === undefined ? user.playerId : (input.playerId || null);
+  if (nextRole !== undefined && !["member", "officer", "administrator"].includes(nextRole)) throw statusError(422, "Choose a valid application role");
+  if (nextStatus !== undefined && !["pending", "active", "suspended", "revoked"].includes(nextStatus)) throw statusError(422, "Choose a valid account status");
+  if (nextPlayerId && !state.players[nextPlayerId]) throw statusError(404, "Roster member was not found");
+  if (nextPlayerId && Object.values(state.users).some((item) => item.uid !== userId && item.playerId === nextPlayerId)) throw statusError(409, "That roster member is already linked to another account");
+  const removesAdmin = user.role === "administrator" && ((nextRole && nextRole !== "administrator") || ["suspended", "revoked"].includes(nextStatus));
+  const activeAdmins = Object.values(state.users).filter((item) => item.role === "administrator" && item.active && item.accountStatus !== "revoked");
+  if (removesAdmin && activeAdmins.length <= 1) throw statusError(409, "The final active administrator cannot be removed");
+  if (isRecoveryAdministrator(user) && removesAdmin && input.confirmProtectedAdministrator !== true) throw statusError(409, "Protected administrator changes require explicit confirmation");
+  if (isRecoveryAdministrator(user) && nextPlayerId !== user.playerId && input.confirmProtectedAdministrator !== true) throw statusError(409, "Protected administrator roster changes require explicit confirmation");
+  if (user.role !== "administrator" && nextRole === "administrator" && input.confirmAdministratorPromotion !== true) throw statusError(409, "Administrator promotion requires explicit confirmation");
+  if (nextPlayerId !== user.playerId) {
+    if (user.playerId && state.players[user.playerId]?.userId === userId) state.players[user.playerId].userId = null;
+    user.playerId = nextPlayerId;
+    if (nextPlayerId) state.players[nextPlayerId].userId = userId;
+  }
+  if (nextRole !== undefined) { user.role = nextRole; user.applicationRole = nextRole; }
+  if (Array.isArray(input.officerPermissions)) {
+    const invalid = input.officerPermissions.filter((item) => !OFFICER_PERMISSIONS.includes(item));
+    if (invalid.length) throw statusError(422, `Unsupported officer permission: ${invalid[0]}`);
+    user.officerPermissions = user.role === "administrator" ? ["*"] : user.role === "officer" ? [...new Set(input.officerPermissions)] : [];
+  } else if (nextRole === "member") user.officerPermissions = [];
+  else if (nextRole === "administrator") user.officerPermissions = ["*"];
+  if (nextStatus !== undefined) user.accountStatus = nextStatus;
+  user.active = user.accountStatus === "active";
+  if (nextPlayerId && user.accountStatus === "active") {
+    const player = state.players[nextPlayerId];
+    user.requestedPlayerId = null;
+    user.profileConfirmedAt ||= now();
+    user.profileSelection = { ...(user.profileSelection || {}), playerId: nextPlayerId, playerName: player.gameName, rank: player.rank, approvalStatus: "approved", approvedAt: now() };
+  } else if (!nextPlayerId) {
+    user.requestedPlayerId = null;
+    user.profileConfirmedAt = null;
+    user.profileSelection = user.profileSelection ? { ...user.profileSelection, approvalStatus: user.accountStatus === "revoked" ? "rejected" : "unlinked", reviewedAt: now() } : null;
+  }
+  if (Object.hasOwn(input, "administrativeNotes")) user.administrativeNotes = String(input.administrativeNotes || "").slice(0, 1000);
+  user.reviewedBy = actor.uid; user.reviewedAt = now(); user.version += 1;
+  addAudit(state, actor, { action: "account.permissions.updated", recordType: "user", recordId: userId, before: { role: before.role, permissions: before.officerPermissions, status: before.accountStatus, playerId: before.playerId }, after: { role: user.role, permissions: user.officerPermissions, status: user.accountStatus, playerId: user.playerId } });
+  await saveState();
+  return adminAccountProjection(state, user);
+}
+
+export async function reviewSignup(userId, action, input, actor) {
+  const state = await getState();
+  const user = state.users[userId];
+  if (!user) throw statusError(404, "Signup was not found");
+  const role = action === "approve-officer" ? "officer" : "member";
+  return updateAdminAccount(userId, {
+    expectedVersion: input.expectedVersion,
+    applicationRole: role,
+    officerPermissions: role === "officer" ? (input.officerPermissions || OFFICER_PERMISSIONS.slice(0, 6)) : [],
+    accountStatus: action === "reject" ? "revoked" : "active",
+    playerId: action === "reject" ? null : (input.playerId || user.requestedPlayerId),
+    administrativeNotes: input.administrativeNotes
+  }, actor);
+}
+
+function adminAccountProjection(state, user) {
+  const player = user.playerId ? state.players[user.playerId] : user.requestedPlayerId ? state.players[user.requestedPlayerId] : null;
+  return { ...user, applicationRole: user.role, accountStatus: user.accountStatus || (user.active ? "active" : "suspended"), officerPermissions: user.officerPermissions || [], linkStatus: user.playerId ? "linked" : user.requestedPlayerId ? "pending" : "unlinked", member: player ? { id: player.id, inGameName: player.gameName, profileImageUrl: player.profileImage || "", allianceRank: player.rank, memberStatus: player.active ? "active" : "inactive" } : null };
+}
+
 export async function listAvailablePlayerProfiles(userId) {
   const state = await getState();
   const requestedName = normalizePlayerName(state.users[userId]?.displayName || "");
@@ -1606,8 +1699,9 @@ export async function linkOwnPlayer(userId, playerId) {
   if (Object.values(state.users).some((item) => item.uid !== userId && item.playerId === playerId)) {
     throw statusError(409, "That player is already linked to another account");
   }
-  user.playerId = playerId;
-  user.profileConfirmedAt = now();
+  if (user.playerId === playerId && user.accountStatus === "active") return user;
+  user.requestedPlayerId = playerId;
+  user.profileConfirmedAt = null;
   const participant = state.eventParticipants[state.activeEventId]?.[playerId];
   user.profileSelection = {
     playerId,
@@ -1615,14 +1709,14 @@ export async function linkOwnPlayer(userId, playerId) {
     rank: player.rank,
     team: participant?.team || player.defaultTeam || "Reserve",
     unit: participant?.tacticalGroup || player.defaultTacticalGroup || "Reserve",
-    confirmedAt: user.profileConfirmedAt
+    requestedAt: now(),
+    approvalStatus: "pending"
   };
+  user.accountStatus = "pending";
+  user.active = false;
   user.version += 1;
-  player.userId = userId;
-  player.version += 1;
-  player.updatedAt = now();
   addAudit(state, user, {
-    action: "profile_link_confirmed",
+    action: "signup.profile.requested",
     recordType: "user",
     recordId: userId,
     after: user.profileSelection
@@ -2000,7 +2094,7 @@ export async function updateUser(userId, patch, actor) {
   const user = state.users[userId];
   if (!user) throw statusError(404, "User was not found");
   const before = structuredClone(user);
-  if (actor.role !== "administrator" && user.role === "administrator") throw statusError(403, "Only an administrator can change an administrator account");
+  if (actor.role !== "administrator") throw statusError(403, "Only an administrator can change account authorization");
   if (Object.hasOwn(patch, "role")) {
     if (!["member", "officer", "administrator"].includes(patch.role)) throw statusError(422, "Choose a valid role");
     if (actor.role !== "administrator" && patch.role === "administrator") throw statusError(403, "Only an administrator can grant administrator access");

@@ -331,6 +331,8 @@ function bindControls() {
   elements.strategyTimelineContent.addEventListener("click", handleTimelineClick);
   elements.strategyTimelineContent.addEventListener("change", handleTimelineChange);
   elements.userList.addEventListener("change", handleUserChange);
+  elements.userList.addEventListener("submit", handleAdminAccountSave);
+  document.querySelector("#adminAccountSearch")?.addEventListener("input", renderAdministration);
   elements.customStrategyForm.addEventListener("submit", createCustomStrategy);
   elements.strategyLibraryCards.addEventListener("click", handleStrategyLibraryClick);
   elements.userProfileContent.addEventListener("submit", handleOwnProfileSave);
@@ -1103,7 +1105,9 @@ async function renderAdministration() {
       elements.achievementSettingsForm.elements.badgeStyle.value = definitions.badgeStyle || "gold";
       elements.achievementSettingsForm.elements.messageTemplate.value = definitions.messageTemplate || "You reached {value} in {event}.";
     }
-    const [users, quality] = await Promise.all([api.getUsers(), api.getDataQuality()]);
+    const [allUsers, quality] = await Promise.all([api.getAdminAccounts(), api.getDataQuality()]);
+    const accountSearch = document.querySelector("#adminAccountSearch")?.value.trim().toLowerCase() || "";
+    const users = allUsers.filter((user) => !accountSearch || [user.uid, user.email, user.displayName, user.member?.inGameName, user.member?.allianceRank, user.applicationRole, user.accountStatus, user.linkStatus].some((value) => String(value || "").toLowerCase().includes(accountSearch)));
     const qualityGroups = [
       ["Duplicate names", quality.duplicatePlayerNames],
       ["Unlinked users", quality.unlinkedUsers],
@@ -1119,17 +1123,21 @@ async function renderAdministration() {
     ).join("");
     renderVsAuditPanel();
     elements.userList.innerHTML = users.map((user) => `
-      <article class="panel user-card" data-user-id="${escapeHtml(user.uid)}">
-        <div><strong>${escapeHtml(user.displayName)}</strong><span>${escapeHtml(user.email)}</span><small>${user.profileConfirmedAt
-          ? `Profile confirmed: ${escapeHtml(user.profileSelection?.playerName || "linked player")}`
-          : "Profile confirmation required"}</small></div>
-        ${user.role === "administrator" && !state.permissions.isAdministrator
-          ? `<label>Role<strong>administrator</strong></label>`
-          : `<label>Role<select data-user-field="role">${optionHtml(["member", "officer", ...(state.permissions.isAdministrator ? ["administrator"] : [])], user.role)}</select></label>`}
-        <label>Linked player<select data-user-field="playerId"><option value="">Not linked</option>${state.players.map((player) => `<option value="${escapeHtml(player.id)}" ${player.id === user.playerId ? "selected" : ""}>${escapeHtml(player.gameName)}</option>`).join("")}</select></label>
-        <label>Active<input data-user-field="active" type="checkbox" ${user.active ? "checked" : ""}></label>
-      </article>
-    `).join("") || emptyState("No application users have signed in yet.");
+      <form class="panel admin-account-card" data-admin-account="${escapeHtml(user.uid)}">
+        <input name="expectedVersion" type="hidden" value="${Number(user.version)}">
+        <div class="admin-account-identity"><img src="${escapeHtml(user.member?.profileImageUrl || "/icons/icon-192.png")}" alt=""><div><strong>${escapeHtml(user.member?.inGameName || user.displayName)}</strong><span>${escapeHtml(user.email)}</span><small>${escapeHtml(user.uid)} · ${escapeHtml(user.linkStatus)} · signup ${escapeHtml(formatDateTime(user.createdAt))}</small></div></div>
+        <div class="admin-account-fields">
+          <label>Alliance rank<strong>${escapeHtml(user.member?.allianceRank || "Unlinked")}</strong></label>
+          <label>Application role<select name="applicationRole">${optionHtml(["member", "officer", "administrator"], user.applicationRole)}</select></label>
+          <label>Account status<select name="accountStatus">${optionHtml(["pending", "active", "suspended", "revoked"], user.accountStatus)}</select></label>
+          <label>Roster linkage<select name="playerId"><option value="">Unlinked</option>${state.players.map((player) => `<option value="${escapeHtml(player.id)}" ${player.id === (user.playerId || user.requestedPlayerId) ? "selected" : ""}>${escapeHtml(player.gameName)} · ${escapeHtml(player.rank)}</option>`).join("")}</select></label>
+        </div>
+        <fieldset class="admin-capability-grid"><legend>Officer capabilities</legend>${["manageRoster", "manageEvents", "manageStrategies", "manageMap", "manageVsScores", "manageBriefings", "viewAdministration", "manageAccountAccess", "manageOfficerPermissions"].map((permission) => `<label><input name="officerPermissions" type="checkbox" value="${permission}" ${user.officerPermissions.includes("*") || user.officerPermissions.includes(permission) ? "checked" : ""}> ${escapeHtml(humanize(permission))}</label>`).join("")}</fieldset>
+        <label>Administrative notes<textarea name="administrativeNotes" maxlength="1000">${escapeHtml(user.administrativeNotes || "")}</textarea></label>
+        <div class="record-actions">${user.accountStatus === "pending" ? `<button class="secondary-button" name="reviewAction" value="approve-member">Approve as Member</button><button class="secondary-button" name="reviewAction" value="approve-officer">Approve as Officer</button><button class="danger-button" name="reviewAction" value="reject">Reject</button>` : ""}<button class="primary-button" type="submit">Save Account & Permissions</button></div>
+        <small>Last reviewed: ${escapeHtml(user.reviewedAt ? formatDateTime(user.reviewedAt) : "Not reviewed")} ${user.reviewedBy ? `· ${escapeHtml(user.reviewedBy)}` : ""}</small>
+      </form>
+    `).join("") || emptyState("No accounts match this search.");
     const playerName = (id) => state.players.find((player) => player.id === id)?.gameName || "Linked member";
     elements.officerInbox.innerHTML = `
       <article class="panel"><h3>Same-day availability notices</h3>${(state.memberNotices || []).map((notice) => `<div class="admin-message"><strong>${escapeHtml(playerName(notice.playerId))} · ${escapeHtml(notice.eventType)}</strong><span>${escapeHtml(formatDateTime(notice.createdAt))}</span><p>${escapeHtml(notice.message)}</p></div>`).join("") || `<p class="muted">No notices.</p>`}</article>
@@ -1489,6 +1497,25 @@ function buildMyBriefingsViewModel() {
     todayEvents, weeklyGoals, weekStart, weekEnd,
     supportsMap: Boolean(event && participant)
   };
+}
+
+async function handleAdminAccountSave(event) {
+  const form = event.target.closest("[data-admin-account]");
+  if (!form) return;
+  event.preventDefault();
+  const submitter = event.submitter;
+  const data = new FormData(form);
+  const payload = { expectedVersion: Number(data.get("expectedVersion")), applicationRole: data.get("applicationRole"), accountStatus: data.get("accountStatus"), playerId: data.get("playerId"), officerPermissions: data.getAll("officerPermissions"), administrativeNotes: data.get("administrativeNotes") };
+  try {
+    submitter.disabled = true;
+    setStatus("Saving permissions…");
+    if (submitter.name === "reviewAction") await api.reviewSignup(form.dataset.adminAccount, submitter.value, payload);
+    else await api.updateAdminAccount(form.dataset.adminAccount, payload);
+    await refreshState();
+    showView("administration");
+    setStatus("Account permissions updated");
+  } catch (error) { setStatus(error.message, true); await renderAdministration(); }
+  finally { submitter.disabled = false; }
 }
 
 function renderBriefingRows(items, emptyMessage) {

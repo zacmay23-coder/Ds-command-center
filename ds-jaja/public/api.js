@@ -191,6 +191,15 @@ export const api = {
   async addAnnouncement(payload) {
     return request("/api/announcements", { method: "POST", body: JSON.stringify(payload) });
   },
+  async getAdminAccounts() {
+    return request("/api/admin/accounts");
+  },
+  async updateAdminAccount(id, patch) {
+    return request(`/api/admin/accounts/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
+  },
+  async reviewSignup(id, action, payload) {
+    return request(`/api/admin/signups/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(payload) });
+  },
   async updateEventAssignmentsBatch(eventId, assignments) {
     return request(`/api/events/${encodeURIComponent(eventId)}/assignments/batch`, {
       method: "PATCH", body: JSON.stringify({ assignments })

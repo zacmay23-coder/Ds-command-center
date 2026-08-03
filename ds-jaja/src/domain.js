@@ -285,12 +285,21 @@ export function normalizeThemeWeek(theme = {}) {
 }
 
 export function normalizeUser(user = {}) {
+  const role = normalizeRole(user.role);
+  const defaultOfficerPermissions = ["manageRoster", "manageEvents", "manageStrategies", "manageMap", "manageVsScores", "manageBriefings"];
   return {
     uid: String(user.uid || ""),
     email: String(user.email || ""),
     displayName: String(user.displayName || user.email || "Member"),
-    role: normalizeRole(user.role),
+    role,
+    applicationRole: role,
+    accountStatus: ["pending", "active", "suspended", "revoked"].includes(user.accountStatus || user.status) ? (user.accountStatus || user.status) : (user.active === false ? "suspended" : "active"),
+    officerPermissions: Array.isArray(user.officerPermissions) ? [...new Set(user.officerPermissions)] : role === "officer" ? defaultOfficerPermissions : role === "administrator" ? ["*"] : [],
     playerId: user.playerId ? String(user.playerId) : null,
+    requestedPlayerId: user.requestedPlayerId ? String(user.requestedPlayerId) : null,
+    reviewedBy: user.reviewedBy || null,
+    reviewedAt: user.reviewedAt || null,
+    administrativeNotes: String(user.administrativeNotes || "").slice(0, 1000),
     profileConfirmedAt: user.profileConfirmedAt || null,
     profileSelection: user.profileSelection || null,
     accountPhotoUrl: user.accountPhotoUrl || "",

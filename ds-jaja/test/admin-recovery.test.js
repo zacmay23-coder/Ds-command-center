@@ -40,7 +40,7 @@ test("moves a deleted administrator identity and player link to a replacement Fi
       }
     },
     players: {
-      m1: { id: "m1", gameName: "Dark Wizard", userId: "deleted-firebase-uid" }
+      m1: { id: "m1", gameName: "Dark Wizard", rank: "R5", userId: "deleted-firebase-uid" }
     }
   };
 
@@ -54,6 +54,10 @@ test("moves a deleted administrator identity and player link to a replacement Fi
   assert.equal(result.user.displayName, "Dark Wizard");
   assert.equal(result.user.playerId, "m1");
   assert.equal(result.user.role, "administrator");
+  assert.equal(result.user.applicationRole, "administrator");
+  assert.equal(result.user.accountStatus, "active");
+  assert.deepEqual(result.user.officerPermissions, ["*"]);
+  assert.equal(state.players.m1.rank, "R5");
   assert.equal(state.players.m1.userId, "replacement-firebase-uid");
   assert.deepEqual(Object.keys(state.users), ["replacement-firebase-uid"]);
 });

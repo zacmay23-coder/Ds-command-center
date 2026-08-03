@@ -91,6 +91,10 @@ import {
   listManagedEvents,
   transitionManagedEvent,
   updateManagedEvent
+  ,getAdminAccount
+  ,listAdminAccounts
+  ,reviewSignup
+  ,updateAdminAccount
 } from "../dataStore.js";
 import { sanitizeTextFields } from "../textSanitization.js";
 import { parseDuelLeagueStandings, readResultScreenshot, readScreenshotText } from "../resultScreenshotReader.js";
@@ -204,6 +208,43 @@ export async function handleApi(request, response, url) {
   if (announcementRoute && request.method === "PATCH") {
     requireRole(user, ROLES.OFFICER);
     sendJson(response, 200, await updateAnnouncement(decodeURIComponent(announcementRoute[1]), await readJsonBody(request), user));
+    return;
+  }
+  if (user.accountStatus === "pending" || user.accountStatus === "suspended" || user.accountStatus === "revoked") {
+    if (request.method === "GET" && ["/api/available-player-profiles", "/api/profile-options", "/api/profiles"].includes(url.pathname) && user.accountStatus === "pending") {
+      sendJson(response, 200, await listAvailablePlayerProfiles(user.uid));
+      return;
+    }
+    if (request.method === "POST" && ["/api/link-player", "/api/profile-link"].includes(url.pathname) && user.accountStatus === "pending") {
+      const body = await readJsonBody(request);
+      sendJson(response, 200, await linkOwnPlayer(user.uid, body.playerId));
+      return;
+    }
+    sendJson(response, 403, { error: "ACCOUNT_NOT_ACTIVE", message: user.accountStatus === "pending" ? "Your roster selection is awaiting administrator approval." : "This account is not active." });
+    return;
+  }
+
+  if (request.method === "GET" && ["/api/admin/accounts", "/api/admin/signups"].includes(url.pathname)) {
+    requireRole(user, ROLES.ADMIN);
+    const accounts = await listAdminAccounts();
+    sendJson(response, 200, url.pathname.endsWith("signups") ? accounts.filter((item) => item.accountStatus === "pending" || item.linkStatus !== "linked") : accounts);
+    return;
+  }
+  const adminAccountRoute = url.pathname.match(/^\/api\/admin\/accounts\/([^/]+)$/);
+  if (adminAccountRoute && request.method === "GET") {
+    requireRole(user, ROLES.ADMIN);
+    sendJson(response, 200, await getAdminAccount(decodeURIComponent(adminAccountRoute[1])));
+    return;
+  }
+  if (adminAccountRoute && request.method === "PATCH") {
+    requireRole(user, ROLES.ADMIN);
+    sendJson(response, 200, await updateAdminAccount(decodeURIComponent(adminAccountRoute[1]), await readJsonBody(request), user));
+    return;
+  }
+  const signupReviewRoute = url.pathname.match(/^\/api\/admin\/signups\/([^/]+)\/(approve-member|approve-officer|reject)$/);
+  if (signupReviewRoute && request.method === "POST") {
+    requireRole(user, ROLES.ADMIN);
+    sendJson(response, 200, await reviewSignup(decodeURIComponent(signupReviewRoute[1]), signupReviewRoute[2], await readJsonBody(request), user));
     return;
   }
   if (announcementRoute && request.method === "DELETE") {
@@ -578,8 +619,8 @@ export async function handleApi(request, response, url) {
 
   const userRoute = url.pathname.match(/^\/api\/users\/([^/]+)$/);
   if (userRoute && request.method === "PATCH") {
-    requireRole(user, ROLES.OFFICER);
-    sendJson(response, 200, await updateUser(decodeURIComponent(userRoute[1]), await readJsonBody(request), user));
+    requireRole(user, ROLES.ADMIN);
+    sendJson(response, 200, await updateAdminAccount(decodeURIComponent(userRoute[1]), await readJsonBody(request), user));
     return;
   }
 
