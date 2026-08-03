@@ -27,6 +27,22 @@ export function requireRole(user, minimumRole) {
   }
 }
 
+export function permissionsFor(user) {
+  const officer = hasRole(user, ROLES.OFFICER);
+  const admin = hasRole(user, ROLES.ADMIN);
+  return {
+    canCreateEvents: officer,
+    canEditEvents: officer,
+    canPublishEvents: officer,
+    canActivateEvents: officer,
+    canCompleteEvents: officer,
+    canArchiveEvents: officer,
+    canCancelEvents: officer,
+    canDeleteEvents: admin,
+    canManageAccounts: admin
+  };
+}
+
 export function canViewEvent(user, event) {
   return hasRole(user, ROLES.OFFICER) || event?.status !== "draft";
 }

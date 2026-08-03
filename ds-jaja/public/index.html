@@ -368,14 +368,15 @@
               <h3>New DS Battle</h3>
               <div class="create-event-controls">
                 <label>Upcoming battle date<input id="nextBattleDate" type="date"></label>
-                <button id="createEventButton" class="primary-button" type="button">Create DS Battle Plan</button>
+                <button id="createEventButton" class="secondary-button" type="button">Save Draft</button>
               </div>
               <div id="dsSetupControls" class="ds-setup-controls">
                 <label>Team A server time<select id="createBattleTimeA"><option>9:00</option><option>18:00</option><option>23:00</option></select></label>
                 <label>Team A strategy<select id="createStrategyA"></select></label>
                 <label>Team B server time<select id="createBattleTimeB"><option>9:00</option><option>18:00</option><option>23:00</option></select></label>
                 <label>Team B strategy<select id="createStrategyB"></select></label>
-                 <button id="publishDsSetupButton" class="primary-button" type="button">Publish DS Setup &amp; Unlock Roster</button>
+                 <button id="publishDsSetupButton" class="primary-button" type="button">Save &amp; Publish DS Setup</button>
+                 <button id="activateDsButton" class="secondary-button" type="button">Activate Published DS</button>
                  <button class="secondary-button" type="button" data-open-roster-selector>Select Event Roster</button>
               </div>
             </article>
@@ -385,7 +386,7 @@
               <label>Week of<input name="weekOf" type="date" required></label>
               <label class="wide-field">Description<textarea name="description" maxlength="1200" required></textarea></label>
               <label class="wide-field">Rules<textarea name="rules" maxlength="1200" required></textarea></label>
-              <button class="primary-button" type="submit">Create Theme Week</button>
+              <div class="record-actions"><button class="secondary-button" name="action" value="saveDraft" type="submit">Save Draft</button><button class="primary-button" name="action" value="publish" type="submit">Save &amp; Publish</button><button class="secondary-button" type="reset">Cancel</button></div>
             </form>
             <form id="allianceEventForm" class="panel weekly-editor-form" data-role="officer">
               <h3>New Alliance Event</h3>
@@ -393,7 +394,7 @@
               <label>Date<input name="date" type="date" required></label>
               <label>Server time<input name="time" type="time" min="00:00" max="23:59" required></label>
               <label class="wide-field">Brief overview<textarea name="overview" maxlength="800" required></textarea></label>
-              <button class="primary-button" type="submit">Create Alliance Event</button>
+              <div class="record-actions"><button class="secondary-button" name="action" value="saveDraft" type="submit">Save Draft</button><button class="primary-button" name="action" value="publish" type="submit">Save &amp; Publish</button><button class="secondary-button" type="reset">Cancel</button></div>
             </form>
             <form id="vsWeekForm" class="panel weekly-editor-form" data-role="officer">
               <h3>Create New VS Week</h3>
@@ -403,7 +404,7 @@
               <label>Weekly VS opponent<input name="opponent" maxlength="100" required></label>
               <label>Opponent server<input name="server" maxlength="40" required></label>
               <label>Opponent total members<input name="opponentMembers" type="number" min="1" required></label>
-              <button class="primary-button" type="submit">Create VS Week</button>
+              <div class="record-actions"><button class="secondary-button" name="action" value="saveDraft" type="submit">Save Draft</button><button class="primary-button" name="action" value="publish" type="submit">Save &amp; Publish</button><button class="secondary-button" type="reset">Cancel</button></div>
             </form>
           </div>
           <div class="section-title"><h2>Created Event Management</h2><p>Edit or delete created items here. Their Events views remain read-only.</p></div>

@@ -84,11 +84,17 @@ import {
   auditVsDay,
   publishVsDay,
   updateVsWeekStandings,
-  clearVsWeekStandings
+  clearVsWeekStandings,
+  createManagedEvent,
+  deleteManagedEvent,
+  getManagedEvent,
+  listManagedEvents,
+  transitionManagedEvent,
+  updateManagedEvent
 } from "../dataStore.js";
 import { sanitizeTextFields } from "../textSanitization.js";
 import { parseDuelLeagueStandings, readResultScreenshot, readScreenshotText } from "../resultScreenshotReader.js";
-import { canEditOwnAvailability, requireRole, ROLES } from "../permissions.js";
+import { canEditOwnAvailability, permissionsFor, requireRole, ROLES } from "../permissions.js";
 import { getFirebasePersistenceStatus } from "../firebasePersistence.js";
 
 const firebaseApiKey = "AIzaSyCnccjJ6h-RlTU1Qbp3Zgd2WQag0YVwsWs";
@@ -141,7 +147,7 @@ export async function handleApi(request, response, url) {
   const user = await getOrCreateUser(firebaseUser);
 
   if (request.method === "GET" && url.pathname === "/api/me") {
-    sendJson(response, 200, user);
+    sendJson(response, 200, { ...user, status: user.status || "active", permissions: permissionsFor(user) });
     return;
   }
   if (request.method === "PATCH" && url.pathname === "/api/me/profile") {
@@ -337,39 +343,61 @@ export async function handleApi(request, response, url) {
   }
 
   if (request.method === "GET" && url.pathname === "/api/events") {
-    sendJson(response, 200, await listEvents(user));
+    sendJson(response, 200, await listManagedEvents(user, {
+      type: url.searchParams.get("type") || "",
+      status: url.searchParams.get("status") || ""
+    }));
     return;
   }
 
   if (request.method === "POST" && url.pathname === "/api/events") {
     requireRole(user, ROLES.OFFICER);
-    sendJson(response, 201, await addEvent(await readJsonBody(request), user));
+    const body = await readJsonBody(request);
+    if (body.type) {
+      sendJson(response, 201, await createManagedEvent(body, user, request.headers["idempotency-key"]));
+    } else {
+      sendJson(response, 201, await addEvent(body, user));
+    }
     return;
   }
 
   const eventRoute = url.pathname.match(/^\/api\/events\/([^/]+)$/);
   if (eventRoute && request.method === "GET") {
-    sendJson(response, 200, await getEventBundle(decodeURIComponent(eventRoute[1]), user));
+    const eventId = decodeURIComponent(eventRoute[1]);
+    const state = await getState();
+    sendJson(response, 200, state.managedEvents?.[eventId] ? await getManagedEvent(eventId, user) : await getEventBundle(eventId, user));
     return;
   }
   if (eventRoute && request.method === "PATCH") {
     requireRole(user, ROLES.OFFICER);
-    sendJson(response, 200, await updateEvent(decodeURIComponent(eventRoute[1]), await readJsonBody(request), user));
+    const eventId = decodeURIComponent(eventRoute[1]);
+    const state = await getState();
+    sendJson(response, 200, state.managedEvents?.[eventId] ? await updateManagedEvent(eventId, await readJsonBody(request), user) : await updateEvent(eventId, await readJsonBody(request), user));
     return;
   }
   if (eventRoute && request.method === "DELETE") {
-    requireRole(user, ROLES.OFFICER);
-    sendJson(response, 200, await deleteDraftEvent(decodeURIComponent(eventRoute[1]), user));
+    const eventId = decodeURIComponent(eventRoute[1]);
+    const state = await getState();
+    if (state.managedEvents?.[eventId]) {
+      requireRole(user, ROLES.ADMIN);
+      sendJson(response, 200, await deleteManagedEvent(eventId, user));
+    } else {
+      requireRole(user, ROLES.OFFICER);
+      sendJson(response, 200, await deleteDraftEvent(eventId, user));
+    }
     return;
   }
 
-  const lifecycleRoute = url.pathname.match(/^\/api\/events\/([^/]+)\/(publish|start|complete|archive|duplicate)$/);
+  const lifecycleRoute = url.pathname.match(/^\/api\/events\/([^/]+)\/(publish|activate|start|complete|archive|cancel|duplicate)$/);
   if (lifecycleRoute && request.method === "POST") {
     requireRole(user, ROLES.OFFICER);
     const [, rawEventId, action] = lifecycleRoute;
     const body = await readJsonBody(request);
     const eventId = decodeURIComponent(rawEventId);
-    const result = action === "duplicate"
+    const state = await getState();
+    const result = state.managedEvents?.[eventId]
+      ? await transitionManagedEvent(eventId, action === "start" ? "activate" : action, user, body)
+      : action === "duplicate"
       ? await duplicateEvent(eventId, body, user)
       : await changeEventStatus(eventId, action, user, body.reason || "");
     sendJson(response, 200, result);

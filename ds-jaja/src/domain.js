@@ -156,6 +156,10 @@ export function normalizeState(input = {}) {
     users: objectMap(input.users, normalizeUser),
     players: objectMap(input.players, normalizePlayer),
     events: objectMap(input.events, normalizeEvent),
+    managedEvents: objectMap(Object.keys(input.managedEvents || {}).length ? input.managedEvents : legacyManagedEvents(input), normalizeManagedEvent),
+    eventIdempotency: input.eventIdempotency && typeof input.eventIdempotency === "object" ? input.eventIdempotency : {},
+    eventBriefings: input.eventBriefings && typeof input.eventBriefings === "object" ? input.eventBriefings : {},
+    activeEventsByType: input.activeEventsByType && typeof input.activeEventsByType === "object" ? input.activeEventsByType : {},
     eventParticipants: nestedObjectMap(input.eventParticipants, normalizeParticipant),
     activeEventId: input.activeEventId || newestEditableEventId(input.events),
     strategyTemplates: objectMap(input.strategyTemplates, normalizeTemplate),
@@ -326,6 +330,72 @@ export function normalizePlayer(player = {}) {
     updatedAt: player.updatedAt || now(),
     version: Number(player.version || 1)
   };
+}
+
+export const MANAGED_EVENT_TYPES = ["desertStorm", "themeWeek", "allianceEvent", "vsWeek"];
+export const MANAGED_EVENT_STATUSES = ["draft", "scheduled", "active", "completed", "archived", "cancelled"];
+
+export function normalizeManagedEvent(event = {}) {
+  const timestamp = now();
+  return {
+    id: String(event.id || newId("evt")),
+    type: MANAGED_EVENT_TYPES.includes(event.type) ? event.type : "desertStorm",
+    title: String(event.title || "Untitled event").trim().slice(0, 160),
+    status: MANAGED_EVENT_STATUSES.includes(event.status) ? event.status : "draft",
+    visibility: ["members", "officers"].includes(event.visibility) ? event.visibility : "members",
+    active: event.status === "active" || Boolean(event.active),
+    startDate: event.startDate || null,
+    endDate: event.endDate || null,
+    serverTime: event.serverTime || null,
+    timezone: String(event.timezone || "server"),
+    summary: String(event.summary || "").slice(0, 500),
+    description: String(event.description || "").slice(0, 4000),
+    createdBy: String(event.createdBy || ""),
+    createdByName: String(event.createdByName || ""),
+    createdAt: event.createdAt || timestamp,
+    updatedBy: String(event.updatedBy || ""),
+    updatedByName: String(event.updatedByName || ""),
+    updatedAt: event.updatedAt || timestamp,
+    publishedBy: event.publishedBy || null,
+    publishedAt: event.publishedAt || null,
+    closedAt: event.closedAt || null,
+    archivedAt: event.archivedAt || null,
+    cancelledAt: event.cancelledAt || null,
+    version: Math.max(1, Number(event.version || 1)),
+    details: event.details && typeof event.details === "object" ? event.details : {},
+    legacyRef: event.legacyRef && typeof event.legacyRef === "object" ? event.legacyRef : null
+  };
+}
+
+function legacyManagedEvents(input = {}) {
+  const records = {};
+  const add = (id, value) => { if (!records[id]) records[id] = value; };
+  for (const event of Object.values(input.events || {})) {
+    const status = event.status === "archived" ? "archived" : event.status === "completed" ? "completed" : event.status === "in_progress" ? "active" : event.status === "published" ? "scheduled" : "draft";
+    add(`managed-${event.id}`, {
+      id: `managed-${event.id}`, type: "desertStorm", title: `Desert Storm — ${event.date || "date pending"}`, status,
+      startDate: event.date || null, summary: event.importantInstructions || event.notes || "", createdAt: event.createdAt, createdBy: event.createdBy,
+      updatedAt: event.updatedAt, updatedBy: event.updatedBy, publishedAt: event.publishedAt, publishedBy: event.publishedBy,
+      details: { teamA: { serverTime: event.battleTimeA || "", strategyId: event.strategyA || "" }, teamB: { serverTime: event.battleTimeB || "", strategyId: event.strategyB || "" }, opponent: event.opponent || "", rosterUnlocked: Boolean(event.setupPublishedAt) },
+      legacyRef: { collection: "events", id: event.id }
+    });
+  }
+  for (const item of Object.values(input.themeWeeks || {})) add(`managed-${item.id}`, {
+    id: `managed-${item.id}`, type: "themeWeek", title: item.title, status: item.status === "archived" ? "archived" : "scheduled", startDate: item.weekOf,
+    description: item.description, details: { rules: item.rules || "", legacyStatus: item.status }, createdAt: item.createdAt, createdBy: item.createdBy,
+    legacyRef: { collection: "themeWeeks", id: item.id }
+  });
+  for (const item of Object.values(input.allianceWeeklyEvents || {})) add(`managed-${item.id}`, {
+    id: `managed-${item.id}`, type: "allianceEvent", title: item.name || "Alliance Event", status: "scheduled", startDate: item.date, serverTime: item.time,
+    summary: item.overview || "", details: { category: item.name || "Custom", serverTime: item.time || "" }, createdAt: item.createdAt, createdBy: item.createdBy,
+    legacyRef: { collection: "allianceWeeklyEvents", id: item.id }
+  });
+  for (const item of Object.values(input.vsWeeks || {})) add(`managed-${item.id}`, {
+    id: `managed-${item.id}`, type: "vsWeek", title: `VS Week vs ${item.opponent || "opponent pending"}`, status: item.active === false ? "completed" : "scheduled", startDate: item.beginDate,
+    details: { duelLeagueCode: item.duelLeagueCode || item.duelLeagueGroupId || "legacy", duelLeagueWeek: item.duelLeagueWeek || 1, opponent: item.opponent || "", opponentServer: item.server || "", opponentMembers: item.opponentMembers || 0 },
+    createdAt: item.createdAt, createdBy: item.createdBy, legacyRef: { collection: "vsWeeks", id: item.id }
+  });
+  return records;
 }
 
 export function normalizePlayerName(value = "") {

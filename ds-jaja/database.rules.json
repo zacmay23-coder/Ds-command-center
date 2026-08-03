@@ -2,7 +2,7 @@
   "rules": {
     "desert-storm-master": {
       ".read": "auth != null",
-      ".write": "auth != null"
+      ".write": false
     },
     "appState": {
       ".read": false,

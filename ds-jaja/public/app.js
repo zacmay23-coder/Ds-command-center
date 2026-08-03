@@ -167,6 +167,7 @@ elements.createBattleTimeB = document.querySelector("#createBattleTimeB");
 elements.createStrategyA = document.querySelector("#createStrategyA");
 elements.createStrategyB = document.querySelector("#createStrategyB");
 elements.publishDsSetupButton = document.querySelector("#publishDsSetupButton");
+elements.activateDsButton = document.querySelector("#activateDsButton");
 elements.announcementForm = document.querySelector("#announcementForm");
 elements.announcementList = document.querySelector("#announcementList");
 elements.privateMessageForm = document.querySelector("#privateMessageForm");
@@ -349,6 +350,7 @@ function bindControls() {
   elements.createdThemeManagement.addEventListener("click", handleThemeWeekClick);
   elements.createdThemeManagement.addEventListener("submit", handleOfficerThemeSubmission);
   elements.publishDsSetupButton.addEventListener("click", publishDsSetup);
+  elements.activateDsButton.addEventListener("click", activateDsEvent);
   elements.announcementForm.addEventListener("submit", postAnnouncement);
   elements.announcementList.addEventListener("click", handleAnnouncementClick);
   elements.announcementList.addEventListener("submit", handleAnnouncementEditSubmit);
@@ -1781,7 +1783,8 @@ async function createNextEvent() {
     const date = elements.nextBattleDate.value;
     if (!date) throw new Error("Choose the upcoming battle date");
     if (date < new Date().toISOString().slice(0, 10)) throw new Error("Choose today or an upcoming battle date");
-    await api.createEvent({ date });
+    const legacy = await api.createEvent({ date });
+    await api.createManagedEvent({ type: "desertStorm", title: `Desert Storm — ${date}`, startDate: date, details: { teamA: { serverTime: "", strategyId: "" }, teamB: { serverTime: "", strategyId: "" }, opponent: "", rosterUnlocked: false }, legacyRef: { collection: "events", id: legacy.id } });
     await refreshState();
     setStatus("Draft battle created");
   } catch (error) {
@@ -1810,6 +1813,11 @@ async function publishDsSetup() {
     });
     await api.applyStrategy(state.activeEvent.id, { templateId: templateA.id, team: "A" });
     await api.applyStrategy(state.activeEvent.id, { templateId: templateB.id, team: "B" });
+    const managedEvents = await api.listManagedEvents("?type=desertStorm");
+    const managed = managedEvents.find((item) => item.legacyRef?.id === state.activeEvent.id);
+    if (!managed) throw new Error("The canonical DS event record was not found");
+    const saved = await api.updateEvent(managed.id, { expectedVersion: managed.version, patch: { details: { teamA: { serverTime: elements.createBattleTimeA.value, strategyId: templateA.id }, teamB: { serverTime: elements.createBattleTimeB.value, strategyId: templateB.id }, opponent: state.activeEvent.opponent || "", rosterUnlocked: true } } });
+    await api.transitionEvent(saved.id, "publish", { expectedVersion: saved.version });
     await refreshState();
     setStatus("DS setup published; weekly roster editing is unlocked");
   } catch (error) {
@@ -1961,6 +1969,19 @@ function buildEwarDashboardViewModel() {
     chatDates: Object.keys(state.dailyChatHistory || {}).sort().reverse(),
     currentChatDate: state.dailyChatDate || nowKey
   };
+}
+
+async function activateDsEvent() {
+  if (!state.activeEvent) return setStatus("Create and publish a DS event first", true);
+  try {
+    elements.activateDsButton.disabled = true;
+    const managedEvents = await api.listManagedEvents("?type=desertStorm");
+    const managed = managedEvents.find((item) => item.legacyRef?.id === state.activeEvent.id);
+    if (!managed) throw new Error("The canonical DS event record was not found");
+    await api.transitionEvent(managed.id, "activate", { expectedVersion: managed.version });
+    setStatus("Desert Storm event activated");
+  } catch (error) { setStatus(error.message, true); }
+  finally { elements.activateDsButton.disabled = false; }
 }
 
 function renderDashboardMetric(metric) {
@@ -2626,12 +2647,17 @@ function renderCreateManagement() {
 
 async function handleAllianceEventSubmit(event) {
   event.preventDefault();
+  const submitter = event.submitter;
   try {
-    await api.createAllianceEvent(Object.fromEntries(new FormData(event.currentTarget)));
+    submitter.disabled = true;
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    const managed = await api.createManagedEvent({ type: "allianceEvent", title: values.name, startDate: values.date, serverTime: values.time, summary: values.overview, details: { category: values.name, serverTime: values.time }, action: submitter.value });
+    if (submitter.value === "publish") await api.createAllianceEvent(values);
     event.currentTarget.reset();
     await refreshState();
-    setStatus("Alliance event published to every member briefing");
+    setStatus(managed.status === "draft" ? "Alliance event draft saved" : "Alliance event published to every member briefing");
   } catch (error) { setStatus(error.message, true); }
+  finally { submitter.disabled = false; }
 }
 
 async function handleAllianceEventClick(event) {
@@ -2661,12 +2687,17 @@ async function handleAllianceEventClick(event) {
 
 async function handleThemeWeekCreate(event) {
   event.preventDefault();
+  const submitter = event.submitter;
   try {
-    await api.createThemeWeek(Object.fromEntries(new FormData(event.currentTarget)));
+    submitter.disabled = true;
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    const managed = await api.createManagedEvent({ type: "themeWeek", title: values.title, startDate: values.weekOf, description: values.description, details: { rules: values.rules }, action: submitter.value });
+    if (submitter.value === "publish") await api.createThemeWeek(values);
     event.currentTarget.reset();
     await refreshState();
-    setStatus("Theme week created");
+    setStatus(managed.status === "draft" ? "Theme week draft saved" : "Theme week published");
   } catch (error) { setStatus(error.message, true); }
+  finally { submitter.disabled = false; }
 }
 
 async function handleThemeScreenshotChange(event) {
@@ -3622,19 +3653,24 @@ async function saveVsDailyResult(event) {
 
 async function createVsWeek(event) {
   event.preventDefault();
+  const submitter = event.submitter;
   try {
+    submitter.disabled = true;
     const formData = new FormData(event.currentTarget);
     const payload = Object.fromEntries(formData);
-    state = await api.createVsWeek(payload);
-    selectedVsWeekId = state.vsWeeks[0]?.id || "";
+    const managed = await api.createManagedEvent({ type: "vsWeek", title: `VS Week vs ${payload.opponent}`, startDate: payload.beginDate, details: { duelLeagueCode: payload.duelLeagueCode, duelLeagueWeek: Number(payload.duelLeagueWeek), opponent: payload.opponent, opponentServer: payload.server, opponentMembers: Number(payload.opponentMembers) }, action: submitter.value });
+    if (submitter.value === "publish") {
+      state = await api.createVsWeek(payload);
+      selectedVsWeekId = state.vsWeeks[0]?.id || "";
+    }
     selectedVsDate = "";
     event.currentTarget.reset();
     setDefaultVsMonday();
     render();
-    setStatus("New VS week created with a blank Duel League standings table");
+    setStatus(managed.status === "draft" ? "VS week draft saved" : "VS week published with a blank Duel League standings table");
   } catch (error) {
     setStatus(error.message, true);
-  }
+  } finally { submitter.disabled = false; }
 }
 
 async function importVsStandings() {

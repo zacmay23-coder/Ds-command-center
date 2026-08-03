@@ -7,6 +7,12 @@ export const api = {
   async createEvent(payload = {}) {
     return request("/api/events", { method: "POST", body: JSON.stringify(payload) });
   },
+  async createManagedEvent(payload, idempotencyKey = crypto.randomUUID()) {
+    return request("/api/events", { method: "POST", body: JSON.stringify(payload), headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey } });
+  },
+  async listManagedEvents(query = "") {
+    return request(`/api/events${query}`);
+  },
   async updateEvent(id, patch) {
     return request(`/api/events/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
   },

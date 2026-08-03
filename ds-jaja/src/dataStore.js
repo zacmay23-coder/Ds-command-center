@@ -24,6 +24,8 @@ import {
   normalizeVsWeek,
   normalizeDuelLeagueGroup,
   normalizeThemeWeek,
+  normalizeManagedEvent,
+  MANAGED_EVENT_TYPES,
   normalizeTemplate,
   now,
   transitionEvent,
@@ -1136,6 +1138,7 @@ export async function getOrCreateUser(firebaseUser) {
       email: firebaseUser.email || "",
       displayName: firebaseUser.displayName || firebaseUser.email || "Member",
       role: configuredAdmins.includes(firebaseUser.localId) || shouldRestoreAdministrator ? "administrator" : "member",
+      status: "active",
       playerId: null,
       profileConfirmedAt: null,
       profileSelection: null,
@@ -1164,6 +1167,141 @@ export async function getOrCreateUser(firebaseUser) {
     if (restoredAdministrator) await saveState();
   }
   return user;
+}
+
+export async function listManagedEvents(user, filters = {}) {
+  const state = await getState();
+  return Object.values(state.managedEvents || {})
+    .filter((event) => user.role !== "member" || (event.visibility === "members" && event.status !== "draft" && event.status !== "cancelled"))
+    .filter((event) => !filters.type || event.type === filters.type)
+    .filter((event) => !filters.status || event.status === filters.status)
+    .sort((a, b) => String(b.startDate || b.createdAt).localeCompare(String(a.startDate || a.createdAt)));
+}
+
+export async function getManagedEvent(eventId, user) {
+  const state = await getState();
+  const event = state.managedEvents?.[eventId];
+  if (!event || (user.role === "member" && (event.status === "draft" || event.visibility !== "members"))) throw statusError(404, "Event was not found");
+  return event;
+}
+
+export async function createManagedEvent(input, actor, idempotencyKey = "") {
+  const state = await getState();
+  if (!MANAGED_EVENT_TYPES.includes(input.type)) throw validationError({ type: "Choose a supported event type." });
+  const key = String(idempotencyKey || input.idempotencyKey || "").slice(0, 160);
+  if (key && state.eventIdempotency?.[actor.uid]?.[key]) return state.managedEvents[state.eventIdempotency[actor.uid][key]];
+  rejectProtectedEventFields(input);
+  const timestamp = now();
+  const event = normalizeManagedEvent({
+    ...input, id: newId("evt"), status: "draft", active: false,
+    createdBy: actor.uid, createdByName: actor.displayName || "", createdAt: timestamp,
+    updatedBy: actor.uid, updatedByName: actor.displayName || "", updatedAt: timestamp,
+    publishedBy: null, publishedAt: null, version: 1
+  });
+  validateManagedEvent(event, false);
+  state.managedEvents[event.id] = event;
+  if (key) {
+    state.eventIdempotency[actor.uid] ||= {};
+    state.eventIdempotency[actor.uid][key] = event.id;
+  }
+  addAudit(state, actor, { eventId: event.id, action: "event.created", recordType: "event", recordId: event.id, after: event });
+  if (input.action === "publish") return transitionManagedEvent(event.id, "publish", actor, { expectedVersion: event.version });
+  await saveState();
+  return event;
+}
+
+export async function updateManagedEvent(eventId, input, actor) {
+  const state = await getState();
+  const event = state.managedEvents?.[eventId];
+  if (!event) throw statusError(404, "Event was not found");
+  const expectedVersion = Number(input.expectedVersion ?? input.version);
+  if (!Number.isFinite(expectedVersion) || expectedVersion !== event.version) throw Object.assign(statusError(409, "The event changed in another session."), { latest: event });
+  const patch = input.patch && typeof input.patch === "object" ? input.patch : input;
+  rejectProtectedEventFields(patch);
+  const allowed = ["title", "visibility", "startDate", "endDate", "serverTime", "timezone", "summary", "description", "details"];
+  const candidate = normalizeManagedEvent({ ...event, ...Object.fromEntries(allowed.filter((key) => Object.hasOwn(patch, key)).map((key) => [key, patch[key]])) });
+  validateManagedEvent(candidate, event.status !== "draft");
+  Object.assign(event, candidate, { updatedAt: now(), updatedBy: actor.uid, updatedByName: actor.displayName || "", version: event.version + 1 });
+  addAudit(state, actor, { eventId, action: "event.edited", recordType: "event", recordId: eventId });
+  await saveState();
+  return event;
+}
+
+export async function transitionManagedEvent(eventId, action, actor, input = {}) {
+  const state = await getState();
+  const event = state.managedEvents?.[eventId];
+  if (!event) throw statusError(404, "Event was not found");
+  if (input.expectedVersion !== undefined && Number(input.expectedVersion) !== event.version) throw Object.assign(statusError(409, "The event changed in another session."), { latest: event });
+  const transitions = { publish: ["draft", "scheduled"], activate: ["scheduled"], complete: ["active"], archive: ["completed"], cancel: ["draft", "scheduled", "active"] };
+  if (!transitions[action]?.includes(event.status)) {
+    if ((action === "publish" && ["scheduled", "active"].includes(event.status)) || (action === "activate" && event.status === "active")) return event;
+    throw statusError(409, `A ${event.status} event cannot be ${action}d.`);
+  }
+  if (action === "publish") validateManagedEvent(event, true);
+  if (action === "activate") {
+    const conflictingId = state.activeEventsByType[event.type];
+    if (conflictingId && conflictingId !== eventId) throw Object.assign(statusError(409, `Another ${event.type} event is active.`), { latest: state.managedEvents[conflictingId] });
+  }
+  const timestamp = now();
+  const next = { publish: "scheduled", activate: "active", complete: "completed", archive: "archived", cancel: "cancelled" }[action];
+  event.status = next; event.active = next === "active"; event.updatedAt = timestamp; event.updatedBy = actor.uid; event.version += 1;
+  if (action === "publish") { event.publishedAt ||= timestamp; event.publishedBy ||= actor.uid; upsertEventBriefings(state, event); }
+  if (action === "activate") state.activeEventsByType[event.type] = eventId;
+  if (["complete", "archive", "cancel"].includes(action) && state.activeEventsByType[event.type] === eventId) delete state.activeEventsByType[event.type];
+  if (action === "complete") event.closedAt = timestamp;
+  if (action === "archive") event.archivedAt = timestamp;
+  if (action === "cancel") event.cancelledAt = timestamp;
+  addAudit(state, actor, { eventId, action: `event.${action}`, recordType: "event", recordId: eventId, after: next });
+  await saveState();
+  return event;
+}
+
+export async function deleteManagedEvent(eventId, actor) {
+  const state = await getState();
+  const event = state.managedEvents?.[eventId];
+  if (!event) throw statusError(404, "Event was not found");
+  if (actor.role !== "administrator") throw statusError(403, "Only an administrator can permanently delete events.");
+  if (event.status !== "draft") throw statusError(409, "Only drafts or test records can be permanently deleted.");
+  delete state.managedEvents[eventId]; delete state.eventBriefings[eventId];
+  addAudit(state, actor, { eventId, action: "event.deleted", recordType: "event", recordId: eventId, before: event });
+  await saveState(); return event;
+}
+
+function rejectProtectedEventFields(input) {
+  const protectedFields = ["id", "status", "active", "createdBy", "createdAt", "updatedBy", "updatedAt", "publishedBy", "publishedAt", "closedAt", "archivedAt", "cancelledAt", "version", "role", "permissions"];
+  const supplied = protectedFields.filter((field) => Object.hasOwn(input, field));
+  if (supplied.length) throw validationError(Object.fromEntries(supplied.map((field) => [field, "This field is controlled by the server."])));
+}
+
+function validateManagedEvent(event, publishing) {
+  const fields = {};
+  if (!event.title || event.title.length > 160) fields.title = "Enter an event title (160 characters maximum).";
+  if (event.startDate && !/^\d{4}-\d{2}-\d{2}$/.test(event.startDate)) fields.startDate = "Use a valid YYYY-MM-DD date.";
+  if (publishing && !event.startDate) fields.startDate = "An event date is required before publishing.";
+  const d = event.details || {};
+  if (publishing && event.type === "desertStorm") {
+    if (!d.teamA?.serverTime) fields["details.teamA.serverTime"] = "Team A time is required.";
+    if (!d.teamA?.strategyId) fields["details.teamA.strategyId"] = "Team A strategy is required.";
+    if (!d.teamB?.serverTime) fields["details.teamB.serverTime"] = "Team B time is required.";
+    if (!d.teamB?.strategyId) fields["details.teamB.strategyId"] = "Team B strategy is required.";
+  }
+  if (publishing && event.type === "themeWeek" && (!d.rules || !event.description)) fields["details.rules"] = "Description and rules are required.";
+  if (publishing && event.type === "allianceEvent" && (!d.category || !d.serverTime || !event.summary)) fields.details = "Category, server time, and overview are required.";
+  if (publishing && event.type === "vsWeek" && (!d.duelLeagueCode || !d.duelLeagueWeek || !d.opponent || !d.opponentServer || !d.opponentMembers)) fields.details = "Complete all VS week fields before publishing.";
+  if (Object.keys(fields).length) throw validationError(fields);
+}
+
+function validationError(fields) {
+  return Object.assign(statusError(422, "The event could not be saved."), { details: { error: "VALIDATION_FAILED", message: "The event could not be saved.", fields } });
+}
+
+function upsertEventBriefings(state, event) {
+  state.eventBriefings[event.id] ||= {};
+  for (const user of Object.values(state.users)) {
+    if (!user.active || user.status === "pending") continue;
+    const prior = state.eventBriefings[event.id][user.uid];
+    state.eventBriefings[event.id][user.uid] = { id: `${event.id}:${user.uid}`, eventId: event.id, memberUid: user.uid, eventVersion: event.version + 1, updated: Boolean(prior), updatedAt: now() };
+  }
 }
 
 export async function listEvents(user) {
