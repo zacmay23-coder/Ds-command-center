@@ -101,6 +101,11 @@ import {
   ,attachSeasonBattleScreenshot
   ,getSeasonBattleAsset
   ,transitionSeasonBattle
+  ,getRosterResource
+  ,getEventTeams
+  ,updateEventTeam
+  ,getDesertStormMapDefinition
+  ,getEventMapResource
 } from "../dataStore.js";
 import { sanitizeTextFields } from "../textSanitization.js";
 import { parseDuelLeagueStandings, readResultScreenshot, readScreenshotText } from "../resultScreenshotReader.js";
@@ -176,6 +181,10 @@ export async function handleApi(request, response, url) {
       sendJson(response, 200, guestBootstrap(user));
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/maps/desert-storm-standard") {
+      sendJson(response, 200, await getDesertStormMapDefinition());
+      return;
+    }
     if (!["GET", "HEAD"].includes(request.method)) {
       sendJson(response, 403, { error: "GUEST_READ_ONLY", message: "Guest Preview is read-only. Sign in with an authorized account to make changes." });
       return;
@@ -228,6 +237,14 @@ export async function handleApi(request, response, url) {
   if (announcementRoute && request.method === "PATCH") {
     requireRole(user, ROLES.OFFICER);
     sendJson(response, 200, await updateAnnouncement(decodeURIComponent(announcementRoute[1]), await readJsonBody(request), user));
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/api/roster") {
+    sendJson(response, 200, await getRosterResource(user));
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/api/maps/desert-storm-standard") {
+    sendJson(response, 200, await getDesertStormMapDefinition());
     return;
   }
   if (request.method === "GET" && ["/api/admin/accounts", "/api/admin/signups"].includes(url.pathname)) {
@@ -525,6 +542,22 @@ export async function handleApi(request, response, url) {
       await readJsonBody(request),
       user
     ));
+    return;
+  }
+
+  const eventTeamsRoute = url.pathname.match(/^\/api\/events\/([^/]+)\/teams$/);
+  if (eventTeamsRoute && request.method === "GET") {
+    sendJson(response, 200, await getEventTeams(decodeURIComponent(eventTeamsRoute[1]), user));
+    return;
+  }
+  const eventTeamRoute = url.pathname.match(/^\/api\/events\/([^/]+)\/teams\/(A|B)$/);
+  if (eventTeamRoute && request.method === "PATCH") {
+    sendJson(response, 200, await updateEventTeam(decodeURIComponent(eventTeamRoute[1]), eventTeamRoute[2], await readJsonBody(request), user));
+    return;
+  }
+  const eventMapResourceRoute = url.pathname.match(/^\/api\/events\/([^/]+)\/map$/);
+  if (eventMapResourceRoute && request.method === "GET") {
+    sendJson(response, 200, await getEventMapResource(decodeURIComponent(eventMapResourceRoute[1]), user));
     return;
   }
 

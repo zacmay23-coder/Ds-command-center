@@ -56,6 +56,13 @@ let selectedVsDate = "";
 let selectedVsScoreFilter = "all";
 let latestVsAudit = null;
 let selectedEventFilter = "all";
+let managedDsEvents = [];
+let selectedManagedEventId = localStorage.getItem("ewar-selected-event-id") || "";
+let selectedEventTeams = null;
+let selectedEventMapResource = null;
+let rosterLoadStatus = "loading";
+let rosterLoadError = "";
+const teamDirty = { A: false, B: false };
 let selectedSeasonBattleId = "";
 let seasonBattleTool = "select";
 let selectedSeasonObjectId = "";
@@ -178,6 +185,12 @@ elements.createStrategyA = document.querySelector("#createStrategyA");
 elements.createStrategyB = document.querySelector("#createStrategyB");
 elements.publishDsSetupButton = document.querySelector("#publishDsSetupButton");
 elements.activateDsButton = document.querySelector("#activateDsButton");
+elements.rosterLoadState = document.querySelector("#rosterLoadState");
+elements.teamsEventContext = document.querySelector("#teamsEventContext");
+elements.mapEventContext = document.querySelector("#mapEventContext");
+elements.mapLoadState = document.querySelector("#mapLoadState");
+elements.teamAStatus = document.querySelector("#teamAStatus");
+elements.teamBStatus = document.querySelector("#teamBStatus");
 elements.battlePlanningOverview = document.querySelector("#battlePlanningOverview");
 elements.seasonBattleWorkspace = document.querySelector("#seasonBattleWorkspace");
 elements.seasonBattleCreateForm = document.querySelector("#seasonBattleCreateForm");
@@ -249,10 +262,54 @@ async function refreshState() {
     setStatus("Loading shared data...");
     state = await api.getState();
     render();
+    await loadIndependentPlanningResources();
+    render();
     setStatus(`Synced ${formatTime(state.updatedAt)}`);
   } catch (error) {
     setStatus(error.message, true);
   }
+}
+
+async function loadIndependentPlanningResources() {
+  rosterLoadStatus = "loading"; rosterLoadError = ""; renderRosterLoadState();
+  const [rosterResult, eventsResult, mapDefinitionResult] = await Promise.allSettled([api.getRoster(), api.listManagedEvents("?type=desertStorm"), api.getMapDefinition()]);
+  if (rosterResult.status === "fulfilled") {
+    rosterLoadStatus = rosterResult.value.status; state.players = rosterResult.value.members.map((member) => ({ ...(state.players || []).find((item) => item.id === member.id), ...member })); rosterStore.loaded = false;
+  } else { rosterLoadStatus = rosterResult.reason?.status === 403 ? "denied" : "error"; rosterLoadError = rosterResult.reason?.message || "Connection failed"; }
+  if (eventsResult.status === "fulfilled") {
+    managedDsEvents = eventsResult.value;
+    const preferred = managedDsEvents.find((item) => item.id === selectedManagedEventId)
+      || managedDsEvents.find((item) => item.status === "active")
+      || managedDsEvents.filter((item) => item.status === "scheduled").sort((a,b) => String(a.startDate).localeCompare(String(b.startDate)))[0]
+      || (state.permissions.isOfficer ? managedDsEvents.find((item) => item.status === "draft") : null)
+      || managedDsEvents[0];
+    selectedManagedEventId = preferred?.id || "";
+    if (selectedManagedEventId) localStorage.setItem("ewar-selected-event-id", selectedManagedEventId); else localStorage.removeItem("ewar-selected-event-id");
+  }
+  if (selectedManagedEventId) {
+    const [teamsResult, mapResult] = await Promise.allSettled([api.getEventTeams(selectedManagedEventId), api.getEventMap(selectedManagedEventId)]);
+    selectedEventTeams = teamsResult.status === "fulfilled" ? teamsResult.value : { error: teamsResult.reason?.message || "Team plans could not be loaded" };
+    selectedEventMapResource = mapResult.status === "fulfilled" ? mapResult.value : { definition: mapDefinitionResult.status === "fulfilled" ? mapDefinitionResult.value : null, plan: null, source: "standard-template", message: "Event overlay could not be loaded. Displaying the base battlefield." };
+  } else {
+    selectedEventTeams = null;
+    selectedEventMapResource = { definition: mapDefinitionResult.status === "fulfilled" ? mapDefinitionResult.value : null, plan: null, source: "standard-template", message: "No active battle selected. Showing the standard Desert Storm map." };
+  }
+  renderRosterLoadState();
+}
+
+async function retryRosterResource() {
+  rosterLoadStatus = "loading"; renderRosterLoadState();
+  try { const resource = await api.getRoster(); rosterLoadStatus = resource.status; rosterLoadError = ""; state.players = resource.members.map((member) => ({ ...(state.players || []).find((item) => item.id === member.id), ...member })); rosterStore.loaded = false; renderDirectory(); }
+  catch (error) { rosterLoadStatus = error.status === 403 ? "denied" : "error"; rosterLoadError = error.message; }
+  renderRosterLoadState();
+}
+
+function renderRosterLoadState() {
+  if (!elements.rosterLoadState) return;
+  const messages = { loading: "Loading Master Roster…", loaded: "Master Roster loaded", empty: "No active members found", denied: "Your account does not have roster access", error: `Roster could not be loaded — ${rosterLoadError || "Connection failed"}` };
+  elements.rosterLoadState.dataset.state = rosterLoadStatus;
+  elements.rosterLoadState.querySelector("span").textContent = messages[rosterLoadStatus] || messages.error;
+  elements.rosterLoadState.querySelector("button").hidden = !["error", "denied"].includes(rosterLoadStatus);
 }
 
 function bindNavigation() {
@@ -311,10 +368,12 @@ function bindControls() {
   elements.rosterSelectorForm.addEventListener("change", renderRosterSelector);
   elements.rosterSelectorForm.addEventListener("submit", assignSelectedRosterMembers);
   elements.resultRows.addEventListener("change", handleMemberChange);
-  elements.strategyA.addEventListener("change", () => publishTeamStrategy("A"));
-  elements.strategyB.addEventListener("change", () => publishTeamStrategy("B"));
-  elements.battleTimeA.addEventListener("change", () => saveSettings({ battleTimeA: elements.battleTimeA.value }));
-  elements.battleTimeB.addEventListener("change", () => saveSettings({ battleTimeB: elements.battleTimeB.value }));
+  elements.strategyA.addEventListener("change", () => markTeamDirty("A"));
+  elements.strategyB.addEventListener("change", () => markTeamDirty("B"));
+  elements.battleTimeA.addEventListener("change", () => markTeamDirty("A"));
+  elements.battleTimeB.addEventListener("change", () => markTeamDirty("B"));
+  document.body.addEventListener("click", handlePlanningResourceClick);
+  document.body.addEventListener("change", handleSelectedEventChange);
   elements.battleForm.addEventListener("submit", archiveBattle);
   elements.importScreenshotButton.addEventListener("click", importResultsScreenshot);
   elements.importMatches.addEventListener("click", handleMatchFixClick);
@@ -1153,7 +1212,7 @@ async function renderAdministration() {
           <label>Account status<select name="accountStatus">${optionHtml(["pending", "active", "suspended", "revoked"], user.accountStatus)}</select></label>
           <label>Roster linkage<select name="playerId"><option value="">Unlinked</option>${state.players.map((player) => `<option value="${escapeHtml(player.id)}" ${player.id === (user.playerId || user.requestedPlayerId) ? "selected" : ""}>${escapeHtml(player.gameName)} · ${escapeHtml(player.rank)}</option>`).join("")}</select></label>
         </div>
-        <fieldset class="admin-capability-grid"><legend>Officer capabilities</legend>${["manageRoster", "manageEvents", "manageStrategies", "manageMap", "manageVsScores", "manageBriefings", "viewAdministration", "manageAccountAccess", "manageOfficerPermissions", "viewSeasonBattlePlans", "manageSeasonBattlePlans", "publishSeasonBattlePlans", "archiveSeasonBattlePlans", "deleteSeasonBattleDrafts"].map((permission) => `<label><input name="officerPermissions" type="checkbox" value="${permission}" ${user.officerPermissions.includes("*") || user.officerPermissions.includes(permission) ? "checked" : ""}> ${escapeHtml(humanize(permission))}</label>`).join("")}</fieldset>
+        <fieldset class="admin-capability-grid"><legend>Officer capabilities</legend>${["viewRoster", "manageRoster", "viewPublishedBattlePlans", "manageDesertStormPlans", "publishBattlePlans", "manageEvents", "manageStrategies", "manageMap", "manageVsScores", "manageBriefings", "viewAdministration", "manageAccountAccess", "manageOfficerPermissions", "viewSeasonBattlePlans", "manageSeasonBattlePlans", "publishSeasonBattlePlans", "archiveSeasonBattlePlans", "deleteSeasonBattleDrafts"].map((permission) => `<label><input name="officerPermissions" type="checkbox" value="${permission}" ${user.officerPermissions.includes("*") || user.officerPermissions.includes(permission) ? "checked" : ""}> ${escapeHtml(humanize(permission))}</label>`).join("")}</fieldset>
         <label>Administrative notes<textarea name="administrativeNotes" maxlength="1000">${escapeHtml(user.administrativeNotes || "")}</textarea></label>
         <div class="record-actions">${user.accountStatus === "pending" ? `<button class="secondary-button" name="reviewAction" value="approve-member">Approve as Member</button><button class="secondary-button" name="reviewAction" value="approve-officer">Approve as Officer</button><button class="danger-button" name="reviewAction" value="reject">Reject</button>` : ""}<button class="primary-button" type="submit">Save Account & Permissions</button></div>
         <small>Last reviewed: ${escapeHtml(user.reviewedAt ? formatDateTime(user.reviewedAt) : "Not reviewed")} ${user.reviewedBy ? `· ${escapeHtml(user.reviewedBy)}` : ""}</small>
@@ -1828,16 +1887,20 @@ async function handleEventFieldChange(event) {
 
 async function createNextEvent() {
   try {
+    elements.createEventButton.disabled = true;
     setStatus("Creating battle...");
     const date = elements.nextBattleDate.value;
     if (!date) throw new Error("Choose the upcoming battle date");
     if (date < new Date().toISOString().slice(0, 10)) throw new Error("Choose today or an upcoming battle date");
-    const legacy = await api.createEvent({ date });
-    await api.createManagedEvent({ type: "desertStorm", title: `Desert Storm — ${date}`, startDate: date, details: { teamA: { serverTime: "", strategyId: "" }, teamB: { serverTime: "", strategyId: "" }, opponent: "", rosterUnlocked: false }, legacyRef: { collection: "events", id: legacy.id } });
+    const created = await api.createManagedEvent({ type: "desertStorm", title: `Desert Storm — ${date}`, startDate: date, details: { teamA: { serverTime: "", strategyId: "" }, teamB: { serverTime: "", strategyId: "" }, opponent: "", rosterUnlocked: false } });
+    selectedManagedEventId = created.id;
+    localStorage.setItem("ewar-selected-event-id", created.id);
     await refreshState();
     setStatus("Draft battle created");
   } catch (error) {
     setStatus(error.message, true);
+  } finally {
+    elements.createEventButton.disabled = false;
   }
 }
 
@@ -1852,20 +1915,16 @@ async function publishDsSetup() {
     const templateA = state.strategyTemplates.find((template) => template.name === strategyA);
     const templateB = state.strategyTemplates.find((template) => template.name === strategyB);
     if (!templateA || !templateB) throw new Error("Choose a valid strategy for both teams");
-    await api.updateEvent(state.activeEvent.id, {
-      battleTimeA: elements.createBattleTimeA.value,
-      battleTimeB: elements.createBattleTimeB.value,
-      strategyA,
-      strategyB,
-      setupPublishedAt: new Date().toISOString(),
-      version: state.activeEvent.version
-    });
-    await api.applyStrategy(state.activeEvent.id, { templateId: templateA.id, team: "A" });
-    await api.applyStrategy(state.activeEvent.id, { templateId: templateB.id, team: "B" });
     const managedEvents = await api.listManagedEvents("?type=desertStorm");
-    const managed = managedEvents.find((item) => item.legacyRef?.id === state.activeEvent.id);
+    const managed = managedEvents.find((item) => item.id === selectedManagedEventId) || managedEvents.find((item) => item.legacyRef?.id === state.activeEvent.id);
     if (!managed) throw new Error("The canonical DS event record was not found");
-    const saved = await api.updateEvent(managed.id, { expectedVersion: managed.version, patch: { details: { teamA: { serverTime: elements.createBattleTimeA.value, strategyId: templateA.id }, teamB: { serverTime: elements.createBattleTimeB.value, strategyId: templateB.id }, opponent: state.activeEvent.opponent || "", rosterUnlocked: true } } });
+    const teams = await api.getEventTeams(managed.id);
+    await api.updateEventTeam(managed.id, "A", { ...teams.teams.A, expectedVersion: teams.teams.A.version, battleTime: elements.createBattleTimeA.value, strategyId: templateA.id });
+    await api.updateEventTeam(managed.id, "B", { ...teams.teams.B, expectedVersion: teams.teams.B.version, battleTime: elements.createBattleTimeB.value, strategyId: templateB.id });
+    const legacyEventId = managed.legacyRef?.id || managed.id;
+    await api.applyStrategy(legacyEventId, { templateId: templateA.id, team: "A" });
+    await api.applyStrategy(legacyEventId, { templateId: templateB.id, team: "B" });
+    const saved = await api.updateEvent(managed.id, { expectedVersion: managed.version, patch: { details: { ...managed.details, teamA: { serverTime: elements.createBattleTimeA.value, strategyId: templateA.id }, teamB: { serverTime: elements.createBattleTimeB.value, strategyId: templateB.id }, opponent: state.activeEvent.opponent || "", rosterUnlocked: true } } });
     await api.transitionEvent(saved.id, "publish", { expectedVersion: saved.version });
     await refreshState();
     setStatus("DS setup published; weekly roster editing is unlocked");
@@ -2281,8 +2340,11 @@ function buildMasterRosterViewModel(force = false) {
 function getRosterMemberById(memberId) { return rosterStore.membersById.get(memberId) || null; }
 function getRosterMembersByIds(memberIds) { return memberIds.map(getRosterMemberById).filter(Boolean); }
 function getActiveRosterMembers() { return rosterStore.orderedMemberIds.map(getRosterMemberById).filter((member) => member?.active); }
-function getMembersByTeam(eventId, team) { return eventId === state.activeEvent?.id ? getActiveRosterMembers().filter((member) => member.selected && member.team === team) : []; }
-function getUnassignedMembersForEvent(eventId) { return eventId === state.activeEvent?.id ? getActiveRosterMembers().filter((member) => !member.selected) : getActiveRosterMembers(); }
+function getMembersByTeam(eventId, team) {
+  if (eventId === selectedManagedEventId && selectedEventTeams?.teams?.[team]) return getRosterMembersByIds([...selectedEventTeams.teams[team].starterMemberIds, ...selectedEventTeams.teams[team].reserveMemberIds]);
+  return eventId === state.activeEvent?.id ? getActiveRosterMembers().filter((member) => member.selected && member.team === team) : [];
+}
+function getUnassignedMembersForEvent(eventId) { const assigned = new Set(["A", "B"].flatMap((team) => getMembersByTeam(eventId, team).map((member) => member.id))); return getActiveRosterMembers().filter((member) => !assigned.has(member.id)); }
 
 function normalizeRosterSearch(value) {
   return String(value || "").normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
@@ -2295,13 +2357,14 @@ function normalizeRosterIdentity(value) {
 function handleRosterSelectorOpen(event) {
   const trigger = event.target.closest("[data-open-roster-selector]");
   if (!trigger || !state.permissions.isOfficer) return;
-  if (!state.activeEvent) return setStatus("Create an event before selecting its roster", true);
-  if (!state.activeEvent.setupPublishedAt) return setStatus("Publish Team A/B times and strategies before selecting the roster", true);
-  rosterSelectorState.config = { eventId: state.activeEvent.id, eventType: "desert_storm", maximumSelections: 30 };
+  const managed = managedDsEvents.find((item) => item.id === selectedManagedEventId);
+  if (!managed) return setStatus("Create or select an event before selecting its roster", true);
+  if (!selectedEventTeams?.teams) return setStatus("The selected event team plan is not loaded", true);
+  rosterSelectorState.config = { eventId: managed.id, legacyEventId: managed.legacyRef?.id || managed.id, eventType: "desert_storm", maximumSelections: 30 };
   rosterSelectorState.selectedMemberIds = new Set();
   elements.rosterSelectorForm.reset();
   elements.rosterSelectorForm.elements.tacticalGroup.innerHTML = optionHtml(tacticalGroups, "Reserve");
-  document.querySelector("#rosterSelectorContext").textContent = `Desert Storm · ${state.activeEvent.date} · ${state.activeEvent.opponent || "Opponent pending"}`;
+  document.querySelector("#rosterSelectorContext").textContent = `${managed.title} · ${managed.status}`;
   renderRosterSelector();
   elements.rosterSelectorDialog.showModal();
 }
@@ -2354,8 +2417,8 @@ function validateEventAssignments(selectedMembers, team, rosterStatus) {
   const config = eventRosterConfig[rosterSelectorState.config?.eventType] || { capacityByTeam: {} };
   const capacity = config.capacityByTeam[team];
   const selectedIds = new Set(selectedMembers.map((member) => member.id));
-  if (["Remove", "RequestConfirmation"].includes(rosterStatus)) return { warnings: [], teamCount: getMembersByTeam(state.activeEvent.id, team).length, capacity: capacity?.maximumSignUps || null, starters: 0, substitutes: 0 };
-  const retained = getMembersByTeam(state.activeEvent.id, team).filter((member) => !selectedIds.has(member.id));
+  if (["Remove", "RequestConfirmation"].includes(rosterStatus)) return { warnings: [], teamCount: getMembersByTeam(rosterSelectorState.config.eventId, team).length, capacity: capacity?.maximumSignUps || null, starters: 0, substitutes: 0 };
+  const retained = getMembersByTeam(rosterSelectorState.config.eventId, team).filter((member) => !selectedIds.has(member.id));
   const after = [...retained, ...selectedMembers];
   const warnings = [];
   if (capacity && after.length > capacity.maximumSignUps) warnings.push(`Team ${team} would have ${after.length}/${capacity.maximumSignUps} sign-ups`);
@@ -2398,7 +2461,21 @@ async function assignSelectedRosterMembers(event) {
     buildMasterRosterViewModel(true);
     renderDirectory();
     renderTeams();
-    const result = await api.updateEventAssignmentsBatch(state.activeEvent.id, selectedMembers.map((member) => ({ memberId: member.id, patch: requestingConfirmation ? { availability: "Pending" } : removing ? { selected: false, team: "Reserve", rosterStatus: "Sub", tacticalGroup: "Reserve" } : { selected: true, team, rosterStatus, tacticalGroup } })));
+    let result = { warnings: [] };
+    if (requestingConfirmation) {
+      result = await api.updateEventAssignmentsBatch(rosterSelectorState.config.legacyEventId, selectedMembers.map((member) => ({ memberId: member.id, patch: { availability: "Pending" } })));
+    } else {
+      for (const teamKey of removing ? ["A", "B"] : [team === "A" ? "B" : "A", team]) {
+        const current = selectedEventTeams.teams[teamKey];
+        const selectedIds = new Set(selectedMembers.map((member) => member.id));
+        const starterMemberIds = current.starterMemberIds.filter((id) => !selectedIds.has(id));
+        const reserveMemberIds = current.reserveMemberIds.filter((id) => !selectedIds.has(id));
+        if (!removing && teamKey === team) (rosterStatus === "Starter" ? starterMemberIds : reserveMemberIds).push(...selectedIds);
+        const unitAssignments = { ...current.unitAssignments };
+        for (const member of selectedMembers) { if (removing || teamKey !== team) delete unitAssignments[member.id]; else unitAssignments[member.id] = { ...(unitAssignments[member.id] || {}), tacticalGroup }; }
+        if (starterMemberIds.length !== current.starterMemberIds.length || reserveMemberIds.length !== current.reserveMemberIds.length || (!removing && teamKey === team)) await api.updateEventTeam(selectedManagedEventId, teamKey, { ...current, expectedVersion: current.version, starterMemberIds, reserveMemberIds, unitAssignments });
+      }
+    }
     await refreshState();
     elements.rosterSelectorDialog.close();
     setStatus(result.warnings?.length ? `Assignments saved with ${result.warnings.length} capacity warning${result.warnings.length === 1 ? "" : "s"}` : "Event assignments saved");
@@ -2425,21 +2502,81 @@ function masterRosterComparator(left, right) {
 }
 
 function renderTeams() {
+  renderEventContext(elements.teamsEventContext, "teams");
   elements.teamPanels.innerHTML = ["A", "B"].map((team) => {
-    const members = selected(team);
-    const starters = members.filter((member) => member.type === "Starter");
-    const subs = members.filter((member) => member.type === "Sub");
+    const savedTeam = selectedEventTeams?.teams?.[team];
+    const starters = savedTeam ? getRosterMembersByIds(savedTeam.starterMemberIds || []).map((member) => ({ ...member, type: "Starter" })) : selected(team).filter((member) => member.type === "Starter");
+    const subs = savedTeam ? getRosterMembersByIds(savedTeam.reserveMemberIds || []).map((member) => ({ ...member, type: "Sub" })) : selected(team).filter((member) => member.type === "Sub");
+    const members = [...starters, ...subs];
 
     return `
       <article class="panel">
         <h3>Team ${team}</h3>
-        <p class="team-battle-time">${escapeHtml(state.settings[`battleTime${team}`])} Server Time</p>
+        <p class="team-battle-time">${escapeHtml(savedTeam?.battleTime || state.settings[`battleTime${team}`] || "Time pending")} Server Time</p>
         <p class="muted">${starters.length}/20 starters · ${subs.length}/10 substitutes</p>
         ${teamList("Starters", starters)}
         ${teamList("Substitutes", subs)}
       </article>
     `;
   }).join("");
+  if (selectedEventTeams?.teams) {
+    for (const team of ["A", "B"]) {
+      const saved = selectedEventTeams.teams[team];
+      const strategy = state.strategyTemplates.find((item) => item.id === saved.strategyId || item.name === saved.strategyId);
+      const strategySelect = team === "A" ? elements.strategyA : elements.strategyB;
+      const timeSelect = team === "A" ? elements.battleTimeA : elements.battleTimeB;
+      if (strategySelect && !teamDirty[team]) strategySelect.value = strategy?.name || saved.strategyId;
+      if (timeSelect && !teamDirty[team]) timeSelect.value = saved.battleTime;
+      const status = team === "A" ? elements.teamAStatus : elements.teamBStatus;
+      if (status) status.textContent = `Team ${team}: ${teamDirty[team] ? "Unsaved changes" : `Saved · v${saved.version}`}`;
+    }
+  } else if (selectedEventTeams?.error) {
+    elements.teamPanels.innerHTML = emptyState(`${selectedEventTeams.error}. Other application resources remain available.`);
+  }
+}
+
+function renderEventContext(container, surface) {
+  if (!container) return;
+  const selected = managedDsEvents.find((item) => item.id === selectedManagedEventId);
+  container.innerHTML = `<label>Selected battle<select data-selected-managed-event="${surface}"><option value="">Standard Desert Storm template</option>${managedDsEvents.map((event) => `<option value="${escapeHtml(event.id)}" ${event.id === selectedManagedEventId ? "selected" : ""}>${escapeHtml(event.title)} · ${escapeHtml(event.status)}</option>`).join("")}</select></label><div><strong>Status: ${escapeHtml(selected?.status || "Template")}</strong><span>Team planning: ${selectedEventTeams?.error ? "Load failed" : selectedEventTeams?.teams ? "Loaded" : "Not selected"}</span><span>Map: ${escapeHtml(selectedEventMapResource?.source || "standard-template")}</span></div>`;
+}
+
+function markTeamDirty(team) {
+  teamDirty[team] = true;
+  const status = team === "A" ? elements.teamAStatus : elements.teamBStatus;
+  if (status) status.textContent = `Team ${team}: Unsaved changes`;
+  setStatus(`Team ${team} has unsaved changes`);
+}
+
+async function saveSelectedTeam(team) {
+  const current = selectedEventTeams?.teams?.[team];
+  if (!selectedManagedEventId || !current) throw new Error(`Team ${team} is not loaded`);
+  const status = team === "A" ? elements.teamAStatus : elements.teamBStatus;
+  status.textContent = `Team ${team}: Saving`;
+  const saved = await api.updateEventTeam(selectedManagedEventId, team, { expectedVersion: current.version, battleTime: (team === "A" ? elements.battleTimeA : elements.battleTimeB).value, strategyId: (team === "A" ? elements.strategyA : elements.strategyB).value, starterMemberIds: current.starterMemberIds, reserveMemberIds: current.reserveMemberIds, unitAssignments: current.unitAssignments });
+  selectedEventTeams.teams[team] = saved; teamDirty[team] = false; status.textContent = `Team ${team}: Saved · v${saved.version}`;
+}
+
+async function handlePlanningResourceClick(event) {
+  if (event.target.closest("[data-retry-roster]")) { await retryRosterResource(); return; }
+  const save = event.target.closest("[data-save-team]"); if (!save) return;
+  try { save.disabled = true; const teams = save.dataset.saveTeam === "both" ? ["A", "B"] : [save.dataset.saveTeam]; for (const team of teams) await saveSelectedTeam(team); setStatus(teams.length === 2 ? "Both teams saved" : `Team ${teams[0]} saved`); renderTeams(); }
+  catch (error) { setStatus(error.status === 409 ? `Conflict detected: ${error.message}` : error.message, true); }
+  finally { save.disabled = false; }
+}
+
+async function handleSelectedEventChange(event) {
+  if (!event.target.matches("[data-selected-managed-event]")) return;
+  selectedManagedEventId = event.target.value; teamDirty.A = false; teamDirty.B = false;
+  if (selectedManagedEventId) localStorage.setItem("ewar-selected-event-id", selectedManagedEventId); else localStorage.removeItem("ewar-selected-event-id");
+  await loadSelectedEventResources(); renderTeams(); renderStrategyTimeline();
+}
+
+async function loadSelectedEventResources() {
+  if (!selectedManagedEventId) { selectedEventTeams = null; selectedEventMapResource = { definition: await api.getMapDefinition(), plan: null, source: "standard-template", message: "No active battle selected. Showing the standard Desert Storm map." }; return; }
+  const [teamsResult, mapResult] = await Promise.allSettled([api.getEventTeams(selectedManagedEventId), api.getEventMap(selectedManagedEventId)]);
+  selectedEventTeams = teamsResult.status === "fulfilled" ? teamsResult.value : { error: teamsResult.reason?.message || "Team plans could not be loaded" };
+  selectedEventMapResource = mapResult.status === "fulfilled" ? mapResult.value : { definition: await api.getMapDefinition(), plan: null, source: "standard-template", message: "Map plan failed to load. Showing the base battlefield." };
 }
 
 function renderAssignments() {
@@ -3015,9 +3152,13 @@ function handleSeasonBattlePointerUp(event) {
 }
 
 function renderStrategyTimeline() {
-  const event = state.activeEvent;
+  renderEventContext(elements.mapEventContext, "map");
+  const managed = selectedEventMapResource?.event;
+  const event = managed ? { id: managed.legacyRef?.id || managed.id, date: managed.startDate, opponent: managed.details?.opponent || "", battleTimeA: managed.details?.teamA?.serverTime || "", battleTimeB: managed.details?.teamB?.serverTime || "", status: managed.status } : state.activeEvent;
+  if (elements.mapLoadState) elements.mapLoadState.textContent = selectedEventMapResource?.message || "Loading tactical map…";
   if (!event) {
-    elements.strategyTimelineContent.innerHTML = emptyState("No published Desert Storm event is currently active.");
+    elements.strategyControls.innerHTML = "";
+    elements.strategyTimelineContent.innerHTML = `<section class="panel tactical-template-state"><div><p class="eyebrow">Standard map resource</p><h3>Desert Storm Battlefield</h3><p>No active battle selected. Showing the standard Desert Storm map. Assignments and strategy overlays will appear when they are available.</p></div><div class="strategy-tactical-map" aria-label="Standard Desert Storm tactical map"><img src="/assets/desert-storm-map-clean.png" alt="Desert Storm battle map">${Object.entries(objectivePositions).map(([name, position]) => `<span class="strategy-map-node" style="left:${position[0]}%;top:${position[1]}%"><b>${escapeHtml(name)}</b></span>`).join("")}</div></section>`;
     return;
   }
   if (state.permissions.isOfficer) {
@@ -3026,14 +3167,14 @@ function renderStrategyTimeline() {
       ${timelineEditMode ? `<label>Strategy template<select id="strategyTemplateSelect"><option value="">Choose template</option>${state.strategyTemplates.map((template) => `<option value="${escapeHtml(template.id)}">${escapeHtml(template.name)}</option>`).join("")}</select></label><label>Apply template to<select id="strategyApplyTeam"><option>A</option><option>B</option></select></label>` : ""}`;
   }
   const teams = state.permissions.isMember
-    ? [state.participants.find((item) => item.playerId === state.me.playerId)?.team].filter((team) => ["A", "B"].includes(team))
+    ? ([state.participants.find((item) => item.playerId === state.me.playerId)?.team].filter((team) => ["A", "B"].includes(team)).length ? [state.participants.find((item) => item.playerId === state.me.playerId)?.team].filter((team) => ["A", "B"].includes(team)) : ["A"])
     : ["A", "B"];
   if (!teams.includes(timelineTeam)) timelineTeam = teams[0];
   if (!timelineTeam) {
     elements.strategyTimelineContent.innerHTML = emptyState("Your account is not linked to a team assignment.");
     return;
   }
-  const strategy = state.eventStrategy?.[timelineTeam];
+  const strategy = selectedEventMapResource?.plan?.teams?.[timelineTeam] || state.eventStrategy?.[timelineTeam];
   const phases = battlePhases.map((key, index) => {
     const [startMinute, endMinute] = key.split("-").map(Number);
     const saved = strategy?.phases?.find((item) => Number(item.startMinute) === startMinute) || {};

@@ -13,6 +13,11 @@ export const api = {
   async listManagedEvents(query = "") {
     return request(`/api/events${query}`);
   },
+  async getRoster() { return request("/api/roster"); },
+  async getEventTeams(id) { return request(`/api/events/${encodeURIComponent(id)}/teams`); },
+  async updateEventTeam(id, team, payload) { return request(`/api/events/${encodeURIComponent(id)}/teams/${team}`, { method: "PATCH", body: JSON.stringify(payload) }); },
+  async getMapDefinition() { return request("/api/maps/desert-storm-standard"); },
+  async getEventMap(id) { return request(`/api/events/${encodeURIComponent(id)}/map`); },
   async updateEvent(id, patch) {
     return request(`/api/events/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
   },

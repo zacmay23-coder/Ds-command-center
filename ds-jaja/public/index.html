@@ -426,6 +426,7 @@
             <p>The master alliance roster, member profiles, and current readiness.</p>
           </div>
           <div id="directorySummary" class="roster-overview alliance-personnel-summary"></div>
+          <div id="rosterLoadState" class="resource-load-state" role="status"><span>Loading Master Roster…</span><button class="secondary-button" type="button" data-retry-roster>Retry</button></div>
           <div id="rosterReviewAlerts" class="alliance-personnel-alerts" data-role="officer"></div>
           <div class="toolbar roster-filter-bar alliance-personnel-filters">
             <label>
@@ -485,6 +486,7 @@
             <p>Each team supports 20 starters and 10 substitutes.</p>
             <button class="primary-button" type="button" data-open-roster-selector data-role="officer">Assign Members</button>
           </div>
+          <div id="teamsEventContext" class="panel event-context-bar"></div>
           <div class="strategy-bar">
             <label>
               Team A strategy
@@ -503,6 +505,7 @@
               <select id="battleTimeB"></select>
             </label>
           </div>
+          <div class="team-save-bar" data-role="officer"><span id="teamAStatus">Team A: Loading</span><span id="teamBStatus">Team B: Loading</span><button class="secondary-button" type="button" data-save-team="A">Save Team A</button><button class="secondary-button" type="button" data-save-team="B">Save Team B</button><button class="primary-button" type="button" data-save-team="both">Save Both Teams</button></div>
           <div id="teamPanels" class="team-grid"></div>
         </section>
 
@@ -664,6 +667,8 @@
             <div><span class="tactical-kicker">Desert Storm Operations</span><h2>Interactive Map</h2></div>
             <p>Explore the published battlefield plan and its simulated 30-minute strategy timeline. This is a planning view, not live game tracking.</p>
           </div>
+          <div id="mapEventContext" class="panel event-context-bar"></div>
+          <div id="mapLoadState" class="resource-load-state" role="status"></div>
           <div id="strategyControls" class="toolbar" data-role="officer"></div>
           <div id="strategyTimelineContent"></div>
         </section>

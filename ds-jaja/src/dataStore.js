@@ -1,7 +1,7 @@
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { battlePhases, strategyPlans } from "../public/battle-plan.js";
+import { battlePhases, objectivePositions, strategyPlans, tacticalGroups } from "../public/battle-plan.js";
 import { createStarterStrategies } from "./strategyLibrary.js";
 import {
   isFirebasePersistenceEnabled,
@@ -25,6 +25,8 @@ import {
   normalizeDuelLeagueGroup,
   normalizeThemeWeek,
   normalizeManagedEvent,
+  normalizeEventPlan,
+  normalizeEvent,
   MANAGED_EVENT_TYPES,
   normalizeTemplate,
   now,
@@ -1200,6 +1202,8 @@ export async function getManagedEvent(eventId, user) {
 export async function createManagedEvent(input, actor, idempotencyKey = "") {
   const state = await getState();
   if (!MANAGED_EVENT_TYPES.includes(input.type)) throw validationError({ type: "Choose a supported event type." });
+  const matchingDraft = input.type === "desertStorm" && Object.values(state.managedEvents || {}).find((event) => event.type === "desertStorm" && event.startDate === input.startDate && event.createdBy === actor.uid && event.status === "draft");
+  if (matchingDraft) return matchingDraft;
   const key = String(idempotencyKey || input.idempotencyKey || "").slice(0, 160);
   if (key && state.eventIdempotency?.[actor.uid]?.[key]) return state.managedEvents[state.eventIdempotency[actor.uid][key]];
   rejectProtectedEventFields(input);
@@ -1210,8 +1214,15 @@ export async function createManagedEvent(input, actor, idempotencyKey = "") {
     updatedBy: actor.uid, updatedByName: actor.displayName || "", updatedAt: timestamp,
     publishedBy: null, publishedAt: null, version: 1
   });
+  if (event.type === "desertStorm") {
+    event.legacyRef = { collection: "events", id: event.id };
+    state.events[event.id] = normalizeEvent({ id: event.id, date: event.startDate, opponent: event.details?.opponent || "", status: "draft", strategyA: "", strategyB: "", battleTimeA: "9:00", battleTimeB: "9:00", createdAt: timestamp, createdBy: actor.uid, updatedAt: timestamp });
+    state.eventParticipants[event.id] = Object.fromEntries(Object.values(state.players).map((player) => [player.id, normalizeParticipant({ eventId: event.id, playerId: player.id, playerName: player.gameName, selected: false, team: "Reserve", rosterStatus: player.defaultRole || "Sub", tacticalGroup: "Reserve" })]));
+    state.activeEventId = event.id;
+  }
   validateManagedEvent(event, false);
   state.managedEvents[event.id] = event;
+  if (event.type === "desertStorm") state.eventPlans[event.id] = normalizeEventPlan({}, event, state);
   if (key) {
     state.eventIdempotency[actor.uid] ||= {};
     state.eventIdempotency[actor.uid][key] = event.id;
@@ -1259,7 +1270,15 @@ export async function transitionManagedEvent(eventId, action, actor, input = {})
   event.status = next; event.active = next === "active"; event.updatedAt = timestamp; event.updatedBy = actor.uid; event.version += 1;
   if (action === "publish") {
     event.publishedAt ||= timestamp; event.publishedBy ||= actor.uid;
-    if (event.type === "desertStorm") publishMapSnapshot(state, event, actor);
+    if (event.type === "desertStorm") {
+      const plan = syncEventPlanFromLegacy(state, event, actor);
+      validateCanonicalEventPlan(state, event, plan);
+      publishMapSnapshot(state, event, actor);
+      state.eventPlanSnapshots[eventId] ||= {};
+      state.eventPlanSnapshots[eventId][String(event.version)] = structuredClone({ ...plan, status: "published", publicationVersion: event.version, publishedAt: timestamp, publishedBy: actor.uid });
+      const legacyEventId = event.legacyRef?.id || event.id;
+      if (state.events[legacyEventId]) state.events[legacyEventId].setupPublishedAt = timestamp;
+    }
     upsertEventBriefings(state, event);
   }
   if (action === "activate") state.activeEventsByType[event.type] = eventId;
@@ -1482,6 +1501,7 @@ export async function updateEventParticipant(eventId, playerId, patch, actor, se
   participant.updatedAt = now();
   participant.updatedBy = actor.uid;
   participant.version += 1;
+  if (!selfOnly) syncManagedPlanForLegacyEvent(state, eventId, actor);
   auditDiff(state, actor, eventId, "participant", playerId, before, participant, selfOnly ? "availability_changed" : "participant_updated");
   await saveState();
   return publicParticipant(participant, actor);
@@ -1496,7 +1516,74 @@ export async function listUsers() {
   return Object.values((await getState()).users);
 }
 
-export const OFFICER_PERMISSIONS = ["manageRoster", "manageEvents", "manageStrategies", "manageMap", "manageVsScores", "manageBriefings", "viewAdministration", "manageAccountAccess", "manageOfficerPermissions", ...SEASON_BATTLE_PERMISSIONS];
+export async function getRosterResource(user) {
+  const state = await getState();
+  const canManage = user.role === "administrator" || (user.role === "officer" && (user.officerPermissions || []).includes("manageRoster"));
+  const members = Object.values(state.players).filter((player) => player.active !== false).map((player) => canManage ? player : {
+    id: player.id, gameName: player.gameName, rank: player.rank, profileImage: player.profileImage || "",
+    profileImageFit: player.profileImageFit || "cover", profileImagePosition: player.profileImagePosition || "center", active: true
+  }).sort((left, right) => left.gameName.localeCompare(right.gameName));
+  return { status: members.length ? "loaded" : "empty", members, canManage, loadedAt: now() };
+}
+
+export async function getEventTeams(eventId, user) {
+  const state = await getState();
+  const event = state.managedEvents[eventId];
+  if (!event || event.type !== "desertStorm") throw statusError(404, "Desert Storm event was not found");
+  if (user.role === "member" && ["draft", "cancelled"].includes(event.status)) throw statusError(403, "This team plan has not been published");
+  const source = user.role === "member" ? latestEventPlanSnapshot(state, eventId) : state.eventPlans[eventId];
+  if (!source) throw statusError(404, "Team planning record was not found");
+  return { eventId, status: event.status, teams: structuredClone(source.teams), planVersion: source.version, updatedAt: source.updatedAt };
+}
+
+export async function updateEventTeam(eventId, teamKey, input, actor) {
+  const state = await getState();
+  const event = state.managedEvents[eventId];
+  if (!event || event.type !== "desertStorm") throw statusError(404, "Desert Storm event was not found");
+  if (!canManageDesertStorm(actor)) throw statusError(403, "Desert Storm planning permission is required");
+  if (!["draft", "scheduled"].includes(event.status)) throw statusError(409, "This event is no longer editable");
+  if (!["A", "B"].includes(teamKey)) throw statusError(422, "Choose Team A or Team B");
+  const plan = state.eventPlans[eventId] ||= normalizeEventPlan({}, event, state);
+  const current = plan.teams[teamKey];
+  if (Number(input.expectedVersion) !== Number(current.version)) throw Object.assign(statusError(409, `Team ${teamKey} changed in another session`), { latest: current });
+  const starters = uniqueIds(input.starterMemberIds);
+  const reserves = uniqueIds(input.reserveMemberIds);
+  if (starters.length > 20) throw statusError(422, "A team may have at most 20 starters");
+  if (reserves.length > 10) throw statusError(422, "A team may have at most 10 substitutes or reserves");
+  if (starters.some((id) => reserves.includes(id))) throw statusError(422, "A member cannot be both a starter and reserve");
+  const allIds = [...starters, ...reserves];
+  for (const playerId of allIds) if (!state.players[playerId]?.active) throw statusError(422, `Roster member ${playerId} is missing or inactive`);
+  const other = plan.teams[teamKey === "A" ? "B" : "A"];
+  const otherIds = new Set([...(other.starterMemberIds || []), ...(other.reserveMemberIds || [])]);
+  const duplicate = allIds.find((id) => otherIds.has(id));
+  if (duplicate) throw statusError(422, `${state.players[duplicate]?.gameName || duplicate} is already assigned to the other team`);
+  const strategyId = String(input.strategyId || "");
+  if (strategyId && !state.strategyTemplates[strategyId] && !Object.values(state.strategyTemplates).some((item) => item.name === strategyId)) throw statusError(422, "Choose a valid strategy");
+  const unitAssignments = input.unitAssignments && typeof input.unitAssignments === "object" ? input.unitAssignments : current.unitAssignments || {};
+  const next = { ...current, battleTime: String(input.battleTime || ""), strategyId, starterMemberIds: starters, reserveMemberIds: reserves, unitAssignments, updatedAt: now(), updatedBy: actor.uid, version: current.version + 1 };
+  plan.teams[teamKey] = next; plan.updatedAt = next.updatedAt; plan.updatedBy = actor.uid; plan.version += 1;
+  syncLegacyTeamPlan(state, event, teamKey, next, actor);
+  addAudit(state, actor, { eventId, action: `event.team${teamKey}.saved`, recordType: "eventTeam", recordId: teamKey, after: { version: next.version, starters: starters.length, reserves: reserves.length } });
+  await saveState();
+  return structuredClone(next);
+}
+
+export async function getDesertStormMapDefinition() {
+  return { id: "desert-storm-standard-v1", imageUrl: "/assets/desert-storm-map-clean.png", structures: Object.entries(objectivePositions).map(([label, position]) => ({ id: label.toLowerCase().replace(/[^a-z0-9]+/g, "-"), label, x: position[0], y: position[1] })), tacticalGroups, phases: battlePhases, version: 1 };
+}
+
+export async function getEventMapResource(eventId, user) {
+  const state = await getState();
+  const definition = await getDesertStormMapDefinition();
+  const event = state.managedEvents[eventId];
+  if (!event || event.type !== "desertStorm") return { definition, event: null, plan: null, source: "standard-template", message: "No active battle selected. Showing the standard Desert Storm map." };
+  const legacyEventId = event.legacyRef?.collection === "events" ? event.legacyRef.id : event.id;
+  const canEdit = canManageDesertStorm(user) && ["draft", "scheduled"].includes(event.status);
+  const plan = canEdit ? state.eventMapDrafts[legacyEventId] || buildEventMapPlan(state, legacyEventId) : latestMapSnapshot(state, legacyEventId);
+  return { definition, event, plan: plan || null, canEdit, source: plan ? (canEdit ? "officer-draft" : "published-snapshot") : "standard-template", message: plan ? "Map loaded." : "This battle does not have saved assignments yet. Showing the base battlefield." };
+}
+
+export const OFFICER_PERMISSIONS = ["viewRoster", "manageRoster", "viewPublishedBattlePlans", "manageDesertStormPlans", "publishBattlePlans", "manageEvents", "manageStrategies", "manageMap", "manageVsScores", "manageBriefings", "viewAdministration", "manageAccountAccess", "manageOfficerPermissions", ...SEASON_BATTLE_PERMISSIONS];
 
 export async function listAdminAccounts() {
   const state = await getState();
@@ -1807,6 +1894,7 @@ export async function updateEventParticipantsBatch(eventId, assignments, actor) 
     if (starters.length > 20) warnings.push(`Team ${team} exceeds 20 starters`);
     if (substitutes.length > 10) warnings.push(`Team ${team} exceeds 10 substitutes`);
   }
+  syncManagedPlanForLegacyEvent(state, eventId, actor);
   await saveState();
   return { changed, warnings };
 }
@@ -2190,6 +2278,72 @@ function validateEventMapPlan(state, eventId, plan) {
 
 function latestMapSnapshot(state, eventId) {
   return Object.values(state.eventMapSnapshots?.[eventId] || {}).sort((a, b) => Number(b.publicationVersion) - Number(a.publicationVersion))[0] || null;
+}
+
+function latestEventPlanSnapshot(state, eventId) {
+  return Object.values(state.eventPlanSnapshots?.[eventId] || {}).sort((a, b) => Number(b.publicationVersion) - Number(a.publicationVersion))[0] || null;
+}
+
+function canManageDesertStorm(user) {
+  return user?.role === "administrator" || (user?.role === "officer" && ((user.officerPermissions || []).includes("manageMap") || (user.officerPermissions || []).includes("manageDesertStormPlans")));
+}
+
+function uniqueIds(values) { return [...new Set((Array.isArray(values) ? values : []).map(String).filter(Boolean))]; }
+
+function syncLegacyTeamPlan(state, event, teamKey, team, actor) {
+  event.details ||= {}; event.details[`team${teamKey}`] = { ...(event.details[`team${teamKey}`] || {}), serverTime: team.battleTime, strategyId: team.strategyId };
+  const legacyEventId = event.legacyRef?.collection === "events" ? event.legacyRef.id : event.id;
+  const legacy = state.events[legacyEventId];
+  if (legacy) { legacy[`battleTime${teamKey}`] = team.battleTime; legacy[`strategy${teamKey}`] = state.strategyTemplates[team.strategyId]?.name || team.strategyId; legacy.updatedAt = now(); }
+  state.eventParticipants[legacyEventId] ||= {};
+  const selected = new Set([...team.starterMemberIds, ...team.reserveMemberIds]);
+  for (const [playerId, participant] of Object.entries(state.eventParticipants[legacyEventId])) {
+    if (participant.team === teamKey && !selected.has(playerId)) { participant.selected = false; participant.team = "Reserve"; participant.updatedAt = now(); }
+  }
+  for (const playerId of selected) {
+    const player = state.players[playerId];
+    const assignment = team.unitAssignments[playerId] || {};
+    const participant = state.eventParticipants[legacyEventId][playerId] ||= normalizeParticipant({ eventId: legacyEventId, playerId, playerName: player.gameName });
+    Object.assign(participant, { selected: true, team: teamKey, rosterStatus: team.starterMemberIds.includes(playerId) ? "Starter" : "Sub", role: team.starterMemberIds.includes(playerId) ? "Starter" : "Sub", tacticalGroup: assignment.tacticalGroup || participant.tacticalGroup || "Reserve", primaryAssignment: assignment.primaryAssignment || participant.primaryAssignment || "", backupAssignment: assignment.backupAssignment || participant.backupAssignment || "", updatedAt: now(), updatedBy: actor.uid, version: Number(participant.version || 0) + 1 });
+  }
+  updateMapDraft(state, legacyEventId, actor);
+}
+
+function syncEventPlanFromLegacy(state, event, actor) {
+  const current = state.eventPlans[event.id] || normalizeEventPlan({}, event, state);
+  const migrated = normalizeEventPlan(current, event, state);
+  migrated.updatedAt = now(); migrated.updatedBy = actor.uid; migrated.version = Number(current.version || 0) + 1;
+  state.eventPlans[event.id] = migrated;
+  return migrated;
+}
+
+function syncManagedPlanForLegacyEvent(state, legacyEventId, actor) {
+  const event = Object.values(state.managedEvents || {}).find((item) => item.type === "desertStorm" && (item.id === legacyEventId || item.legacyRef?.id === legacyEventId));
+  if (!event) return;
+  const current = state.eventPlans[event.id] || normalizeEventPlan({}, event, state);
+  const participants = Object.values(state.eventParticipants[legacyEventId] || {});
+  for (const teamKey of ["A", "B"]) {
+    const selected = participants.filter((item) => item.selected && item.team === teamKey);
+    const team = current.teams[teamKey];
+    team.starterMemberIds = selected.filter((item) => item.rosterStatus === "Starter").map((item) => item.playerId);
+    team.reserveMemberIds = selected.filter((item) => item.rosterStatus !== "Starter").map((item) => item.playerId);
+    team.unitAssignments = Object.fromEntries(selected.map((item) => [item.playerId, { tacticalGroup: item.tacticalGroup || "Reserve", primaryAssignment: item.primaryAssignment || "", backupAssignment: item.backupAssignment || "" }]));
+    team.updatedAt = now(); team.updatedBy = actor.uid; team.version += 1;
+  }
+  current.updatedAt = now(); current.updatedBy = actor.uid; current.version += 1;
+  state.eventPlans[event.id] = current;
+}
+
+function validateCanonicalEventPlan(state, event, plan) {
+  for (const teamKey of ["A", "B"]) {
+    const team = plan.teams[teamKey];
+    if (!team.battleTime) throw statusError(422, `Team ${teamKey} battle time is required`);
+    if (!team.strategyId) throw statusError(422, `Team ${teamKey} strategy is required`);
+    for (const playerId of [...team.starterMemberIds, ...team.reserveMemberIds]) if (!state.players[playerId]?.active) throw statusError(422, `Team ${teamKey} references an inactive roster member`);
+  }
+  const a = new Set([...plan.teams.A.starterMemberIds, ...plan.teams.A.reserveMemberIds]);
+  const duplicate = [...plan.teams.B.starterMemberIds, ...plan.teams.B.reserveMemberIds].find((id) => a.has(id));
+  if (duplicate) throw statusError(422, `${state.players[duplicate]?.gameName || duplicate} is assigned to both teams`);
 }
 
 function mapPlanForUser(state, eventId, user) {
@@ -2850,6 +3004,10 @@ function permissionsFor(user) {
     isAdministrator: user.role === "administrator",
     canManageEvents: ["officer", "administrator"].includes(user.role),
     canManageUsers: user.role === "administrator",
+    viewRoster: ["member", "officer", "administrator"].includes(user.role),
+    viewPublishedBattlePlans: ["member", "officer", "administrator"].includes(user.role),
+    manageDesertStormPlans: capability("manageDesertStormPlans") || capability("manageMap"),
+    publishBattlePlans: capability("publishBattlePlans") || capability("manageEvents"),
     viewSeasonBattlePlans: ["member", "officer", "administrator"].includes(user.role),
     manageSeasonBattlePlans: capability("manageSeasonBattlePlans"),
     publishSeasonBattlePlans: capability("publishSeasonBattlePlans"),

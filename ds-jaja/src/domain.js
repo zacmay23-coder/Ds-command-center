@@ -158,6 +158,8 @@ export function normalizeState(input = {}) {
     players: objectMap(input.players, normalizePlayer),
     events: objectMap(input.events, normalizeEvent),
     managedEvents: objectMap(Object.keys(input.managedEvents || {}).length ? input.managedEvents : legacyManagedEvents(input), normalizeManagedEvent),
+    eventPlans: normalizeEventPlans(input),
+    eventPlanSnapshots: input.eventPlanSnapshots && typeof input.eventPlanSnapshots === "object" ? input.eventPlanSnapshots : {},
     eventIdempotency: input.eventIdempotency && typeof input.eventIdempotency === "object" ? input.eventIdempotency : {},
     eventBriefings: input.eventBriefings && typeof input.eventBriefings === "object" ? input.eventBriefings : {},
     activeEventsByType: input.activeEventsByType && typeof input.activeEventsByType === "object" ? input.activeEventsByType : {},
@@ -346,6 +348,34 @@ export function normalizePlayer(player = {}) {
     updatedAt: player.updatedAt || now(),
     version: Number(player.version || 1)
   };
+}
+
+export function normalizeEventPlan(plan = {}, event = {}, input = {}) {
+  const legacyEventId = event.legacyRef?.collection === "events" ? event.legacyRef.id : event.id;
+  const participants = Object.values(input.eventParticipants?.[legacyEventId] || {});
+  const legacyEvent = input.events?.[legacyEventId] || {};
+  const team = (key) => {
+    const saved = plan.teams?.[key] || {};
+    const detail = event.details?.[`team${key}`] || {};
+    const selected = participants.filter((item) => item.selected && item.team === key);
+    return {
+      battleTime: String(saved.battleTime ?? detail.serverTime ?? legacyEvent[`battleTime${key}`] ?? ""),
+      strategyId: String(saved.strategyId ?? detail.strategyId ?? legacyEvent[`strategy${key}`] ?? ""),
+      starterMemberIds: Array.isArray(saved.starterMemberIds) ? saved.starterMemberIds.map(String) : selected.filter((item) => item.rosterStatus === "Starter").map((item) => item.playerId),
+      reserveMemberIds: Array.isArray(saved.reserveMemberIds) ? saved.reserveMemberIds.map(String) : selected.filter((item) => item.rosterStatus !== "Starter").map((item) => item.playerId),
+      unitAssignments: saved.unitAssignments && typeof saved.unitAssignments === "object" ? saved.unitAssignments : Object.fromEntries(selected.map((item) => [item.playerId, { tacticalGroup: item.tacticalGroup || "Reserve", primaryAssignment: item.primaryAssignment || "", backupAssignment: item.backupAssignment || "" }])),
+      mapPlan: saved.mapPlan && typeof saved.mapPlan === "object" ? saved.mapPlan : {},
+      updatedAt: saved.updatedAt || plan.updatedAt || event.updatedAt || now(),
+      updatedBy: String(saved.updatedBy || plan.updatedBy || event.updatedBy || ""),
+      version: Math.max(1, Number(saved.version || 1))
+    };
+  };
+  return { eventId: String(event.id || plan.eventId || ""), legacyEventId: legacyEventId || null, teams: { A: team("A"), B: team("B") }, map: plan.map && typeof plan.map === "object" ? plan.map : {}, updatedAt: plan.updatedAt || event.updatedAt || now(), updatedBy: String(plan.updatedBy || event.updatedBy || ""), version: Math.max(1, Number(plan.version || 1)) };
+}
+
+function normalizeEventPlans(input) {
+  const managed = Object.keys(input.managedEvents || {}).length ? objectMap(input.managedEvents, normalizeManagedEvent) : legacyManagedEvents(input);
+  return Object.fromEntries(Object.values(managed).filter((event) => event.type === "desertStorm").map((event) => [event.id, normalizeEventPlan(input.eventPlans?.[event.id], event, input)]));
 }
 
 export const MANAGED_EVENT_TYPES = ["desertStorm", "themeWeek", "allianceEvent", "vsWeek"];
