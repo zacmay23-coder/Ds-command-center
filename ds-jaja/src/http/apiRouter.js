@@ -137,6 +137,7 @@ export async function handleApi(request, response, url) {
     sendJson(response, 200, {
       ok: true,
       service: "ds-command-center",
+      build: "2026-08-03-ds-map-repair",
       persistence: await getFirebasePersistenceStatus()
     });
     return;

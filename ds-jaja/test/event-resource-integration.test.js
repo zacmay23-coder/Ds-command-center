@@ -48,3 +48,18 @@ test("Master Roster exposes explicit independent loading and recovery states", a
   for (const text of ["Loading Master Roster", "Master Roster loaded", "No active members found", "does not have roster access", "Roster could not be loaded"]) assert.match(app, new RegExp(text));
   assert.match(app, /retryRosterResource/);
 });
+
+test("Desert Storm map and Strategy Library remain visible without optional plan overlays", async () => {
+  const [app, html, store, worker] = await Promise.all([
+    readFile(new URL("../public/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../public/index.html", import.meta.url), "utf8"),
+    readFile(new URL("../src/dataStore.js", import.meta.url), "utf8"),
+    readFile(new URL("../public/service-worker.js", import.meta.url), "utf8")
+  ]);
+  assert.match(app, /standardDesertStormMap\("The battlefield is available/);
+  assert.match(html, /data-view="strategyLibrary">Strategy Library/);
+  assert.doesNotMatch(app, /function renderStrategyLibrary\(\) \{\s*if \(!state\.permissions\.isOfficer\) return/);
+  assert.match(store, /strategyTemplates: Object\.values/);
+  assert.doesNotMatch(store, /Publish Team A\/B times and strategies before assigning the roster/);
+  assert.match(worker, /v3-ds-map-repair/);
+});

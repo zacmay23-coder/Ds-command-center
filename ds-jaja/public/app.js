@@ -606,16 +606,15 @@ async function publishTeamStrategy(team) {
 }
 
 function renderStrategyLibrary() {
-  if (!state.permissions.isOfficer) return;
   elements.strategyLibraryCards.innerHTML = state.strategyTemplates.map((template) => `
     <article class="strategy-card">
       <div class="assignment-heading"><h3>${escapeHtml(template.name)}</h3><span>${template.phases?.length || 6} phases</span></div>
       <p>${escapeHtml(template.description || "Custom tactical strategy.")}</p>
       <small>Available independently for Team A and Team B</small>
-      <div class="strategy-card-actions">
+      ${state.permissions.isOfficer ? `<div class="strategy-card-actions">
         <button class="secondary-button" type="button" data-library-apply="${escapeHtml(template.id)}" data-library-team="A">Use for A</button>
         <button class="secondary-button" type="button" data-library-apply="${escapeHtml(template.id)}" data-library-team="B">Use for B</button>
-      </div>
+      </div>` : `<small>Published reference · Read only</small>`}
     </article>
   `).join("") || emptyState("No strategy templates are available.");
 }
@@ -645,9 +644,12 @@ async function createCustomStrategy(event) {
 
 async function handleStrategyLibraryClick(event) {
   const button = event.target.closest("[data-library-apply]");
-  if (!button || !state.activeEvent) return;
+  if (!button) return;
+  const selectedManaged = managedDsEvents.find((item) => item.id === selectedManagedEventId);
+  const targetEventId = selectedManaged?.legacyRef?.id || selectedManaged?.id || state.activeEvent?.id;
+  if (!targetEventId) return setStatus("Create or select a Desert Storm event before applying a strategy", true);
   try {
-    await api.applyStrategy(state.activeEvent.id, {
+    await api.applyStrategy(targetEventId, {
       templateId: button.dataset.libraryApply,
       team: button.dataset.libraryTeam
     });
@@ -674,7 +676,7 @@ function applyRoleVisibility() {
   });
   if (state.permissions.isMember) {
     const activeView = document.querySelector(".view.active")?.id;
-    const memberViews = ["myAssignment", "dashboard", "events", "directory", "allianceWeeklyEvents", "themeWeek", "history", "strategyTimeline", "userProfile", "playerJournal"];
+    const memberViews = ["myAssignment", "dashboard", "events", "directory", "allianceWeeklyEvents", "themeWeek", "history", "strategyTimeline", "strategyLibrary", "userProfile", "playerJournal"];
     if (!memberViews.includes(activeView)) {
       document.querySelectorAll(".sidebar button, .view").forEach((item) => item.classList.remove("active"));
       document.querySelector("[data-view='myAssignment']").classList.add("active");
@@ -3158,7 +3160,7 @@ function renderStrategyTimeline() {
   if (elements.mapLoadState) elements.mapLoadState.textContent = selectedEventMapResource?.message || "Loading tactical map…";
   if (!event) {
     elements.strategyControls.innerHTML = "";
-    elements.strategyTimelineContent.innerHTML = `<section class="panel tactical-template-state"><div><p class="eyebrow">Standard map resource</p><h3>Desert Storm Battlefield</h3><p>No active battle selected. Showing the standard Desert Storm map. Assignments and strategy overlays will appear when they are available.</p></div><div class="strategy-tactical-map" aria-label="Standard Desert Storm tactical map"><img src="/assets/desert-storm-map-clean.png" alt="Desert Storm battle map">${Object.entries(objectivePositions).map(([name, position]) => `<span class="strategy-map-node" style="left:${position[0]}%;top:${position[1]}%"><b>${escapeHtml(name)}</b></span>`).join("")}</div></section>`;
+    elements.strategyTimelineContent.innerHTML = standardDesertStormMap("No active battle selected. Showing the standard Desert Storm map. Assignments and strategy overlays will appear when they are available.");
     return;
   }
   if (state.permissions.isOfficer) {
@@ -3236,9 +3238,13 @@ function renderStrategyTimeline() {
           ${timelineSelectedObjective ? timelineSelectedObjectivePanel(timelineSelectedObjective, orders, phase) : selectedOrder ? timelineSelectedUnitPanel(selectedOrder, phases) : `<article class="map-selection-hint panel"><strong>No units available</strong><span>Assign players to tactical units to display battle commands.</span></article>`}
         </aside>
       </div>
-    ` : `<article class="panel"><p class="muted">Apply a reusable strategy template to add timed battle phases and map commands.</p></article>`}
+    ` : standardDesertStormMap("The battlefield is available. Apply or publish a strategy to add timed unit movements and assignments.")}
     </div>
   `;
+}
+
+function standardDesertStormMap(message) {
+  return `<section class="panel tactical-template-state"><div><p class="eyebrow">Permanent map resource</p><h3>Desert Storm Battlefield</h3><p>${escapeHtml(message)}</p></div><div class="strategy-tactical-map" aria-label="Standard Desert Storm tactical map"><img src="/assets/desert-storm-map-clean.png" alt="Desert Storm battle map">${Object.entries(objectivePositions).map(([name, position]) => `<span class="strategy-map-node" style="left:${position[0]}%;top:${position[1]}%"><b>${escapeHtml(name)}</b></span>`).join("")}</div></section>`;
 }
 
 function timelineSelectedObjectivePanel(objective, orders, phase) {

@@ -404,7 +404,7 @@ export async function getClientState(user) {
     battles: visibleEvents.filter((event) => event.status === "archived").map((event) =>
       legacyBattleProjection(event, state.eventParticipants[event.id] || {})
     ),
-    strategyTemplates: user.role === "member" ? [] : Object.values(state.strategyTemplates).filter((template) => template.active),
+    strategyTemplates: Object.values(state.strategyTemplates).filter((template) => template.active).map((template) => user.role === "member" ? { ...template, notes: "", createdBy: "" } : template),
     eventStrategy: activeEvent ? mapStrategyForUser(state, activeEvent.id, user) : {},
     eventMap: activeEvent ? mapPlanForUser(state, activeEvent.id, user) : null,
     seasonBattles: (await listSeasonBattles(user)),
@@ -1447,7 +1447,6 @@ export async function updateEventParticipant(eventId, playerId, patch, actor, se
   const state = await getState();
   const participant = state.eventParticipants[eventId]?.[playerId];
   if (!participant) throw statusError(404, "Event participant was not found");
-  if (!selfOnly && !state.events[eventId]?.setupPublishedAt) throw statusError(409, "Publish Team A/B times and strategies in Create before editing the weekly roster");
   assertVersion(participant, patch.version);
   const ownFields = ["availability", "availabilityNote"];
   const officerFields = [
@@ -1848,7 +1847,6 @@ export async function updateEventParticipantsBatch(eventId, assignments, actor) 
   const state = await getState();
   const event = state.events[eventId];
   if (!event) throw statusError(404, "Event was not found");
-  if (!event.setupPublishedAt) throw statusError(409, "Publish Team A/B times and strategies before assigning the roster");
   if (!Array.isArray(assignments) || !assignments.length || assignments.length > 100) throw statusError(422, "Choose between 1 and 100 assignment changes");
   const allowed = new Set(["selected", "team", "rosterStatus", "availability", "role", "unit", "tacticalGroup", "unitLeader"]);
   const changed = [];

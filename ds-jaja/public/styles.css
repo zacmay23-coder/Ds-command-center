@@ -4376,6 +4376,8 @@ th {
 .event-context-bar { justify-content:space-between;margin-bottom:14px }.event-context-bar label{min-width:min(100%,360px)}.event-context-bar>div{display:flex;gap:12px;flex-wrap:wrap;color:#a9bfd1}
 .team-save-bar { margin:12px 0;padding:12px;border:1px solid #31506b;border-radius:8px }.team-save-bar span{margin-right:auto}
 .tactical-template-state { display:grid;gap:16px }.tactical-template-state .strategy-tactical-map{min-height:480px}
+.strategy-map-node { position:absolute;z-index:4;transform:translate(-50%,-50%);pointer-events:none }
+.strategy-map-node b { display:block;max-width:120px;padding:4px 7px;border:1px solid rgba(111,216,255,.75);border-radius:5px;background:rgba(3,15,27,.88);color:#eefaff;font-size:.72rem;line-height:1.15;text-align:center;text-shadow:0 1px 2px #000 }
 .battle-planning-card { display:grid;gap:10px;align-content:start }
 .season-battle-layout { display:grid;grid-template-columns:240px minmax(0,1fr);gap:18px }
 .season-battle-list { display:grid;gap:8px;align-content:start }
